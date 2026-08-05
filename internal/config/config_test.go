@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -127,6 +128,39 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 	if loaded.Port != 5555 || loaded.APIKey != "abc123" {
 		t.Errorf("round trip mismatch: got Port=%d APIKey=%q", loaded.Port, loaded.APIKey)
+	}
+}
+
+func TestLoadPersistsGeneratedAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	first, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if first.APIKey == "" {
+		t.Fatal("APIKey should be auto-generated")
+	}
+
+	// A second Load against the same path — simulating a process
+	// restart before Settings was ever touched — must reuse the same
+	// key, not mint a new one, since the first Load should have written
+	// it back to path.
+	second, err := Load(path)
+	if err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	if second.APIKey != first.APIKey {
+		t.Errorf("APIKey changed across restarts: first=%q second=%q", first.APIKey, second.APIKey)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected config file to be written: %v", err)
+	}
+	if !strings.Contains(string(data), first.APIKey) {
+		t.Errorf("config file does not contain the generated api_key: %s", data)
 	}
 }
 

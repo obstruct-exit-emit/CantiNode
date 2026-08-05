@@ -121,16 +121,29 @@ func Load(path string) (*Config, error) {
 
 	applyEnv(cfg)
 
+	generatedKey := false
 	if cfg.APIKey == "" {
 		key, err := NewAPIKey()
 		if err != nil {
 			return nil, fmt.Errorf("generate api key: %w", err)
 		}
 		cfg.APIKey = key
+		generatedKey = true
 	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
+	}
+
+	// Persist a freshly generated key immediately — otherwise every
+	// restart before the user ever visits Settings would silently mint a
+	// *different* random key each time (nothing else would ever write it
+	// to disk), invalidating whatever the operator had already saved or
+	// scripted against.
+	if generatedKey && path != "" {
+		if err := cfg.Save(path); err != nil {
+			return nil, fmt.Errorf("save generated api key: %w", err)
+		}
 	}
 
 	return cfg, nil
