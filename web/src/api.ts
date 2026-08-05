@@ -62,6 +62,26 @@ export function deleteRootFolder(apiKey: string, id: number): Promise<void> {
   return request(`/api/v1/root-folders/${id}`, apiKey, { method: 'DELETE' })
 }
 
+export interface BrowseEntry {
+  name: string
+  path: string
+}
+
+export interface BrowseDirectoriesResult {
+  path: string
+  parent: string | null
+  directories: BrowseEntry[]
+}
+
+// browseDirectories lists the subdirectories of path (server-side, since
+// CantiNode organizes files on the machine it runs on, not the browser's
+// own filesystem) — an empty path lists top-level roots instead (drive
+// letters on Windows, "/" elsewhere), for the root-folder picker.
+export function browseDirectories(apiKey: string, path: string): Promise<BrowseDirectoriesResult> {
+  const q = path ? `?path=${encodeURIComponent(path)}` : ''
+  return request(`/api/v1/browse-directories${q}`, apiKey)
+}
+
 export interface Artist {
   id: number
   mbid: string
@@ -246,8 +266,11 @@ export interface Settings {
   musicbrainz_contact_email: string
   prowlarr_url: string
   prowlarr_api_key: string
-  acervinode_url: string
-  acervinode_api_key: string
+  qbittorrent_url: string
+  qbittorrent_username: string
+  qbittorrent_password: string
+  sabnzbd_url: string
+  sabnzbd_api_key: string
 }
 
 export function getSettings(apiKey: string): Promise<Settings> {
@@ -259,9 +282,10 @@ export function updateSettings(apiKey: string, settings: Settings): Promise<Sett
 }
 
 // --- Acquisition: monitor an artist, want their albums, search Prowlarr,
-// grab via AcerviNode. Optional — Prowlarr/AcerviNode may not be
-// configured yet, in which case search/grab calls fail with a plain
-// error message from the backend (see internal/acquisition). ---
+// grab via qBittorrent or SABnzbd. Optional — Prowlarr and the download
+// clients may not be configured yet, in which case search/grab calls
+// fail with a plain error message from the backend (see
+// internal/acquisition). ---
 
 export interface MusicBrainzArtistSearchResult {
   id: string

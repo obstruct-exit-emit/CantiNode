@@ -79,6 +79,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/root-folders", s.requireAuth(s.handleListRootFolders))
 	s.mux.HandleFunc("POST /api/v1/root-folders", s.requireAuth(s.handleCreateRootFolder))
 	s.mux.HandleFunc("DELETE /api/v1/root-folders/{id}", s.requireAuth(s.handleDeleteRootFolder))
+	s.mux.HandleFunc("GET /api/v1/browse-directories", s.requireAuth(s.handleBrowseDirectories))
 
 	s.mux.HandleFunc("GET /api/v1/artists", s.requireAuth(s.handleListArtists))
 	s.mux.HandleFunc("GET /api/v1/artists/{id}/albums", s.requireAuth(s.handleListAlbumsByArtist))
@@ -106,7 +107,7 @@ func (s *Server) routes() {
 
 	// Acquisition (optional — see internal/acquisition's own doc comment):
 	// monitor artists, want their albums, search Prowlarr, grab via
-	// AcerviNode.
+	// qBittorrent or SABnzbd.
 	s.mux.HandleFunc("GET /api/v1/musicbrainz/artist-search", s.requireAuth(s.handleArtistSearch))
 	s.mux.HandleFunc("GET /api/v1/monitored-artists", s.requireAuth(s.handleListMonitoredArtists))
 	s.mux.HandleFunc("POST /api/v1/monitored-artists", s.requireAuth(s.handleMonitorArtist))

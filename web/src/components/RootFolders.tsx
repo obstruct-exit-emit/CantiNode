@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { ApiError, createRootFolder, deleteRootFolder, listRootFolders, type RootFolder } from '../api'
+import { DirectoryBrowser } from './DirectoryBrowser'
 
 export function RootFolders({ apiKey, onChanged }: { apiKey: string; onChanged?: () => void }) {
   const [folders, setFolders] = useState<RootFolder[]>([])
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | undefined>(undefined)
   const [submitting, setSubmitting] = useState(false)
+  const [browsing, setBrowsing] = useState(false)
 
   function refresh() {
     listRootFolders(apiKey)
@@ -59,11 +61,26 @@ export function RootFolders({ apiKey, onChanged }: { apiKey: string; onChanged?:
             value={path}
             onChange={(e) => setPath(e.target.value)}
           />
+          <button type="button" onClick={() => setBrowsing(true)}>
+            Browse…
+          </button>
           <button type="submit" disabled={submitting || !path.trim()}>
             Add
           </button>
         </form>
         {error && <p className="settings-error">{error}</p>}
+
+        {browsing && (
+          <DirectoryBrowser
+            apiKey={apiKey}
+            startPath={path}
+            onClose={() => setBrowsing(false)}
+            onSelect={(selected) => {
+              setPath(selected)
+              setBrowsing(false)
+            }}
+          />
+        )}
 
         {folders.length === 0 ? (
           <p className="empty">No root folders yet. Add one above to start scanning.</p>

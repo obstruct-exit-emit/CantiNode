@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/cantinode/cantinode/internal/acervinode"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/prowlarr"
+	"github.com/cantinode/cantinode/internal/qbittorrent"
 )
 
 const sampleArtistJSON = `{
@@ -46,41 +46,41 @@ func TestAcquisitionEndToEndFlow(t *testing.T) {
 		t.Fatalf("wanted = %+v", wanted)
 	}
 
-	// Wire in fake Prowlarr + AcerviNode.
+	// Wire in fake Prowlarr + qBittorrent.
 	pwSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`[{"guid":"g1","title":"Boards of Canada - Geogaddi [FLAC]","protocol":"torrent","indexerId":1,"indexer":"Test","magnetUrl":"magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"}]`))
 	}))
 	defer pwSrv.Close()
 
-	avSessions := map[string]bool{}
-	avTorrents := map[string]bool{}
-	avSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	qbSessions := map[string]bool{}
+	qbTorrents := map[string]bool{}
+	qbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/auth/login":
 			r.ParseForm()
-			if r.FormValue("password") != "av-key" {
+			if r.FormValue("password") != "qb-key" {
 				w.Write([]byte("Fails."))
 				return
 			}
-			avSessions["sid"] = true
+			qbSessions["sid"] = true
 			http.SetCookie(w, &http.Cookie{Name: "SID", Value: "sid"})
 			w.Write([]byte("Ok."))
 		case "/api/v2/torrents/add":
 			ck, err := r.Cookie("SID")
-			if err != nil || !avSessions[ck.Value] {
+			if err != nil || !qbSessions[ck.Value] {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			avTorrents["abcdef1234567890abcdef1234567890abcdef12"] = true
+			qbTorrents["abcdef1234567890abcdef1234567890abcdef12"] = true
 			w.Write([]byte("Ok."))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	defer avSrv.Close()
+	defer qbSrv.Close()
 
-	s.acquisition.UpdateClients(prowlarr.NewClient(pwSrv.URL, "pw-key", "ua"), acervinode.NewClient(avSrv.URL, "av-key"))
+	s.acquisition.UpdateClients(prowlarr.NewClient(pwSrv.URL, "pw-key", "ua"), qbittorrent.NewClient(qbSrv.URL, "cantinode", "qb-key"), nil)
 
 	if _, err := db.CreateRootFolder(t.Context(), t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -108,8 +108,8 @@ func TestAcquisitionEndToEndFlow(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &download); err != nil {
 		t.Fatal(err)
 	}
-	if !avTorrents["abcdef1234567890abcdef1234567890abcdef12"] {
-		t.Error("AcerviNode fake never received the add")
+	if !qbTorrents["abcdef1234567890abcdef1234567890abcdef12"] {
+		t.Error("qBittorrent fake never received the add")
 	}
 
 	// Downloads list reflects it.
@@ -141,7 +141,7 @@ func TestArtistSearchEndpoint(t *testing.T) {
 	}
 }
 
-func TestGrabReleaseWithoutAcerviNodeConfigured(t *testing.T) {
+func TestGrabReleaseWithoutDownloadClientConfigured(t *testing.T) {
 	s, db, apiKey := testServer(t, nil)
 	ctx := t.Context()
 	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
@@ -155,6 +155,6 @@ func TestGrabReleaseWithoutAcerviNodeConfigured(t *testing.T) {
 
 	rec := doRequest(t, s, "POST", "/api/v1/wanted-albums/"+itoa(w.ID)+"/grab", apiKey, prowlarr.Release{Title: "X"})
 	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400 (AcerviNode/Prowlarr not configured)", rec.Code)
+		t.Errorf("status = %d, want 400 (download client/Prowlarr not configured)", rec.Code)
 	}
 }

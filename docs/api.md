@@ -23,6 +23,7 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:7847/api/v1/root-folde
 | GET | `/api/v1/root-folders` | List root folders |
 | POST | `/api/v1/root-folders` | Add a root folder — body `{"path": "..."}`, path must already exist |
 | DELETE | `/api/v1/root-folders/{id}` | Remove a root folder (its scanned files are forgotten; nothing on disk is touched) |
+| GET | `/api/v1/browse-directories?path=` | List `path`'s subdirectories, on the server's own filesystem — powers the Root Folders "Browse..." picker. An empty/absent `path` lists top-level roots instead (drive letters on Windows, `/` elsewhere) |
 | GET | `/api/v1/artists` | List artists with at least one matched file |
 | GET | `/api/v1/artists/{id}/albums` | List an artist's albums |
 | GET | `/api/v1/albums/{id}/tracks` | List an album's tracks |
@@ -45,9 +46,9 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:7847/api/v1/root-folde
 | GET | `/api/v1/monitored-artists/{id}/wanted` | List an artist's wanted albums |
 | POST | `/api/v1/wanted-albums/{id}/ignore` | Mark a wanted album as ignored |
 | GET | `/api/v1/wanted-albums/{id}/search` | Search Prowlarr for this wanted album — 400 if Prowlarr isn't configured |
-| POST | `/api/v1/wanted-albums/{id}/grab` | Grab a release chosen from the search results (body: the release object as returned by search) via AcerviNode — 400 if Prowlarr or AcerviNode isn't configured, or no root folder exists yet |
+| POST | `/api/v1/wanted-albums/{id}/grab` | Grab a release chosen from the search results (body: the release object as returned by search) via qBittorrent or SABnzbd, whichever matches the release's protocol — 400 if Prowlarr or the matching download client isn't configured, or no root folder exists yet |
 | GET | `/api/v1/downloads` | List every tracked download, most recent first |
-| GET | `/api/v1/settings` | Current settings (includes `api_key` and, if set, `prowlarr_api_key`/`acervinode_api_key`) |
+| GET | `/api/v1/settings` | Current settings (includes `api_key` and, if set, `prowlarr_api_key`/`qbittorrent_password`/`sabnzbd_api_key`) |
 | PUT | `/api/v1/settings` | Update settings (`port` in the body is ignored — see [Configuration](configuration.md)) |
 
 All request/response bodies are JSON. A scan (`POST /api/v1/scan`) runs

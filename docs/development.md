@@ -53,8 +53,9 @@ internal/coverart/            Cover Art Archive client, disk-cached
 internal/musicbrainz/        rate-limited MusicBrainz web service client (artist/recording lookup + search)
 internal/scanner/             scan -> match -> organize pipeline, tying tagreader+musicbrainz together
 internal/prowlarr/             Prowlarr client: indexer search + resolving a release to a magnet URI/file
-internal/acervinode/          AcerviNode client: qBittorrent + SABnzbd compat-shim add/status
-internal/acquisition/          monitor -> want -> search -> grab -> import, tying prowlarr+acervinode+scanner together
+internal/qbittorrent/          qBittorrent Web API client: torrent add/status (real server or AcerviNode's shim)
+internal/sabnzbd/               SABnzbd API client: usenet add/status (real server or AcerviNode's shim)
+internal/acquisition/          monitor -> want -> search -> grab -> import, tying prowlarr+qbittorrent+sabnzbd+scanner together
 internal/api/                  native versioned REST API (/api/v1), what the UI runs on
 web/                              React SPA (embedded via go:embed — see web/webui.go)
 docs/                              this documentation
@@ -99,22 +100,23 @@ See `internal/acquisition`:
   content via `prowlarr.Client.FetchContent` (a magnet URI, or actual
   `.torrent`/`.nzb` bytes — Prowlarr's own `downloadUrl`/`magnetUrl` are
   already proxied through Prowlarr itself) and hands it to
-  `internal/acervinode`, recording a `downloads` row. Always a human
-  choice — there's no code path that grabs a search result without an
-  explicit `GrabRelease` call from a user action.
+  `internal/qbittorrent` (torrent) or `internal/sabnzbd` (usenet),
+  whichever matches, recording a `downloads` row. Always a human choice —
+  there's no code path that grabs a search result without an explicit
+  `GrabRelease` call from a user action.
 - **Poll + import** (`poll.go`): `PollDownloads` checks every
-  `downloading` row against AcerviNode; once AcerviNode reports it done,
-  `importDownload` copies the files from AcerviNode's own local disk into
-  the target root folder's `_incoming/download-<id>/` and runs
-  `Scanner.ScanRootFolder` on it immediately. A failed/vanished download
-  reverts its wanted album back to `wanted` (`failDownload`) rather than
-  leaving it stuck.
+  `downloading` row against whichever client it was grabbed through; once
+  that client reports it done, `importDownload` copies the files from its
+  local disk into the target root folder's `_incoming/download-<id>/` and
+  runs `Scanner.ScanRootFolder` on it immediately. A failed/vanished
+  download reverts its wanted album back to `wanted` (`failDownload`)
+  rather than leaving it stuck.
 
-`Service.UpdateClients` swaps in new Prowlarr/AcerviNode clients live —
-called by `internal/api`'s settings endpoint whenever their connection
-details change, same pattern as `Scanner.UpdateSettings`. Either (or both)
-may be `nil`, meaning "not configured" — every method checks and returns a
-plain error rather than assuming a client exists.
+`Service.UpdateClients` swaps in new Prowlarr/qBittorrent/SABnzbd clients
+live — called by `internal/api`'s settings endpoint whenever their
+connection details change, same pattern as `Scanner.UpdateSettings`. Any
+of the three may be `nil`, meaning "not configured" — every method checks
+and returns a plain error rather than assuming a client exists.
 
 ## Adding a new tag/format source
 

@@ -13,7 +13,7 @@ every change lives in the [CHANGELOG](CHANGELOG.md).
 | [1 — Organizer vertical slice](#phase-1--organizer-vertical-slice-) | Scan, MusicBrainz matching, organize, native API, web UI | ✅ |
 | [2 — Tag writing](#phase-2--tag-writing-) | Fix incorrect/missing tags on disk, not just read them | ✅ |
 | [3 — Cover art](#phase-3--cover-art-) | Cover Art Archive lookup + embedding/caching | ✅ |
-| [4 — Acquisition pipeline](#phase-4--acquisition-pipeline-) | Prowlarr search, monitored artists/wanted albums, manual grab via AcerviNode, auto-import | ✅ |
+| [4 — Acquisition pipeline](#phase-4--acquisition-pipeline-) | Prowlarr search, monitored artists/wanted albums, manual grab via qBittorrent/SABnzbd, auto-import | ✅ |
 | [5 — LLM playlists](#phase-5--llm-playlists-) | LLM-generated playlists from natural-language prompts | 💡 |
 | [6 — Plex sync](#phase-6--plex-sync-) | Push playlists to Plex; trigger a Plex library scan of paths CantiNode organized | 💡 |
 | [7 — Acquisition hardening](#phase-7--acquisition-hardening-) | Quality profiles, auto-grab, MP4/M4A tag writing, multi-root-folder targeting | 💡 |
@@ -96,13 +96,13 @@ scoping decision, Phase 1) — built organizer-first, then added on request:
   Existing wanted-album status is never reset by a re-sync.
 - **Search**: `internal/prowlarr` — `GET /api/v1/search` against a
   self-hosted Prowlarr instance, scoped to the Music category. Grabbing
-  goes through CantiNode's own AcerviNode client directly
+  goes through CantiNode's own download-client clients directly
   (`FetchContent` resolves a release's link into either a real magnet URI
   or the actual `.torrent`/`.nzb` bytes, following Prowlarr's own proxy
   redirects itself), not Prowlarr's own "send to configured download
-  client" endpoint — CantiNode owns the AcerviNode relationship the same
-  way it owns MusicBrainz and Cover Art Archive, independent of whatever
-  download client Prowlarr's own settings might separately have
+  client" endpoint — CantiNode owns the download-client relationship the
+  same way it owns MusicBrainz and Cover Art Archive, independent of
+  whatever download client Prowlarr's own settings might separately have
   configured.
 - **Grab is manual only** — confirmed directly with the user before
   building this: CantiNode never auto-downloads a search result. v1 has
@@ -110,31 +110,34 @@ scoping decision, Phase 1) — built organizer-first, then added on request:
   whichever result Prowlarr's own relevance ranking put first, unreviewed"
   — real downloads happening unsupervised on that basis was judged not
   worth it. A human always picks the release.
-- `internal/acervinode` — a client for AcerviNode's qBittorrent and
-  SABnzbd compat shims (the same protocols Sonarr/Radarr already use
-  against it), built directly against its documented contracts
-  (`docs/qbittorrent-api.md`/`docs/sabnzbd-api.md` in the AcerviNode repo):
-  session-cookie login for the qBittorrent shim (with automatic re-login
-  on a 403 — AcerviNode's own sessions expire after 24h) and
-  per-request `apikey` for the SABnzbd shim. Adds under the `music`
-  category, which AcerviNode pre-registers automatically as Lidarr's own
-  well-known default — no separate setup step needed on the AcerviNode
-  side.
+- `internal/qbittorrent`/`internal/sabnzbd` — independent, protocol-typed
+  clients for the real qBittorrent Web API and the real SABnzbd API
+  (session-cookie login with automatic re-login on a 403 for qBittorrent;
+  per-request `apikey` for SABnzbd), built directly against each
+  protocol's own documented contract rather than any one server. Each can
+  be pointed at a genuine standalone qBittorrent/SABnzbd instance, or at
+  [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode), which
+  exposes compat shims for both on one host specifically so *arr-shaped
+  apps like this one can talk to it without special-casing. Adds under
+  the `music` category — AcerviNode's shim pre-registers it automatically
+  as Lidarr's own well-known default, but a genuine SABnzbd server has no
+  API to create a category on the fly and needs it created by hand once.
 - **Import**: a background poll (every 2 minutes, independent of the
-  library scan interval) checks every in-flight download's status; once
-  AcerviNode reports it done, CantiNode copies (never moves — AcerviNode
-  keeps its own copy under its own retention policy) the files from
-  AcerviNode's local disk into the target root folder's `_incoming/`
+  library scan interval) checks every in-flight download's status against
+  whichever client (qBittorrent or SABnzbd) it was grabbed through; once
+  that client reports it done, CantiNode copies (never moves — the
+  download client keeps its own copy under its own retention policy) the
+  files from its local disk into the target root folder's `_incoming/`
   subfolder, then runs the normal scan/match pipeline on them immediately.
   A failed download reverts its wanted album back to "wanted" rather than
   leaving it stuck, so the user can just try a different release.
 - Web UI: a new Wanted tab — monitored artists, per-artist wanted-album
   list with status badges, a release-search-and-grab dialog, and a live
   downloads-activity view.
-- Both Prowlarr and AcerviNode are entirely optional — a fresh install has
-  neither configured, and every acquisition call reports a plain "not
-  configured" error rather than the feature being reachable at all in a
-  broken state.
+- Prowlarr, qBittorrent, and SABnzbd are all entirely optional and
+  independent — a fresh install has none configured, and every
+  acquisition call reports a plain "not configured" error rather than the
+  feature being reachable at all in a broken state.
 
 ## Phase 5 — LLM playlists 💡
 
@@ -166,8 +169,8 @@ Follow-on refinements to Phase 4, deliberately left out of the first pass:
 - **MP4/M4A and OGG tag writing** — see Phase 2's own note on why this was
   scoped out initially (MP4 atom offset tables are risky to get wrong).
 - **Torrent-file infohash without the diff heuristic** — `AddTorrentFile`
-  currently identifies a just-added torrent by snapshotting AcerviNode's
-  category listing before/after rather than computing the infohash
-  directly from the uploaded bencoded data (would need a small bencode
-  parser + SHA1), which is reliable for CantiNode's one-grab-at-a-time
-  usage but not under concurrent adds from elsewhere.
+  currently identifies a just-added torrent by snapshotting the
+  qBittorrent client's category listing before/after rather than
+  computing the infohash directly from the uploaded bencoded data (would
+  need a small bencode parser + SHA1), which is reliable for CantiNode's
+  one-grab-at-a-time usage but not under concurrent adds from elsewhere.

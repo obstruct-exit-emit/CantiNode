@@ -131,12 +131,13 @@ export function Settings({ apiKey }: { apiKey: string }) {
         <h2>Acquisition</h2>
         <p className="settings-help">
           Optional — connect a <a href="https://prowlarr.com" target="_blank" rel="noreferrer">Prowlarr</a> instance
-          for indexer search and an{' '}
+          for indexer search, plus a qBittorrent and/or SABnzbd download client, to monitor artists and grab releases
+          from the Wanted tab. Each connection is independent and can be left blank; point them at genuine
+          qBittorrent/SABnzbd instances, or at{' '}
           <a href="https://github.com/obstruct-exit-emit/AcerviNode" target="_blank" rel="noreferrer">
             AcerviNode
-          </a>{' '}
-          instance as the download client, to monitor artists and grab releases from the Wanted tab. Leave either
-          blank to leave that part of acquisition unavailable.
+          </a>
+          , which exposes compatible APIs for both.
         </p>
         <form className="general-form" onSubmit={handleSubmit}>
           <label>
@@ -156,21 +157,51 @@ export function Settings({ apiKey }: { apiKey: string }) {
               onChange={(e) => setSettings({ ...settings, prowlarr_api_key: e.target.value })}
             />
           </label>
+
+          <h3>qBittorrent</h3>
           <label>
-            AcerviNode URL
+            qBittorrent URL
             <input
               type="text"
-              placeholder="http://localhost:7846"
-              value={settings.acervinode_url}
-              onChange={(e) => setSettings({ ...settings, acervinode_url: e.target.value })}
+              placeholder="http://localhost:8080"
+              value={settings.qbittorrent_url}
+              onChange={(e) => setSettings({ ...settings, qbittorrent_url: e.target.value })}
             />
           </label>
           <label>
-            AcerviNode API key
+            qBittorrent username
+            <input
+              type="text"
+              placeholder="admin"
+              value={settings.qbittorrent_username}
+              onChange={(e) => setSettings({ ...settings, qbittorrent_username: e.target.value })}
+            />
+          </label>
+          <label>
+            qBittorrent password
             <input
               type="password"
-              value={settings.acervinode_api_key}
-              onChange={(e) => setSettings({ ...settings, acervinode_api_key: e.target.value })}
+              value={settings.qbittorrent_password}
+              onChange={(e) => setSettings({ ...settings, qbittorrent_password: e.target.value })}
+            />
+          </label>
+
+          <h3>SABnzbd</h3>
+          <label>
+            SABnzbd URL
+            <input
+              type="text"
+              placeholder="http://localhost:8085"
+              value={settings.sabnzbd_url}
+              onChange={(e) => setSettings({ ...settings, sabnzbd_url: e.target.value })}
+            />
+          </label>
+          <label>
+            SABnzbd API key
+            <input
+              type="password"
+              value={settings.sabnzbd_api_key}
+              onChange={(e) => setSettings({ ...settings, sabnzbd_api_key: e.target.value })}
             />
           </label>
 

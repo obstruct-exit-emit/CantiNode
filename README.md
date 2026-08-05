@@ -17,9 +17,9 @@ playlisting layered on afterward.
 
 > 🚧 **Pre-1.0.** Root folders, library scanning, MusicBrainz matching,
 > manual review, file organization, tag writing, cover art, and an optional
-> Prowlarr + AcerviNode acquisition pipeline (manual grab only — see
-> [Features](#features)) all work end to end. No LLM playlists, no Plex sync
-> yet — see the [roadmap](ROADMAP.md).
+> Prowlarr + qBittorrent/SABnzbd acquisition pipeline (manual grab only —
+> see [Features](#features)) all work end to end. No LLM playlists, no Plex
+> sync yet — see the [roadmap](ROADMAP.md).
 
 ---
 
@@ -38,8 +38,11 @@ out of them — matched to MusicBrainz, browsable, correctly named — without
 requiring an indexer or a download client to get there. An indexer and
 download client are there if you want them, too: monitor an artist and
 CantiNode will search [Prowlarr](https://prowlarr.com) and grab a release
-you pick through [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)
-— entirely optional, and grabbing is always your own call, never automatic.
+you pick through a qBittorrent and/or SABnzbd connection — a genuine
+standalone instance of either, or
+[AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode), which exposes
+compatible APIs for both — entirely optional, and grabbing is always your
+own call, never automatic.
 
 ## Features
 
@@ -89,17 +92,20 @@ you pick through [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)
 - Monitor an artist by MusicBrainz search; CantiNode auto-wants their
   studio albums and lets you re-sync later to pick up new releases.
 - Search a self-hosted [Prowlarr](https://prowlarr.com) instance for a
-  wanted album and grab your pick directly through
-  [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)'s
-  qBittorrent/SABnzbd compat shims — the same way Sonarr/Radarr already
-  talk to it. **Always manual** — CantiNode never auto-downloads a search
+  wanted album and grab your pick directly through a qBittorrent
+  connection (torrents) or a SABnzbd connection (usenet) — each
+  independently configurable, pointed at genuine standalone instances or
+  at [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)'s
+  compat shims for either, the same way Sonarr/Radarr already talk to
+  them. **Always manual** — CantiNode never auto-downloads a search
   result; v1 has no quality-profile system, so nothing decides "best
   release" but you.
 - A finished download is imported automatically: copied into your
-  library and matched/organized the normal way, no manual step once
-  AcerviNode reports it done.
-- Both Prowlarr and AcerviNode are entirely optional (configured in
-  Settings) — everything above this section works with neither.
+  library and matched/organized the normal way, no manual step once the
+  download client reports it done.
+- Prowlarr, qBittorrent, and SABnzbd are all entirely optional and
+  independent (configured in Settings) — everything above this section
+  works with none of them.
 
 **🖥️ Native API + web UI**
 
@@ -138,8 +144,8 @@ Then open `http://localhost:7847`. Full steps:
 - **Tags:** `internal/tagreader` (read) + `internal/tagwriter` (write, MP3/FLAC)
 - **Cover art:** `internal/coverart` (Cover Art Archive, disk-cached)
 - **Acquisition (optional):** `internal/acquisition` orchestrates
-  `internal/prowlarr` (indexer search) and `internal/acervinode` (download
-  client)
+  `internal/prowlarr` (indexer search), `internal/qbittorrent` (torrent
+  download client), and `internal/sabnzbd` (usenet download client)
 - **API:** `internal/api`, versioned `/api/v1`
 - **Frontend:** React (Vite) SPA embedded via `go:embed` — same look as
   LibriNode and AcerviNode

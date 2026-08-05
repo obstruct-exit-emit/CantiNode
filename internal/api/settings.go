@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/cantinode/cantinode/internal/acervinode"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/prowlarr"
+	"github.com/cantinode/cantinode/internal/qbittorrent"
+	"github.com/cantinode/cantinode/internal/sabnzbd"
 )
 
 // settingsView is config.Config as reported to (and accepted from) the
@@ -26,13 +27,18 @@ type settingsView struct {
 	MinMatchConfidence      float64 `json:"min_match_confidence"`
 	MusicBrainzContactEmail string  `json:"musicbrainz_contact_email"`
 
-	// Prowlarr/AcerviNode connection details for the optional acquisition
-	// pipeline (see internal/acquisition) — both blank means "not
-	// configured," not an error.
-	ProwlarrURL      string `json:"prowlarr_url"`
-	ProwlarrAPIKey   string `json:"prowlarr_api_key"`
-	AcerviNodeURL    string `json:"acervinode_url"`
-	AcerviNodeAPIKey string `json:"acervinode_api_key"`
+	// Prowlarr/qBittorrent/SABnzbd connection details for the optional
+	// acquisition pipeline (see internal/acquisition) — a blank URL means
+	// "not configured," not an error. qBittorrent and SABnzbd are each
+	// independent: point one, both, or neither at AcerviNode's own compat
+	// shims, or at genuine standalone instances.
+	ProwlarrURL         string `json:"prowlarr_url"`
+	ProwlarrAPIKey      string `json:"prowlarr_api_key"`
+	QBittorrentURL      string `json:"qbittorrent_url"`
+	QBittorrentUsername string `json:"qbittorrent_username"`
+	QBittorrentPassword string `json:"qbittorrent_password"`
+	SABnzbdURL          string `json:"sabnzbd_url"`
+	SABnzbdAPIKey       string `json:"sabnzbd_api_key"`
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -54,8 +60,11 @@ func settingsFromConfig(cfg *config.Config) settingsView {
 		MusicBrainzContactEmail: cfg.MusicBrainzContactEmail,
 		ProwlarrURL:             cfg.ProwlarrURL,
 		ProwlarrAPIKey:          cfg.ProwlarrAPIKey,
-		AcerviNodeURL:           cfg.AcerviNodeURL,
-		AcerviNodeAPIKey:        cfg.AcerviNodeAPIKey,
+		QBittorrentURL:          cfg.QBittorrentURL,
+		QBittorrentUsername:     cfg.QBittorrentUsername,
+		QBittorrentPassword:     cfg.QBittorrentPassword,
+		SABnzbdURL:              cfg.SABnzbdURL,
+		SABnzbdAPIKey:           cfg.SABnzbdAPIKey,
 	}
 }
 
@@ -84,8 +93,11 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	candidate.MusicBrainzContactEmail = req.MusicBrainzContactEmail
 	candidate.ProwlarrURL = req.ProwlarrURL
 	candidate.ProwlarrAPIKey = req.ProwlarrAPIKey
-	candidate.AcerviNodeURL = req.AcerviNodeURL
-	candidate.AcerviNodeAPIKey = req.AcerviNodeAPIKey
+	candidate.QBittorrentURL = req.QBittorrentURL
+	candidate.QBittorrentUsername = req.QBittorrentUsername
+	candidate.QBittorrentPassword = req.QBittorrentPassword
+	candidate.SABnzbdURL = req.SABnzbdURL
+	candidate.SABnzbdAPIKey = req.SABnzbdAPIKey
 
 	if err := candidate.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -97,15 +109,15 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	*s.cfg = candidate
 	s.scanner.UpdateSettings(candidate.NamingFormat, candidate.MinMatchConfidence, candidate.OrganizeOnMatch)
-	s.acquisition.UpdateClients(buildProwlarrClient(candidate, s.version), buildAcerviClient(candidate))
+	s.acquisition.UpdateClients(buildProwlarrClient(candidate, s.version), buildQBittorrentClient(candidate), buildSABnzbdClient(candidate))
 
 	writeJSON(w, settingsFromConfig(s.cfg))
 }
 
-// buildProwlarrClient/buildAcerviClient return nil (meaning "not
-// configured" — see internal/acquisition) when their respective URL is
-// blank, rather than a Client that would just fail every call against an
-// empty base URL.
+// buildProwlarrClient/buildQBittorrentClient/buildSABnzbdClient return
+// nil (meaning "not configured" — see internal/acquisition) when their
+// respective URL is blank, rather than a Client that would just fail
+// every call against an empty base URL.
 
 func buildProwlarrClient(cfg config.Config, version string) *prowlarr.Client {
 	if cfg.ProwlarrURL == "" {
@@ -114,9 +126,16 @@ func buildProwlarrClient(cfg config.Config, version string) *prowlarr.Client {
 	return prowlarr.NewClient(cfg.ProwlarrURL, cfg.ProwlarrAPIKey, "CantiNode/"+version+" ( https://github.com/cantinode/cantinode )")
 }
 
-func buildAcerviClient(cfg config.Config) *acervinode.Client {
-	if cfg.AcerviNodeURL == "" {
+func buildQBittorrentClient(cfg config.Config) *qbittorrent.Client {
+	if cfg.QBittorrentURL == "" {
 		return nil
 	}
-	return acervinode.NewClient(cfg.AcerviNodeURL, cfg.AcerviNodeAPIKey)
+	return qbittorrent.NewClient(cfg.QBittorrentURL, cfg.QBittorrentUsername, cfg.QBittorrentPassword)
+}
+
+func buildSABnzbdClient(cfg config.Config) *sabnzbd.Client {
+	if cfg.SABnzbdURL == "" {
+		return nil
+	}
+	return sabnzbd.NewClient(cfg.SABnzbdURL, cfg.SABnzbdAPIKey)
 }

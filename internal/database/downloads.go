@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// DownloadProtocol is which AcerviNode compat shim a Download was added
-// through — see migrations/0002_acquisition.sql.
+// DownloadProtocol is which download client (qBittorrent or SABnzbd) a
+// Download was added through — see migrations/0002_acquisition.sql.
 type DownloadProtocol string
 
 const (
@@ -28,8 +28,8 @@ const (
 )
 
 // Download is one grabbed release, tracked from the moment it's sent to
-// AcerviNode until its files are imported — see internal/acquisition and
-// migrations/0002_acquisition.sql.
+// its download client until its files are imported — see
+// internal/acquisition and migrations/0002_acquisition.sql.
 type Download struct {
 	ID            int64            `json:"id"`
 	WantedAlbumID int64            `json:"wanted_album_id"`
@@ -136,8 +136,8 @@ func (db *DB) ListDownloads(ctx context.Context) ([]Download, error) {
 	return out, rows.Err()
 }
 
-// SetDownloadCompleted marks id as completed (AcerviNode has the files
-// on its own local disk, not yet imported into the library).
+// SetDownloadCompleted marks id as completed (the download client has
+// the files on its own local disk, not yet imported into the library).
 func (db *DB) SetDownloadCompleted(ctx context.Context, id int64, completedAt time.Time) error {
 	_, err := db.ExecContext(ctx, `UPDATE downloads SET status = ?, completed_at = ? WHERE id = ?`, DownloadStatusCompleted, completedAt, id)
 	if err != nil {
@@ -156,9 +156,9 @@ func (db *DB) SetDownloadImported(ctx context.Context, id int64, importedAt time
 	return nil
 }
 
-// SetDownloadError marks id as failed with message — from either
-// AcerviNode itself reporting an error, or a problem on CantiNode's own
-// side (e.g. the import copy failing).
+// SetDownloadError marks id as failed with message — from either the
+// download client itself reporting an error, or a problem on CantiNode's
+// own side (e.g. the import copy failing).
 func (db *DB) SetDownloadError(ctx context.Context, id int64, message string) error {
 	_, err := db.ExecContext(ctx, `UPDATE downloads SET status = ?, error_message = ? WHERE id = ?`, DownloadStatusError, message, id)
 	if err != nil {

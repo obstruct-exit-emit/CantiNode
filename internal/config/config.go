@@ -63,11 +63,25 @@ type Config struct {
 	ProwlarrURL    string `yaml:"prowlarr_url"`
 	ProwlarrAPIKey string `yaml:"prowlarr_api_key"`
 
-	// AcerviNodeURL/AcerviNodeAPIKey configure the optional acquisition
-	// pipeline's download client — same "empty means not configured"
-	// treatment as the Prowlarr fields above.
-	AcerviNodeURL    string `yaml:"acervinode_url"`
-	AcerviNodeAPIKey string `yaml:"acervinode_api_key"`
+	// QBittorrentURL/QBittorrentUsername/QBittorrentPassword configure the
+	// optional acquisition pipeline's torrent download client — same
+	// "empty means not configured" treatment as the Prowlarr fields above
+	// (QBittorrentURL is what's checked). Deliberately generic: this can
+	// point at a genuine standalone qBittorrent instance, or at
+	// AcerviNode's own qBittorrent-API compat shim — see
+	// internal/qbittorrent's package doc.
+	QBittorrentURL      string `yaml:"qbittorrent_url"`
+	QBittorrentUsername string `yaml:"qbittorrent_username"`
+	QBittorrentPassword string `yaml:"qbittorrent_password"`
+
+	// SABnzbdURL/SABnzbdAPIKey configure the optional acquisition
+	// pipeline's usenet download client — same "empty means not
+	// configured" treatment. Independent of the qBittorrent settings
+	// above: this can point at a genuine standalone SABnzbd instance, or
+	// at AcerviNode's own SABnzbd-API compat shim — see
+	// internal/sabnzbd's package doc.
+	SABnzbdURL    string `yaml:"sabnzbd_url"`
+	SABnzbdAPIKey string `yaml:"sabnzbd_api_key"`
 }
 
 var validLogLevels = map[string]bool{"debug": true, "info": true, "warn": true, "error": true}

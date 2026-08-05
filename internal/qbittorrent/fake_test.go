@@ -1,4 +1,4 @@
-package acervinode
+package qbittorrent
 
 import (
 	"encoding/json"
@@ -10,19 +10,16 @@ import (
 	"testing"
 )
 
-// fakeServer is a minimal stand-in for AcerviNode's own qBittorrent and
-// SABnzbd shims — just enough surface for this package's own client
-// code to exercise against, built from the exact contracts documented in
-// AcerviNode's docs/qbittorrent-api.md and docs/sabnzbd-api.md (see this
-// package's own research notes) rather than guessed.
+// fakeServer is a minimal stand-in for a qBittorrent-Web-API-compatible
+// server (real qBittorrent, or AcerviNode's own compat shim) — just
+// enough surface for this package's own client code to exercise against.
 type fakeServer struct {
 	t         *testing.T
-	apiKey    string
+	username  string
+	password  string
 	validSIDs map[string]bool
 
 	torrents map[string]*fakeTorrent // by hash
-	nzbs     map[string]*fakeNZB     // by nzo_id
-	nextNzo  int
 
 	// loginCount lets a test assert how many times the client actually
 	// logged in (e.g. once normally, twice across a simulated session
@@ -33,26 +30,21 @@ type fakeServer struct {
 type fakeTorrent struct {
 	hash        string
 	category    string
-	state       string // qBittorrent-shim vocabulary, e.g. "downloading", "pausedUP", "error"
+	state       string // qBittorrent state vocabulary, e.g. "downloading", "pausedUP", "error"
 	contentPath string
 }
 
-type fakeNZB struct {
-	nzoID       string
-	category    string
-	inQueue     bool
-	historyStat string // "Completed" or "Failed", only meaningful once !inQueue
-	storage     string
-	failMessage string
-}
-
-func newFakeServer(t *testing.T, apiKey string) *fakeServer {
+// newFakeServer requires both username and password to match — unlike
+// AcerviNode's own compat shim (any username, only password checked),
+// this fake matches real qBittorrent's actual behavior, since that's the
+// stricter case this package needs to work against.
+func newFakeServer(t *testing.T, username, password string) *fakeServer {
 	return &fakeServer{
 		t:         t,
-		apiKey:    apiKey,
+		username:  username,
+		password:  password,
 		validSIDs: map[string]bool{},
 		torrents:  map[string]*fakeTorrent{},
-		nzbs:      map[string]*fakeNZB{},
 	}
 }
 
@@ -66,8 +58,6 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 		f.handleLogin(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/v2/torrents/"):
 		f.handleTorrentShim(w, r)
-	case r.URL.Path == "/api":
-		f.handleSABnzbd(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -76,7 +66,7 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 func (f *fakeServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	f.loginCount++
-	if r.FormValue("password") != f.apiKey {
+	if r.FormValue("username") != f.username || r.FormValue("password") != f.password {
 		w.Write([]byte("Fails."))
 		return
 	}
@@ -181,66 +171,4 @@ func (f *fakeServer) handleTorrentsInfo(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
-}
-
-func (f *fakeServer) handleSABnzbd(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(10 << 20)
-	if r.FormValue("apikey") != f.apiKey {
-		json.NewEncoder(w).Encode(map[string]any{"status": false, "error": "bad api key"})
-		return
-	}
-
-	switch r.FormValue("mode") {
-	case "addurl":
-		f.nextNzo++
-		id := "nzo-" + strconv.Itoa(f.nextNzo)
-		f.nzbs[id] = &fakeNZB{nzoID: id, category: r.FormValue("cat"), inQueue: true}
-		json.NewEncoder(w).Encode(map[string]any{"status": true, "nzo_ids": []string{id}})
-
-	case "addfile":
-		if r.MultipartForm == nil || len(r.MultipartForm.File["name"]) == 0 {
-			json.NewEncoder(w).Encode(map[string]any{"status": false, "error": "no file given"})
-			return
-		}
-		f.nextNzo++
-		id := "nzo-" + strconv.Itoa(f.nextNzo)
-		f.nzbs[id] = &fakeNZB{nzoID: id, category: r.FormValue("cat"), inQueue: true}
-		json.NewEncoder(w).Encode(map[string]any{"status": true, "nzo_ids": []string{id}})
-
-	case "queue":
-		type slot struct {
-			NzoID string `json:"nzo_id"`
-		}
-		var slots []slot
-		for _, n := range f.nzbs {
-			if n.inQueue {
-				slots = append(slots, slot{NzoID: n.nzoID})
-			}
-		}
-		if slots == nil {
-			slots = []slot{}
-		}
-		json.NewEncoder(w).Encode(map[string]any{"queue": map[string]any{"slots": slots}})
-
-	case "history":
-		type slot struct {
-			NzoID       string `json:"nzo_id"`
-			Status      string `json:"status"`
-			Storage     string `json:"storage"`
-			FailMessage string `json:"fail_message"`
-		}
-		var slots []slot
-		for _, n := range f.nzbs {
-			if !n.inQueue {
-				slots = append(slots, slot{NzoID: n.nzoID, Status: n.historyStat, Storage: n.storage, FailMessage: n.failMessage})
-			}
-		}
-		if slots == nil {
-			slots = []slot{}
-		}
-		json.NewEncoder(w).Encode(map[string]any{"history": map[string]any{"slots": slots}})
-
-	default:
-		json.NewEncoder(w).Encode(map[string]any{"status": false, "error": "unknown mode"})
-	}
 }

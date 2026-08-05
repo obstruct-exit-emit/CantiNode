@@ -369,6 +369,12 @@ table.downloads tbody tr:hover {
   letter-spacing: 0.03em;
 }
 
+.general-form h3 {
+  font-size: 13px;
+  margin: 6px 0 -2px;
+  color: var(--text);
+}
+
 .general-form input,
 .general-form select {
   padding: 7px 10px;
@@ -566,6 +572,51 @@ table.downloads tbody tr:hover {
   color: var(--accent-text);
   font-weight: 500;
   align-self: flex-start;
+}
+
+/* Directory browser (Root Folders' "Browse..." picker) */
+.directory-browser-current {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 10px;
+  word-break: break-all;
+}
+
+.directory-browser-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.directory-browser-entry {
+  cursor: pointer;
+}
+
+.directory-browser-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.directory-browser-actions button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+
+.directory-browser-actions button:last-child {
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+.directory-browser-actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .add-download-panel button[type='submit']:disabled {

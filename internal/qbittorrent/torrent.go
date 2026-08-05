@@ -1,4 +1,4 @@
-package acervinode
+package qbittorrent
 
 import (
 	"bytes"
@@ -12,10 +12,9 @@ import (
 	"strings"
 )
 
-// AddMagnet adds magnetURI to AcerviNode via the qBittorrent shim and
-// returns its infohash (parsed from the magnet URI itself — the add
-// endpoint's response is just "Ok."/"Fails.", no ID — see
-// docs/qbittorrent-api.md), the identifier GetTorrentStatus polls on.
+// AddMagnet adds magnetURI and returns its infohash (parsed from the
+// magnet URI itself — the add endpoint's response is just "Ok."/"Fails.",
+// no ID), the identifier GetStatus polls on.
 func (c *Client) AddMagnet(ctx context.Context, magnetURI string) (infoHash string, err error) {
 	hash, err := magnetInfoHash(magnetURI)
 	if err != nil {
@@ -23,26 +22,26 @@ func (c *Client) AddMagnet(ctx context.Context, magnetURI string) (infoHash stri
 	}
 
 	form := url.Values{"urls": {magnetURI}, "category": {musicCategory}}
-	resp, err := c.doTorrent(ctx, http.MethodPost, "/api/v2/torrents/add", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	resp, err := c.do(ctx, http.MethodPost, "/api/v2/torrents/add", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != "Ok." {
-		return "", fmt.Errorf("acervinode: add magnet failed: status %d: %s", resp.StatusCode, body)
+		return "", fmt.Errorf("qbittorrent: add magnet failed: status %d: %s", resp.StatusCode, body)
 	}
 	return hash, nil
 }
 
-// AddTorrentFile uploads a .torrent file's raw bytes to AcerviNode via
-// the qBittorrent shim's multipart add path. Unlike AddMagnet, the
-// resulting infohash isn't known up front — computing it would mean
-// bencode-parsing the torrent's own info dict, so instead this takes a
-// snapshot of the music category's known hashes before adding and
-// returns whichever hash is new afterward. Only reliable for one add at
-// a time (true of every current caller — internal/acquisition grabs one
-// release at a time, on an explicit user action).
+// AddTorrentFile uploads a .torrent file's raw bytes via the multipart
+// add path. Unlike AddMagnet, the resulting infohash isn't known up
+// front — computing it would mean bencode-parsing the torrent's own info
+// dict, so instead this takes a snapshot of the music category's known
+// hashes before adding and returns whichever hash is new afterward. Only
+// reliable for one add at a time (true of every current caller —
+// internal/acquisition grabs one release at a time, on an explicit user
+// action).
 func (c *Client) AddTorrentFile(ctx context.Context, filename string, data []byte) (infoHash string, err error) {
 	before, err := c.listCategoryHashes(ctx)
 	if err != nil {
@@ -65,14 +64,14 @@ func (c *Client) AddTorrentFile(ctx context.Context, filename string, data []byt
 		return "", err
 	}
 
-	resp, err := c.doTorrent(ctx, http.MethodPost, "/api/v2/torrents/add", &body, mw.FormDataContentType())
+	resp, err := c.do(ctx, http.MethodPost, "/api/v2/torrents/add", &body, mw.FormDataContentType())
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(respBody)) != "Ok." {
-		return "", fmt.Errorf("acervinode: add torrent file failed: status %d: %s", resp.StatusCode, respBody)
+		return "", fmt.Errorf("qbittorrent: add torrent file failed: status %d: %s", resp.StatusCode, respBody)
 	}
 
 	after, err := c.listCategoryHashes(ctx)
@@ -84,7 +83,7 @@ func (c *Client) AddTorrentFile(ctx context.Context, filename string, data []byt
 			return h, nil
 		}
 	}
-	return "", fmt.Errorf("acervinode: torrent file added but no new hash appeared in category %q", musicCategory)
+	return "", fmt.Errorf("qbittorrent: torrent file added but no new hash appeared in category %q", musicCategory)
 }
 
 func (c *Client) listCategoryHashes(ctx context.Context) (map[string]bool, error) {
@@ -108,14 +107,14 @@ type torrentInfo struct {
 
 func (c *Client) listCategoryTorrents(ctx context.Context) ([]torrentInfo, error) {
 	q := url.Values{"category": {musicCategory}}
-	resp, err := c.doTorrent(ctx, http.MethodGet, "/api/v2/torrents/info?"+q.Encode(), nil, "")
+	resp, err := c.do(ctx, http.MethodGet, "/api/v2/torrents/info?"+q.Encode(), nil, "")
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("acervinode: list torrents: status %d: %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("qbittorrent: list torrents: status %d: %s", resp.StatusCode, body)
 	}
 	var items []torrentInfo
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
@@ -124,19 +123,18 @@ func (c *Client) listCategoryTorrents(ctx context.Context) ([]torrentInfo, error
 	return items, nil
 }
 
-// GetTorrentStatus polls AcerviNode for infoHash's current status.
-// Returns ErrNotFound if AcerviNode no longer knows this hash at all
-// (deleted directly through AcerviNode's own UI, say).
-func (c *Client) GetTorrentStatus(ctx context.Context, infoHash string) (*Status, error) {
+// GetStatus polls the server for infoHash's current status. Returns
+// ErrNotFound if it no longer knows this hash at all.
+func (c *Client) GetStatus(ctx context.Context, infoHash string) (*Status, error) {
 	q := url.Values{"hashes": {infoHash}}
-	resp, err := c.doTorrent(ctx, http.MethodGet, "/api/v2/torrents/info?"+q.Encode(), nil, "")
+	resp, err := c.do(ctx, http.MethodGet, "/api/v2/torrents/info?"+q.Encode(), nil, "")
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("acervinode: get torrent status: status %d: %s", resp.StatusCode, body)
+		return nil, fmt.Errorf("qbittorrent: get torrent status: status %d: %s", resp.StatusCode, body)
 	}
 	var items []torrentInfo
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
@@ -148,14 +146,17 @@ func (c *Client) GetTorrentStatus(ctx context.Context, infoHash string) (*Status
 	return torrentInfoToStatus(items[0]), nil
 }
 
-// torrentInfoToStatus maps qBittorrent-shim states (see
-// docs/qbittorrent-api.md's state table) onto Status.State.
+// torrentInfoToStatus maps real qBittorrent's own state vocabulary onto
+// Status.State. pausedUP/stoppedUP means fully downloaded and no longer
+// actively transferring — real qBittorrent's own "done" signal (matches
+// AcerviNode's own compat-shim convention too, since it deliberately
+// mirrors this exact vocabulary — see docs/qbittorrent-api.md there).
 func torrentInfoToStatus(t torrentInfo) *Status {
 	switch t.State {
 	case "pausedUP", "stoppedUP":
 		return &Status{State: StateCompleted, LocalPath: t.ContentPath}
-	case "error":
-		return &Status{State: StateError, ErrorMessage: "AcerviNode reported this torrent as errored"}
+	case "error", "missingFiles":
+		return &Status{State: StateError, ErrorMessage: "reported as errored (state: " + t.State + ")"}
 	default:
 		return &Status{State: StateDownloading}
 	}

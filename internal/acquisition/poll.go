@@ -11,8 +11,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cantinode/cantinode/internal/acervinode"
 	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/qbittorrent"
+	"github.com/cantinode/cantinode/internal/sabnzbd"
 )
 
 // PollResult summarizes one PollDownloads pass, for logging.
@@ -22,15 +23,16 @@ type PollResult struct {
 	Errored  int
 }
 
-// PollDownloads checks every in-flight download against AcerviNode and
-// imports (or errors out) whichever ones it reports done — the
+// PollDownloads checks every in-flight download against its download
+// client and imports (or errors out) whichever ones report done — the
 // acquisition side's equivalent of internal/scanner's own scan loop. A
-// no-op, not an error, if AcerviNode isn't configured yet.
+// no-op, not an error, if neither download client is configured yet.
 func (s *Service) PollDownloads(ctx context.Context) (PollResult, error) {
 	var result PollResult
 
-	av := s.getAcervi()
-	if av == nil {
+	qbit := s.getQBittorrent()
+	sab := s.getSABnzbd()
+	if qbit == nil && sab == nil {
 		return result, nil
 	}
 
@@ -41,7 +43,7 @@ func (s *Service) PollDownloads(ctx context.Context) (PollResult, error) {
 
 	for _, d := range downloads {
 		result.Checked++
-		imported, err := s.pollOne(ctx, av, d)
+		imported, err := s.pollOne(ctx, qbit, sab, d)
 		if err != nil {
 			result.Errored++
 			s.logger.Error("acquisition: poll download failed", "download_id", d.ID, "error", err)
@@ -58,47 +60,67 @@ func (s *Service) PollDownloads(ctx context.Context) (PollResult, error) {
 // whether it was imported this pass. d is passed (and stays) by value —
 // its own Status field is never mutated in place; the database is the
 // only source of truth once this returns.
-func (s *Service) pollOne(ctx context.Context, av *acervinode.Client, d database.Download) (imported bool, err error) {
-	var status *acervinode.Status
+func (s *Service) pollOne(ctx context.Context, qbit *qbittorrent.Client, sab *sabnzbd.Client, d database.Download) (imported bool, err error) {
 	switch d.Protocol {
 	case database.ProtocolTorrent:
-		status, err = av.GetTorrentStatus(ctx, d.ClientID)
+		if qbit == nil {
+			return false, fmt.Errorf("qbittorrent is not configured")
+		}
+		status, err := qbit.GetStatus(ctx, d.ClientID)
+		if errors.Is(err, qbittorrent.ErrNotFound) {
+			return false, s.failDownload(ctx, d, "qBittorrent no longer has this download (removed directly there?)")
+		}
+		if err != nil {
+			return false, fmt.Errorf("get status from qBittorrent: %w", err)
+		}
+		return s.handleStatus(ctx, d, string(status.State), status.LocalPath, status.ErrorMessage, "qBittorrent")
+
 	case database.ProtocolUsenet:
-		status, err = av.GetUsenetStatus(ctx, d.ClientID)
+		if sab == nil {
+			return false, fmt.Errorf("sabnzbd is not configured")
+		}
+		status, err := sab.GetStatus(ctx, d.ClientID)
+		if errors.Is(err, sabnzbd.ErrNotFound) {
+			return false, s.failDownload(ctx, d, "SABnzbd no longer has this download (removed directly there?)")
+		}
+		if err != nil {
+			return false, fmt.Errorf("get status from SABnzbd: %w", err)
+		}
+		return s.handleStatus(ctx, d, string(status.State), status.LocalPath, status.ErrorMessage, "SABnzbd")
+
 	default:
 		return false, fmt.Errorf("unknown protocol %q", d.Protocol)
 	}
+}
 
-	if errors.Is(err, acervinode.ErrNotFound) {
-		return false, s.failDownload(ctx, d, "AcerviNode no longer has this download (removed directly there?)")
-	}
-	if err != nil {
-		return false, fmt.Errorf("get status from AcerviNode: %w", err)
-	}
-
-	switch status.State {
-	case acervinode.StateDownloading:
+// handleStatus acts on a download client's reported state — shared by
+// both protocols in pollOne since qbittorrent.State and sabnzbd.State
+// carry the same three string values (downloading/completed/error) even
+// though they're distinct types.
+func (s *Service) handleStatus(ctx context.Context, d database.Download, state, localPath, errorMessage, clientName string) (imported bool, err error) {
+	switch state {
+	case "downloading":
 		return false, nil // still in progress, nothing to do this pass
 
-	case acervinode.StateError:
-		msg := status.ErrorMessage
+	case "error":
+		msg := errorMessage
 		if msg == "" {
-			msg = "AcerviNode reported this download as failed"
+			msg = clientName + " reported this download as failed"
 		}
 		return false, s.failDownload(ctx, d, msg)
 
-	case acervinode.StateCompleted:
+	case "completed":
 		now := time.Now().UTC()
 		if err := s.db.SetDownloadCompleted(ctx, d.ID, now); err != nil {
 			return false, fmt.Errorf("record download completed: %w", err)
 		}
-		if err := s.importDownload(ctx, d, status.LocalPath); err != nil {
+		if err := s.importDownload(ctx, d, localPath); err != nil {
 			return false, err
 		}
 		return true, nil
 
 	default:
-		return false, fmt.Errorf("unrecognized status state %q", status.State)
+		return false, fmt.Errorf("unrecognized status state %q", state)
 	}
 }
 
@@ -116,18 +138,20 @@ func (s *Service) failDownload(ctx context.Context, d database.Download, message
 	return nil
 }
 
-// importDownload copies a completed download's files from localPath
-// (AcerviNode's own local disk — requires CantiNode and AcerviNode to
-// share a filesystem view, the same assumption any *arr app's download
-// client integration already makes) into d's target root folder, under
-// a subfolder keyed by the download's own ID (not its title — always
-// filesystem-safe with zero sanitizing, and directly traceable back to
-// this row for debugging). internal/scanner then picks the copied files
-// up exactly like any other file dropped into a root folder: matched via
-// their own embedded tags, organized on the normal schedule.
+// importDownload copies a completed download's files from localPath (the
+// download client's own local disk — requires CantiNode and the download
+// client to share a filesystem view, the same assumption any *arr app's
+// download client integration already makes) into d's target root
+// folder, under a subfolder keyed by the download's own ID (not its
+// title — always filesystem-safe with zero sanitizing, and directly
+// traceable back to this row for debugging). internal/scanner then picks
+// the copied files up exactly like any other file dropped into a root
+// folder: matched via their own embedded tags, organized on the normal
+// schedule.
 //
-// A copy, not a move: AcerviNode retains its own copy under its own
-// retention/cleanup policy, which CantiNode has no business overriding.
+// A copy, not a move: the download client retains its own copy under its
+// own retention/cleanup policy, which CantiNode has no business
+// overriding.
 func (s *Service) importDownload(ctx context.Context, d database.Download, localPath string) error {
 	rootFolder, err := s.db.GetRootFolder(ctx, d.RootFolderID)
 	if err != nil {
@@ -136,7 +160,7 @@ func (s *Service) importDownload(ctx context.Context, d database.Download, local
 
 	dest := filepath.Join(rootFolder.Path, "_incoming", "download-"+strconv.FormatInt(d.ID, 10))
 	if err := copyTree(localPath, dest); err != nil {
-		return s.failDownload(ctx, d, fmt.Sprintf("copy from AcerviNode failed: %v", err))
+		return s.failDownload(ctx, d, fmt.Sprintf("copy from download client failed: %v", err))
 	}
 
 	if _, err := s.scanner.ScanRootFolder(ctx, *rootFolder); err != nil {

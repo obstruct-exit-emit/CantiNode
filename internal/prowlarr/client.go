@@ -2,14 +2,15 @@
 // (https://prowlarr.com) — CantiNode's indexer search layer. Search
 // results are fetched via GET /api/v1/search; CantiNode then resolves a
 // chosen release's own content (a magnet URI, or the actual .torrent/
-// .nzb bytes) itself via FetchContent and hands it to internal/acervinode
-// — deliberately not Prowlarr's own POST /api/v1/search "grab" endpoint,
-// which pushes to whatever download client is configured inside
-// Prowlarr's own settings. Going through Prowlarr's own download-client
-// config would work too, but would make AcerviNode's involvement
-// implicit and dependent on how the user has Prowlarr itself configured;
-// CantiNode owns the AcerviNode relationship directly instead, the same
-// way it owns MusicBrainz and Cover Art Archive.
+// .nzb bytes) itself via FetchContent and hands it to internal/qbittorrent
+// or internal/sabnzbd — deliberately not Prowlarr's own POST
+// /api/v1/search "grab" endpoint, which pushes to whatever download
+// client is configured inside Prowlarr's own settings. Going through
+// Prowlarr's own download-client config would work too, but would make
+// the download client's involvement implicit and dependent on how the
+// user has Prowlarr itself configured; CantiNode owns the download-client
+// relationship directly instead, the same way it owns MusicBrainz and
+// Cover Art Archive.
 package prowlarr
 
 import (

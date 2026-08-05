@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cantinode/cantinode/internal/acervinode"
 	"github.com/cantinode/cantinode/internal/acquisition"
 	"github.com/cantinode/cantinode/internal/api"
 	"github.com/cantinode/cantinode/internal/config"
@@ -23,6 +22,8 @@ import (
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/prowlarr"
+	"github.com/cantinode/cantinode/internal/qbittorrent"
+	"github.com/cantinode/cantinode/internal/sabnzbd"
 	"github.com/cantinode/cantinode/internal/scanner"
 	"github.com/cantinode/cantinode/web"
 )
@@ -32,7 +33,7 @@ import (
 var version = "0.0.0-dev"
 
 // acquisitionPollInterval is how often the background loop checks every
-// in-flight download's status against AcerviNode — independent of (and
+// in-flight download's status against its download client — independent of (and
 // much shorter than) scan_interval_hours, since a user watching a grab
 // progress wants far more responsive feedback than the library-scan
 // cadence. Not currently exposed as a setting — a fixed, reasonable
@@ -77,7 +78,7 @@ func run(ctx context.Context) error {
 	ca := coverart.NewClient(cfg.DataDir+"/covers", fmt.Sprintf("CantiNode/%s ( https://github.com/cantinode/cantinode )", version))
 
 	aq := acquisition.New(db, mb, sc, slog.Default())
-	aq.UpdateClients(newProwlarrClient(cfg, version), newAcerviClient(cfg))
+	aq.UpdateClients(newProwlarrClient(cfg, version), newQBittorrentClient(cfg), newSABnzbdClient(cfg))
 
 	// Logged so a config.yaml without an explicit api_key is still usable
 	// — otherwise a randomly generated key (see internal/config) would be
@@ -167,9 +168,10 @@ func runScanLoop(ctx context.Context, sc *scanner.Scanner, interval time.Duratio
 }
 
 // runAcquisitionPollLoop checks every in-flight download's status
-// against AcerviNode on a fixed interval, importing whichever ones it
-// reports done — see internal/acquisition.Service.PollDownloads. A no-op
-// (not an error) whenever AcerviNode isn't configured yet.
+// against its download client on a fixed interval, importing whichever
+// ones report done — see internal/acquisition.Service.PollDownloads. A
+// no-op (not an error) whenever neither download client is configured
+// yet.
 func runAcquisitionPollLoop(ctx context.Context, aq *acquisition.Service, interval time.Duration) {
 	pollOnce := func() {
 		result, err := aq.PollDownloads(ctx)
@@ -196,8 +198,9 @@ func runAcquisitionPollLoop(ctx context.Context, aq *acquisition.Service, interv
 	}
 }
 
-// newProwlarrClient/newAcerviClient return nil (meaning "not configured"
-// — see internal/acquisition) when their respective URL is blank in cfg.
+// newProwlarrClient/newQBittorrentClient/newSABnzbdClient return nil
+// (meaning "not configured" — see internal/acquisition) when their
+// respective URL is blank in cfg.
 func newProwlarrClient(cfg *config.Config, version string) *prowlarr.Client {
 	if cfg.ProwlarrURL == "" {
 		return nil
@@ -205,11 +208,18 @@ func newProwlarrClient(cfg *config.Config, version string) *prowlarr.Client {
 	return prowlarr.NewClient(cfg.ProwlarrURL, cfg.ProwlarrAPIKey, fmt.Sprintf("CantiNode/%s ( https://github.com/cantinode/cantinode )", version))
 }
 
-func newAcerviClient(cfg *config.Config) *acervinode.Client {
-	if cfg.AcerviNodeURL == "" {
+func newQBittorrentClient(cfg *config.Config) *qbittorrent.Client {
+	if cfg.QBittorrentURL == "" {
 		return nil
 	}
-	return acervinode.NewClient(cfg.AcerviNodeURL, cfg.AcerviNodeAPIKey)
+	return qbittorrent.NewClient(cfg.QBittorrentURL, cfg.QBittorrentUsername, cfg.QBittorrentPassword)
+}
+
+func newSABnzbdClient(cfg *config.Config) *sabnzbd.Client {
+	if cfg.SABnzbdURL == "" {
+		return nil
+	}
+	return sabnzbd.NewClient(cfg.SABnzbdURL, cfg.SABnzbdAPIKey)
 }
 
 // parseLogLevel maps config's log_level string onto a slog.Level — config

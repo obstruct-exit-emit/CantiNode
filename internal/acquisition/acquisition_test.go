@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cantinode/cantinode/internal/acervinode"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/prowlarr"
+	"github.com/cantinode/cantinode/internal/qbittorrent"
 	"github.com/cantinode/cantinode/internal/scanner"
 )
 
@@ -165,7 +165,7 @@ func TestSearchReleasesUsesArtistAndAlbumName(t *testing.T) {
 		w.Write([]byte(`[]`))
 	}))
 	defer pwSrv.Close()
-	s.UpdateClients(prowlarr.NewClient(pwSrv.URL, "key", "ua"), nil)
+	s.UpdateClients(prowlarr.NewClient(pwSrv.URL, "key", "ua"), nil, nil)
 
 	if _, err := s.SearchReleases(ctx, w.ID); err != nil {
 		t.Fatalf("SearchReleases: %v", err)
@@ -175,40 +175,40 @@ func TestSearchReleasesUsesArtistAndAlbumName(t *testing.T) {
 	}
 }
 
-// fakeAcervi is a minimal stand-in for AcerviNode's qBittorrent shim —
-// just enough for GrabRelease/PollDownloads to exercise (login, add-by-
-// magnet, status polling). The full protocol surface (session-expiry
-// retry, torrent-file-by-diff, the SABnzbd shim) is already covered by
-// internal/acervinode's own tests; this only needs to prove
+// fakeQBittorrent is a minimal stand-in for a qBittorrent-Web-API-
+// compatible server — just enough for GrabRelease/PollDownloads to
+// exercise (login, add-by-magnet, status polling). The full protocol
+// surface (session-expiry retry, torrent-file-by-diff) is already
+// covered by internal/qbittorrent's own tests; this only needs to prove
 // internal/acquisition orchestrates correctly against it.
-type fakeAcervi struct {
-	apiKey       string
+type fakeQBittorrent struct {
+	password     string
 	sessions     map[string]bool
-	states       map[string]string // hash -> qBittorrent-shim state string
+	states       map[string]string // hash -> qBittorrent state string
 	contentPaths map[string]string // hash -> content_path override (defaults to a fake path)
 }
 
-func newFakeAcervi(apiKey string) *fakeAcervi {
-	return &fakeAcervi{
-		apiKey:       apiKey,
+func newFakeQBittorrent(password string) *fakeQBittorrent {
+	return &fakeQBittorrent{
+		password:     password,
 		sessions:     map[string]bool{},
 		states:       map[string]string{},
 		contentPaths: map[string]string{},
 	}
 }
 
-func (f *fakeAcervi) start(t *testing.T) string {
+func (f *fakeQBittorrent) start(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
 
-func (f *fakeAcervi) handle(w http.ResponseWriter, r *http.Request) {
+func (f *fakeQBittorrent) handle(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/v2/auth/login":
 		r.ParseForm()
-		if r.FormValue("password") != f.apiKey {
+		if r.FormValue("password") != f.password {
 			w.Write([]byte("Fails."))
 			return
 		}
@@ -245,7 +245,7 @@ func (f *fakeAcervi) handle(w http.ResponseWriter, r *http.Request) {
 		if state, ok := f.states[hash]; ok {
 			path := f.contentPaths[hash]
 			if path == "" {
-				path = "/av-downloads/" + hash
+				path = "/downloads/" + hash
 			}
 			out = append(out, item{Hash: hash, State: state, ContentPath: path})
 		}
@@ -257,7 +257,7 @@ func (f *fakeAcervi) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (f *fakeAcervi) authorized(r *http.Request) bool {
+func (f *fakeQBittorrent) authorized(r *http.Request) bool {
 	ck, err := r.Cookie("SID")
 	return err == nil && f.sessions[ck.Value]
 }
@@ -265,8 +265,8 @@ func (f *fakeAcervi) authorized(r *http.Request) bool {
 // grabTestFixtures wires a Service with a monitored artist + wanted
 // album, a root folder, and both external clients pointed at fakes — a
 // no-op Prowlarr stand-in (FetchContent never calls back into Prowlarr
-// for a direct magnet URI) and fakeAcervi.
-func grabTestFixtures(t *testing.T) (s *Service, db *database.DB, wantedAlbumID int64, av *fakeAcervi) {
+// for a direct magnet URI) and fakeQBittorrent.
+func grabTestFixtures(t *testing.T) (s *Service, db *database.DB, wantedAlbumID int64, qb *fakeQBittorrent) {
 	t.Helper()
 	s, db = newTestService(t, nil)
 	ctx := t.Context()
@@ -288,11 +288,11 @@ func grabTestFixtures(t *testing.T) (s *Service, db *database.DB, wantedAlbumID 
 	}))
 	t.Cleanup(pwSrv.Close)
 
-	av = newFakeAcervi("av-key")
-	avURL := av.start(t)
+	qb = newFakeQBittorrent("qb-key")
+	qbURL := qb.start(t)
 
-	s.UpdateClients(prowlarr.NewClient(pwSrv.URL, "key", "ua"), acervinode.NewClient(avURL, "av-key"))
-	return s, db, w.ID, av
+	s.UpdateClients(prowlarr.NewClient(pwSrv.URL, "key", "ua"), qbittorrent.NewClient(qbURL, "cantinode", "qb-key"), nil)
+	return s, db, w.ID, qb
 }
 
 func TestGrabReleaseCreatesDownloadAndMarksDownloading(t *testing.T) {
@@ -334,7 +334,7 @@ func TestGrabReleaseRequiresRootFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.UpdateClients(prowlarr.NewClient("http://unused.invalid", "k", "ua"), acervinode.NewClient("http://unused.invalid", "k"))
+	s.UpdateClients(prowlarr.NewClient("http://unused.invalid", "k", "ua"), qbittorrent.NewClient("http://unused.invalid", "cantinode", "k"), nil)
 
 	rel := prowlarr.Release{Title: "X", MagnetURL: "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	if _, err := s.GrabRelease(ctx, w.ID, rel); err == nil {
@@ -343,7 +343,7 @@ func TestGrabReleaseRequiresRootFolder(t *testing.T) {
 }
 
 func TestPollDownloadsImportsCompletedDownload(t *testing.T) {
-	s, db, wantedAlbumID, av := grabTestFixtures(t)
+	s, db, wantedAlbumID, qb := grabTestFixtures(t)
 	ctx := t.Context()
 
 	rel := prowlarr.Release{
@@ -360,8 +360,8 @@ func TestPollDownloadsImportsCompletedDownload(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(srcDir, "01 - Track.mp3"), []byte("fake audio"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	av.contentPaths[d.ClientID] = srcDir
-	av.states[d.ClientID] = "pausedUP"
+	qb.contentPaths[d.ClientID] = srcDir
+	qb.states[d.ClientID] = "pausedUP"
 
 	result, err := s.PollDownloads(ctx)
 	if err != nil {
@@ -424,7 +424,7 @@ func TestPollDownloadsStillDownloadingIsNoOp(t *testing.T) {
 }
 
 func TestPollDownloadsNotFoundRevertsWantedToWanted(t *testing.T) {
-	s, db, wantedAlbumID, av := grabTestFixtures(t)
+	s, db, wantedAlbumID, qb := grabTestFixtures(t)
 	ctx := t.Context()
 
 	rel := prowlarr.Release{Title: "X", Protocol: prowlarr.ProtocolTorrent, MagnetURL: "magnet:?xt=urn:btih:3333333333333333333333333333333333333a"}
@@ -432,7 +432,7 @@ func TestPollDownloadsNotFoundRevertsWantedToWanted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	delete(av.states, d.ClientID) // simulate it vanishing from AcerviNode
+	delete(qb.states, d.ClientID) // simulate it vanishing from the download client
 
 	if _, err := s.PollDownloads(ctx); err != nil {
 		t.Fatalf("PollDownloads: %v", err)
@@ -455,7 +455,7 @@ func TestPollDownloadsNotFoundRevertsWantedToWanted(t *testing.T) {
 	}
 }
 
-func TestPollDownloadsNoOpWhenAcerviNotConfigured(t *testing.T) {
+func TestPollDownloadsNoOpWhenNoClientConfigured(t *testing.T) {
 	s, db := newTestService(t, nil)
 	ctx := t.Context()
 	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
@@ -479,6 +479,6 @@ func TestPollDownloadsNoOpWhenAcerviNotConfigured(t *testing.T) {
 		t.Fatalf("PollDownloads: %v", err)
 	}
 	if result.Checked != 0 {
-		t.Errorf("Checked = %d, want 0 (AcerviNode not configured)", result.Checked)
+		t.Errorf("Checked = %d, want 0 (no download client configured)", result.Checked)
 	}
 }

@@ -22,14 +22,17 @@ Folders tab instead.
 | `musicbrainz_contact_email` | `CANTINODE_MUSICBRAINZ_CONTACT_EMAIL` | *(empty)* | Included in CantiNode's MusicBrainz User-Agent, per [MusicBrainz's API usage policy](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting) — optional, but recommended |
 | `prowlarr_url` | *(none)* | *(empty)* | Base URL of a self-hosted Prowlarr instance, e.g. `http://localhost:9696` — see [Acquisition](#acquisition) |
 | `prowlarr_api_key` | *(none)* | *(empty)* | Prowlarr's own API key |
-| `acervinode_url` | *(none)* | *(empty)* | Base URL of a self-hosted AcerviNode instance, e.g. `http://localhost:7846` |
-| `acervinode_api_key` | *(none)* | *(empty)* | AcerviNode's own API key |
+| `qbittorrent_url` | *(none)* | *(empty)* | Base URL of a qBittorrent-Web-API-compatible server, e.g. `http://localhost:8080` |
+| `qbittorrent_username` | *(none)* | *(empty)* | Username for that server's Web API login |
+| `qbittorrent_password` | *(none)* | *(empty)* | Password for that server's Web API login |
+| `sabnzbd_url` | *(none)* | *(empty)* | Base URL of a SABnzbd-API-compatible server, e.g. `http://localhost:8085` |
+| `sabnzbd_api_key` | *(none)* | *(empty)* | That server's own API key |
 
 Everything except `port` and `data_dir` can also be changed live through
 Settings → the web UI (or `PUT /api/v1/settings`) — `naming_format`,
-`min_match_confidence`, `organize_on_match`, and the Prowlarr/AcerviNode
-connection details all take effect immediately, no restart needed. `port`
-requires editing `config.yaml` (or the env var) and restarting.
+`min_match_confidence`, `organize_on_match`, and the Prowlarr/qBittorrent/
+SABnzbd connection details all take effect immediately, no restart needed.
+`port` requires editing `config.yaml` (or the env var) and restarting.
 
 ## Naming format
 
@@ -55,16 +58,24 @@ you can resolve the collision by hand.
 
 ## Acquisition
 
-Both `prowlarr_url`/`prowlarr_api_key` and `acervinode_url`/
-`acervinode_api_key` are optional — leaving either blank simply leaves that
-part of the Wanted tab unavailable (search or grab reports a plain "not
-configured" error), nothing else in CantiNode is affected. Both can be set
-directly in `config.yaml`/env or through Settings → Acquisition in the web
-UI, which is generally easier since it's just two URL/key pairs.
+`prowlarr_url`/`prowlarr_api_key`, `qbittorrent_url`/`qbittorrent_username`/
+`qbittorrent_password`, and `sabnzbd_url`/`sabnzbd_api_key` are each
+independently optional — leaving any of them blank simply leaves that part
+of the Wanted tab unavailable (search reports a plain "not configured"
+error if Prowlarr is unset; grabbing a torrent or usenet release does the
+same if the matching download client is unset), nothing else in CantiNode
+is affected. All three can be set directly in `config.yaml`/env or through
+Settings → Acquisition in the web UI.
 
-CantiNode adds every grab to AcerviNode under the `music` category, which
-AcerviNode pre-registers automatically as Lidarr's own well-known default
-— no separate category setup is needed on the AcerviNode side.
+qBittorrent and SABnzbd are deliberately generic, protocol-typed
+connections — not tied to any one server. Point either (or both) at a
+genuine standalone qBittorrent/SABnzbd instance, or at
+[AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode), which
+exposes compatible APIs for both on one host. Real qBittorrent checks
+username and password both; a real SABnzbd server has no API to create a
+category on the fly, so its `music` category (CantiNode adds every grab
+under it) needs to be created by hand once in SABnzbd's own UI — AcerviNode's
+shim pre-registers it automatically instead.
 
 Grabbing a release is always a manual action — CantiNode never
 auto-downloads a search result. See [Roadmap](../ROADMAP.md) Phase 4 for
