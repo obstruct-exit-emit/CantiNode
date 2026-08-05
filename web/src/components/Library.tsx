@@ -1,0 +1,239 @@
+import { Fragment, useEffect, useState } from 'react'
+import {
+  listAlbumsByArtist,
+  listArtists,
+  listTracksByAlbum,
+  listTrackFilesByTrack,
+  organizeFile,
+  previewOrganize,
+  type Album,
+  type Artist,
+  type Track,
+  type TrackFile,
+} from '../api'
+
+function formatDuration(ms: number): string {
+  if (!ms) return '—'
+  const totalSeconds = Math.round(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return '—'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i++
+  }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+export function Library({ apiKey }: { apiKey: string }) {
+  const [artists, setArtists] = useState<Artist[]>([])
+  const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null)
+  const [albums, setAlbums] = useState<Album[]>([])
+  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null)
+  const [tracks, setTracks] = useState<Track[]>([])
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    listArtists(apiKey)
+      .then(setArtists)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }, [apiKey])
+
+  function openArtist(artist: Artist) {
+    setSelectedArtist(artist)
+    setSelectedAlbum(null)
+    setAlbums([])
+    setTracks([])
+    listAlbumsByArtist(apiKey, artist.id)
+      .then(setAlbums)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  function openAlbum(album: Album) {
+    setSelectedAlbum(album)
+    setTracks([])
+    listTracksByAlbum(apiKey, album.id)
+      .then(setTracks)
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  if (error) return <p className="load-error">Couldn't load the library: {error}</p>
+
+  if (selectedAlbum && selectedArtist) {
+    return (
+      <div className="library">
+        <Breadcrumb
+          items={[
+            { label: 'Artists', onClick: () => setSelectedArtist(null) },
+            { label: selectedArtist.name, onClick: () => setSelectedAlbum(null) },
+            { label: selectedAlbum.title },
+          ]}
+        />
+        <TrackTable apiKey={apiKey} tracks={tracks} />
+      </div>
+    )
+  }
+
+  if (selectedArtist) {
+    return (
+      <div className="library">
+        <Breadcrumb items={[{ label: 'Artists', onClick: () => setSelectedArtist(null) }, { label: selectedArtist.name }]} />
+        {albums.length === 0 ? (
+          <p className="empty">No albums yet.</p>
+        ) : (
+          <div className="card-grid">
+            {albums.map((a) => (
+              <button className="library-card" key={a.id} onClick={() => openAlbum(a)}>
+                <div className="library-card-title">{a.title}</div>
+                <div className="library-card-sub">
+                  {a.release_date ? a.release_date.slice(0, 4) : '—'} · {a.primary_type || 'Album'}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="library">
+      {artists.length === 0 ? (
+        <p className="empty">
+          No matched music yet. Add a root folder and run a scan — matched artists show up here once files are
+          matched to MusicBrainz.
+        </p>
+      ) : (
+        <div className="card-grid">
+          {artists.map((a) => (
+            <button className="library-card" key={a.id} onClick={() => openArtist(a)}>
+              <div className="library-card-title">{a.name}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Breadcrumb({ items }: { items: { label: string; onClick?: () => void }[] }) {
+  return (
+    <nav className="breadcrumb">
+      {items.map((item, i) => (
+        <span key={i}>
+          {i > 0 && <span className="breadcrumb-sep">/</span>}
+          {item.onClick ? (
+            <button className="breadcrumb-link" onClick={item.onClick}>
+              {item.label}
+            </button>
+          ) : (
+            <span className="breadcrumb-current">{item.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
+  )
+}
+
+function TrackTable({ apiKey, tracks }: { apiKey: string; tracks: Track[] }) {
+  const [expanded, setExpanded] = useState<number | null>(null)
+  const [files, setFiles] = useState<TrackFile[]>([])
+
+  function toggle(track: Track) {
+    if (expanded === track.id) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(track.id)
+    listTrackFilesByTrack(apiKey, track.id).then(setFiles)
+  }
+
+  if (tracks.length === 0) return <p className="empty">No tracks yet.</p>
+
+  return (
+    <table className="downloads">
+      <thead>
+        <tr>
+          <th></th>
+          <th>#</th>
+          <th>Title</th>
+          <th>Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tracks.map((t) => (
+          <Fragment key={t.id}>
+            <tr className="row-clickable" onClick={() => toggle(t)}>
+              <td>{expanded === t.id ? '▾' : '▸'}</td>
+              <td>{t.track_number || '—'}</td>
+              <td>{t.title}</td>
+              <td>{formatDuration(t.duration_ms)}</td>
+            </tr>
+            {expanded === t.id && (
+              <tr>
+                <td colSpan={4}>
+                  <TrackFiles apiKey={apiKey} files={files} />
+                </td>
+              </tr>
+            )}
+          </Fragment>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function TrackFiles({ apiKey, files }: { apiKey: string; files: TrackFile[] }) {
+  const [busy, setBusy] = useState<number | null>(null)
+  const [preview, setPreview] = useState<Record<number, string>>({})
+
+  async function handlePreview(f: TrackFile) {
+    try {
+      const { path } = await previewOrganize(apiKey, f.id)
+      setPreview((prev) => ({ ...prev, [f.id]: path }))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleOrganize(f: TrackFile) {
+    setBusy(f.id)
+    try {
+      await organizeFile(apiKey, f.id)
+      alert('Organized.')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (files.length === 0) return <p className="text-muted">No file linked.</p>
+
+  return (
+    <ul className="rows">
+      {files.map((f) => (
+        <li className="row" key={f.id}>
+          <span className="user-row-name mono">{f.path}</span>
+          <span className="text-muted">
+            {f.format.toUpperCase()} · {formatBytes(f.size_bytes)}
+          </span>
+          {preview[f.id] && <span className="text-muted mono">→ {preview[f.id]}</span>}
+          <button className="toggle" onClick={() => handlePreview(f)}>
+            Preview
+          </button>
+          <button className="toggle" disabled={busy === f.id} onClick={() => handleOrganize(f)}>
+            {busy === f.id ? 'Organizing…' : 'Organize'}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}

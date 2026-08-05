@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # make build (not a bare go build): exercises the same real command
+      # docs/installation.md tells every from-source user/updater to run.
+      # Runs before go vet/go test: the embed test needs web/dist actually
+      # populated, which is exactly this step's job.
+      - run: make build
+      - run: go vet ./...
+      - run: go test ./...
