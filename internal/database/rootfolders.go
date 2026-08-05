@@ -41,7 +41,9 @@ func (db *DB) ListRootFolders(ctx context.Context) ([]RootFolder, error) {
 	}
 	defer rows.Close()
 
-	var out []RootFolder
+	// Non-nil empty slice so an empty result JSON-encodes to [] rather
+	// than null — see ListArtists' identical note.
+	out := []RootFolder{}
 	for rows.Next() {
 		var rf RootFolder
 		if err := rows.Scan(&rf.ID, &rf.Path, &rf.CreatedAt); err != nil {

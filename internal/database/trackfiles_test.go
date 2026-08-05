@@ -5,6 +5,21 @@ import (
 	"time"
 )
 
+// TestListTrackFilesByStatusEmptyIsNotNil guards against a real bug — see
+// TestListRootFoldersEmptyIsNotNil's doc comment for the full story. This
+// is the exact endpoint (GET /api/v1/track-files/unmatched) that crashed
+// the web UI on a fresh install with nothing scanned yet.
+func TestListTrackFilesByStatusEmptyIsNotNil(t *testing.T) {
+	db := openTestDB(t)
+	list, err := db.ListTrackFilesByStatus(t.Context(), StatusUnmatched)
+	if err != nil {
+		t.Fatalf("ListTrackFilesByStatus: %v", err)
+	}
+	if list == nil {
+		t.Error("ListTrackFilesByStatus returned nil for an empty result, want a non-nil empty slice")
+	}
+}
+
 func TestUpsertTrackFileByPathInsertsThenUpdatesWithoutTouchingMatch(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()

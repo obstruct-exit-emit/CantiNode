@@ -110,7 +110,10 @@ func (s *Scanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 		return nil, fmt.Errorf("list root folders: %w", err)
 	}
 
-	result := &ScanResult{}
+	// Errors initialized non-nil so it JSON-encodes to [] rather than
+	// null when empty — internal/api returns a ScanResult straight
+	// through to the frontend.
+	result := &ScanResult{Errors: []string{}}
 	for _, rf := range folders {
 		r, err := s.ScanRootFolder(ctx, rf)
 		if err != nil {
@@ -126,7 +129,10 @@ func (s *Scanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 // removes rows for files no longer present on disk. A per-file read or
 // match error is recorded in the result and does not stop the scan.
 func (s *Scanner) ScanRootFolder(ctx context.Context, rf database.RootFolder) (*ScanResult, error) {
-	result := &ScanResult{}
+	// Errors initialized non-nil so it JSON-encodes to [] rather than
+	// null when empty — internal/api returns a ScanResult straight
+	// through to the frontend.
+	result := &ScanResult{Errors: []string{}}
 	var seenPaths []string
 
 	err := filepath.WalkDir(rf.Path, func(path string, d fs.DirEntry, err error) error {

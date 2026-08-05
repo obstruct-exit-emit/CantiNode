@@ -308,6 +308,21 @@ func TestManualMatchAndClearMatch(t *testing.T) {
 	}
 }
 
+// TestScanResultErrorsEmptyIsNotNil guards against the same nil-slice-
+// marshals-to-null bug found in internal/database's List* methods (see
+// database.TestListRootFoldersEmptyIsNotNil) — ScanResult.Errors goes
+// straight into the GET /api/v1/scan/status JSON response.
+func TestScanResultErrorsEmptyIsNotNil(t *testing.T) {
+	s, rf := newTestScanner(t, nil, nil)
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.Errors == nil {
+		t.Error("ScanResult.Errors is nil for a clean scan, want a non-nil empty slice")
+	}
+}
+
 func TestScanRootFolderRemovesDeletedFiles(t *testing.T) {
 	s, rf := newTestScanner(t, nil, nil)
 	ctx := t.Context()

@@ -184,7 +184,9 @@ func (db *DB) ListTrackFilesByRootFolder(ctx context.Context, rootFolderID int64
 }
 
 func scanTrackFileRows(rows *sql.Rows) ([]TrackFile, error) {
-	var out []TrackFile
+	// Non-nil empty slice so an empty result JSON-encodes to [] rather
+	// than null — see database.ListArtists' identical note.
+	out := []TrackFile{}
 	for rows.Next() {
 		tf, err := scanTrackFile(rows)
 		if err != nil {

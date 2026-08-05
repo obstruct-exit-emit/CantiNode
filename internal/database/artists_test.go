@@ -37,3 +37,16 @@ func TestGetArtistNotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestListArtistsEmptyIsNotNil guards against a real bug — see
+// TestListRootFoldersEmptyIsNotNil's doc comment for the full story.
+func TestListArtistsEmptyIsNotNil(t *testing.T) {
+	db := openTestDB(t)
+	list, err := db.ListArtists(t.Context())
+	if err != nil {
+		t.Fatalf("ListArtists: %v", err)
+	}
+	if list == nil {
+		t.Error("ListArtists returned nil for an empty result, want a non-nil empty slice")
+	}
+}

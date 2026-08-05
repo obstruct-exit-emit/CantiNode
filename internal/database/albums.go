@@ -96,7 +96,9 @@ func (db *DB) ListAlbumsByArtist(ctx context.Context, artistID int64) ([]Album, 
 	}
 	defer rows.Close()
 
-	var out []Album
+	// Non-nil empty slice so an empty result JSON-encodes to [] rather
+	// than null — see database.ListArtists' identical note.
+	out := []Album{}
 	for rows.Next() {
 		var a Album
 		if err := rows.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.ReleaseGroupMBID, &a.Title, &a.ReleaseDate, &a.PrimaryType, &a.CreatedAt, &a.UpdatedAt); err != nil {

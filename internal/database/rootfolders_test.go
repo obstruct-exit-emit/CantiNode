@@ -38,6 +38,23 @@ func TestRootFolderCRUD(t *testing.T) {
 	}
 }
 
+// TestListRootFoldersEmptyIsNotNil guards against a real bug: a nil slice
+// (Go's zero value, what "var out []RootFolder" produces when a query
+// returns zero rows) JSON-marshals to `null`, not `[]` — which crashed
+// the web UI's artists.length-style checks on a fresh install with an
+// empty library. ListRootFolders (and every other List* in this package)
+// must always return a non-nil, possibly-empty slice.
+func TestListRootFoldersEmptyIsNotNil(t *testing.T) {
+	db := openTestDB(t)
+	list, err := db.ListRootFolders(t.Context())
+	if err != nil {
+		t.Fatalf("ListRootFolders: %v", err)
+	}
+	if list == nil {
+		t.Error("ListRootFolders returned nil for an empty result, want a non-nil empty slice (marshals to `null` instead of `[]`)")
+	}
+}
+
 func TestCreateRootFolderDuplicatePathFails(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()

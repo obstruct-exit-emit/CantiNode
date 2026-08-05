@@ -90,7 +90,10 @@ func (db *DB) ListArtists(ctx context.Context) ([]Artist, error) {
 	}
 	defer rows.Close()
 
-	var out []Artist
+	// A non-nil empty slice (not "var out []Artist"), so an empty result
+	// JSON-encodes to [] rather than null — internal/api returns this
+	// straight to the frontend, which does artists.length on it.
+	out := []Artist{}
 	for rows.Next() {
 		var a Artist
 		if err := rows.Scan(&a.ID, &a.MBID, &a.Name, &a.SortName, &a.CreatedAt, &a.UpdatedAt); err != nil {

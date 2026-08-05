@@ -88,7 +88,9 @@ func (db *DB) ListTracksByAlbum(ctx context.Context, albumID int64) ([]Track, er
 	}
 	defer rows.Close()
 
-	var out []Track
+	// Non-nil empty slice so an empty result JSON-encodes to [] rather
+	// than null — see database.ListArtists' identical note.
+	out := []Track{}
 	for rows.Next() {
 		var t Track
 		if err := rows.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt); err != nil {
