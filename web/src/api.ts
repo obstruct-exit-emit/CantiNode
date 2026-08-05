@@ -107,6 +107,14 @@ export interface TrackFile {
   organized_at?: string
 }
 
+// albumCoverURL builds the <img src> for an album's cover art. Uses the
+// ?api_key= query-param auth path (see internal/api's
+// requireAuthHeaderOrQuery) since a plain <img> tag can't send an
+// Authorization header.
+export function albumCoverURL(apiKey: string, albumId: number): string {
+  return `/api/v1/albums/${albumId}/cover?api_key=${encodeURIComponent(apiKey)}`
+}
+
 export function listArtists(apiKey: string): Promise<Artist[]> {
   return request('/api/v1/artists', apiKey)
 }
@@ -144,6 +152,22 @@ export function previewOrganize(apiKey: string, trackFileId: number): Promise<{ 
 
 export function organizeFile(apiKey: string, trackFileId: number): Promise<{ path: string }> {
   return request(`/api/v1/track-files/${trackFileId}/organize`, apiKey, { method: 'POST' })
+}
+
+// writeTags embeds the file's matched metadata (artist/album/track,
+// MusicBrainz IDs) back into its own tags — MP3/FLAC only, see
+// internal/tagwriter's doc comment for why other formats aren't
+// supported yet.
+export function writeTags(apiKey: string, trackFileId: number): Promise<void> {
+  return request(`/api/v1/track-files/${trackFileId}/write-tags`, apiKey, { method: 'POST' })
+}
+
+// tagWriteSupported mirrors internal/tagwriter.IsSupported — used to
+// decide whether to show the "Write tags" action at all for a given
+// file, rather than letting the user hit an error after the fact.
+export function tagWriteSupported(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase()
+  return ext === 'mp3' || ext === 'flac'
 }
 
 export interface ArtistRef {
@@ -220,6 +244,10 @@ export interface Settings {
   organize_on_match: boolean
   min_match_confidence: number
   musicbrainz_contact_email: string
+  prowlarr_url: string
+  prowlarr_api_key: string
+  acervinode_url: string
+  acervinode_api_key: string
 }
 
 export function getSettings(apiKey: string): Promise<Settings> {
@@ -228,4 +256,110 @@ export function getSettings(apiKey: string): Promise<Settings> {
 
 export function updateSettings(apiKey: string, settings: Settings): Promise<Settings> {
   return request('/api/v1/settings', apiKey, { method: 'PUT', ...json(settings) })
+}
+
+// --- Acquisition: monitor an artist, want their albums, search Prowlarr,
+// grab via AcerviNode. Optional — Prowlarr/AcerviNode may not be
+// configured yet, in which case search/grab calls fail with a plain
+// error message from the backend (see internal/acquisition). ---
+
+export interface MusicBrainzArtistSearchResult {
+  id: string
+  name: string
+  'sort-name': string
+  score: number
+}
+
+export function searchMusicBrainzArtists(apiKey: string, query: string): Promise<MusicBrainzArtistSearchResult[]> {
+  return request(`/api/v1/musicbrainz/artist-search?query=${encodeURIComponent(query)}`, apiKey)
+}
+
+export interface MonitoredArtist {
+  id: number
+  mbid: string
+  name: string
+  sort_name: string
+  added_at: string
+  last_synced_at?: string
+}
+
+export function listMonitoredArtists(apiKey: string): Promise<MonitoredArtist[]> {
+  return request('/api/v1/monitored-artists', apiKey)
+}
+
+export function monitorArtist(apiKey: string, mbid: string): Promise<MonitoredArtist> {
+  return request('/api/v1/monitored-artists', apiKey, { method: 'POST', ...json({ mbid }) })
+}
+
+export function unmonitorArtist(apiKey: string, id: number): Promise<void> {
+  return request(`/api/v1/monitored-artists/${id}`, apiKey, { method: 'DELETE' })
+}
+
+export function syncArtist(apiKey: string, id: number): Promise<void> {
+  return request(`/api/v1/monitored-artists/${id}/sync`, apiKey, { method: 'POST' })
+}
+
+export type WantedStatus = 'wanted' | 'downloading' | 'downloaded' | 'ignored'
+
+export interface WantedAlbum {
+  id: number
+  monitored_artist_id: number
+  release_group_mbid: string
+  title: string
+  primary_type: string
+  release_date: string
+  status: WantedStatus
+  added_at: string
+}
+
+export function listWantedAlbums(apiKey: string, monitoredArtistId: number): Promise<WantedAlbum[]> {
+  return request(`/api/v1/monitored-artists/${monitoredArtistId}/wanted`, apiKey)
+}
+
+export function ignoreWantedAlbum(apiKey: string, id: number): Promise<void> {
+  return request(`/api/v1/wanted-albums/${id}/ignore`, apiKey, { method: 'POST' })
+}
+
+export interface ProwlarrRelease {
+  guid: string
+  title: string
+  size: number
+  indexerId: number
+  indexer: string
+  publishDate: string
+  downloadUrl?: string
+  magnetUrl?: string
+  infoUrl?: string
+  protocol: 'torrent' | 'usenet' | 'unknown'
+  seeders?: number
+  leechers?: number
+}
+
+export function searchReleases(apiKey: string, wantedAlbumId: number): Promise<ProwlarrRelease[]> {
+  return request(`/api/v1/wanted-albums/${wantedAlbumId}/search`, apiKey)
+}
+
+export function grabRelease(apiKey: string, wantedAlbumId: number, release: ProwlarrRelease): Promise<Download> {
+  return request(`/api/v1/wanted-albums/${wantedAlbumId}/grab`, apiKey, { method: 'POST', ...json(release) })
+}
+
+export type DownloadStatus = 'downloading' | 'completed' | 'imported' | 'error'
+
+export interface Download {
+  id: number
+  wanted_album_id: number
+  root_folder_id: number
+  protocol: 'torrent' | 'usenet'
+  client_id: string
+  title: string
+  indexer: string
+  status: DownloadStatus
+  error_message: string
+  grabbed_at: string
+  completed_at?: string
+  imported_at?: string
+}
+
+export function listDownloads(apiKey: string): Promise<Download[]> {
+  return request('/api/v1/downloads', apiKey)
 }

@@ -43,8 +43,19 @@
 
 6. **Browse the Library** — matched artists → albums → tracks. Each track
    shows its file(s) with a **Preview** (see exactly where it would move
-   to, with no changes yet) and **Organize** (actually rename/move it)
-   action, using the naming format from Settings.
+   to, with no changes yet), **Organize** (actually rename/move it), and
+   — for MP3/FLAC — **Write tags** (embed the matched metadata into the
+   file's own tags) action, using the naming format from Settings.
+
+7. **(Optional) Set up acquisition** — Settings → Acquisition, if you run
+   a [Prowlarr](https://prowlarr.com) and/or
+   [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)
+   instance. Then, in the Wanted tab: monitor an artist (searches
+   MusicBrainz by name), which seeds their studio albums as wanted; **Find
+   release** searches Prowlarr for one, and **Grab** sends your pick to
+   AcerviNode. Grabbing is always a manual click — nothing downloads on
+   its own. A finished download is imported into the library
+   automatically once AcerviNode reports it done.
 
 Everything here is also a plain REST call under `/api/v1` — see
 [API](api.md) if you'd rather script it.

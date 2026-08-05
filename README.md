@@ -15,11 +15,11 @@ playlisting layered on afterward.
 
 </div>
 
-> 🚧 **Pre-1.0, organizer-first.** Root folders, library scanning, MusicBrainz
-> matching, manual review of unmatched files, and file organization
-> (rename/move by a configurable naming scheme) all work end to end. No
-> indexer/download-client acquisition pipeline yet, no LLM playlists, no Plex
-> sync yet — see the [roadmap](ROADMAP.md).
+> 🚧 **Pre-1.0.** Root folders, library scanning, MusicBrainz matching,
+> manual review, file organization, tag writing, cover art, and an optional
+> Prowlarr + AcerviNode acquisition pipeline (manual grab only — see
+> [Features](#features)) all work end to end. No LLM playlists, no Plex sync
+> yet — see the [roadmap](ROADMAP.md).
 
 ---
 
@@ -35,7 +35,11 @@ Where Lidarr treats organization as a side effect of acquisition, CantiNode
 starts from the opposite end: point it at folders of music you already have
 (ripped, purchased, downloaded some other way) and it builds a real library
 out of them — matched to MusicBrainz, browsable, correctly named — without
-requiring an indexer or a download client to get there.
+requiring an indexer or a download client to get there. An indexer and
+download client are there if you want them, too: monitor an artist and
+CantiNode will search [Prowlarr](https://prowlarr.com) and grab a release
+you pick through [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)
+— entirely optional, and grabbing is always your own call, never automatic.
 
 ## Features
 
@@ -67,11 +71,41 @@ requiring an indexer or a download client to get there.
 - Preview before you commit — see exactly what will move where — and it
   never silently overwrites an existing file.
 
+**🏷️ Tag writing**
+
+- Embed a matched file's corrected metadata — artist/album/track, plus
+  its MusicBrainz IDs — back into its own tags (ID3v2 for MP3, Vorbis
+  comments for FLAC), not just CantiNode's database. A one-click "Write
+  tags" action per file, manual like organizing — nothing rewrites a
+  file's tags without you asking it to.
+
+**🖼️ Cover art**
+
+- Front cover art fetched from Cover Art Archive and cached locally,
+  shown in the Library album grid.
+
+**⬇️ Acquisition (optional)**
+
+- Monitor an artist by MusicBrainz search; CantiNode auto-wants their
+  studio albums and lets you re-sync later to pick up new releases.
+- Search a self-hosted [Prowlarr](https://prowlarr.com) instance for a
+  wanted album and grab your pick directly through
+  [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)'s
+  qBittorrent/SABnzbd compat shims — the same way Sonarr/Radarr already
+  talk to it. **Always manual** — CantiNode never auto-downloads a search
+  result; v1 has no quality-profile system, so nothing decides "best
+  release" but you.
+- A finished download is imported automatically: copied into your
+  library and matched/organized the normal way, no manual step once
+  AcerviNode reports it done.
+- Both Prowlarr and AcerviNode are entirely optional (configured in
+  Settings) — everything above this section works with neither.
+
 **🖥️ Native API + web UI**
 
 - Versioned REST API (`/api/v1`), API-key authenticated — root folders,
   library browsing, unmatched-file review, scan control, organize
-  preview/apply, settings.
+  preview/apply, acquisition, settings.
 - A React (Vite) single-page dashboard, embedded into the binary.
 
 ## Quick start
@@ -101,6 +135,11 @@ Then open `http://localhost:7847`. Full steps:
 - **Database:** SQLite (pure Go, no cgo), embedded migrations
 - **Matching:** `internal/musicbrainz` (rate-limited MusicBrainz client) +
   `internal/scanner` (scan → match → organize pipeline)
+- **Tags:** `internal/tagreader` (read) + `internal/tagwriter` (write, MP3/FLAC)
+- **Cover art:** `internal/coverart` (Cover Art Archive, disk-cached)
+- **Acquisition (optional):** `internal/acquisition` orchestrates
+  `internal/prowlarr` (indexer search) and `internal/acervinode` (download
+  client)
 - **API:** `internal/api`, versioned `/api/v1`
 - **Frontend:** React (Vite) SPA embedded via `go:embed` — same look as
   LibriNode and AcerviNode

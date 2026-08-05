@@ -27,19 +27,35 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:7847/api/v1/root-folde
 | GET | `/api/v1/artists/{id}/albums` | List an artist's albums |
 | GET | `/api/v1/albums/{id}/tracks` | List an album's tracks |
 | GET | `/api/v1/tracks/{id}/files` | List the file(s) matched to a track |
+| GET | `/api/v1/albums/{id}/cover` | Album front cover image — accepts the API key via `?api_key=` too, since an `<img src>` can't send an `Authorization` header (see [Configuration](configuration.md)); 404 if the release has no cover art |
 | GET | `/api/v1/track-files/unmatched` | List files awaiting manual review |
 | POST | `/api/v1/track-files/{id}/match` | Manually link a file to a MusicBrainz recording — body `{"recording_mbid": "...", "release_mbid": "..."}` (`release_mbid` optional) |
 | DELETE | `/api/v1/track-files/{id}/match` | Unlink a file, moving it back to unmatched |
 | GET | `/api/v1/track-files/{id}/organize/preview` | Compute (without moving) where a matched file would be organized to |
 | POST | `/api/v1/track-files/{id}/organize` | Actually move/rename a matched file per `naming_format` |
+| POST | `/api/v1/track-files/{id}/write-tags` | Embed the file's matched metadata into its own tags (MP3/FLAC only) |
 | GET | `/api/v1/musicbrainz/search?artist=&album=&title=` | Fuzzy MusicBrainz recording search (any params optional, at least one needed) — what the Unmatched review UI uses |
 | POST | `/api/v1/scan` | Start a full scan (every root folder) in the background — 409 if one's already running |
 | GET | `/api/v1/scan/status` | Current/last scan's status |
-| GET | `/api/v1/settings` | Current settings (includes `api_key`) |
+| GET | `/api/v1/musicbrainz/artist-search?query=` | Fuzzy MusicBrainz artist search — what "Monitor an artist" uses to resolve a name to an MBID |
+| GET | `/api/v1/monitored-artists` | List monitored artists |
+| POST | `/api/v1/monitored-artists` | Monitor an artist and seed their wanted albums — body `{"mbid": "..."}` |
+| DELETE | `/api/v1/monitored-artists/{id}` | Stop monitoring (cascades to its wanted albums and any in-flight downloads for them) |
+| POST | `/api/v1/monitored-artists/{id}/sync` | Re-fetch the artist's release groups from MusicBrainz and want any new ones |
+| GET | `/api/v1/monitored-artists/{id}/wanted` | List an artist's wanted albums |
+| POST | `/api/v1/wanted-albums/{id}/ignore` | Mark a wanted album as ignored |
+| GET | `/api/v1/wanted-albums/{id}/search` | Search Prowlarr for this wanted album — 400 if Prowlarr isn't configured |
+| POST | `/api/v1/wanted-albums/{id}/grab` | Grab a release chosen from the search results (body: the release object as returned by search) via AcerviNode — 400 if Prowlarr or AcerviNode isn't configured, or no root folder exists yet |
+| GET | `/api/v1/downloads` | List every tracked download, most recent first |
+| GET | `/api/v1/settings` | Current settings (includes `api_key` and, if set, `prowlarr_api_key`/`acervinode_api_key`) |
 | PUT | `/api/v1/settings` | Update settings (`port` in the body is ignored — see [Configuration](configuration.md)) |
 
 All request/response bodies are JSON. A scan (`POST /api/v1/scan`) runs
 asynchronously — MusicBrainz's rate limit means a real scan of an
 unmatched library can take minutes, so the request returns immediately
 (`202 Accepted`) and `GET /api/v1/scan/status` is polled for progress, the
-same way the web UI does.
+same way the web UI does. Grabbing a release is synchronous (the add
+itself is fast) but importing it isn't — a background poll picks up a
+finished download and imports it automatically; `GET /api/v1/downloads`
+reflects its status (`downloading` → `completed` → `imported`, or
+`error`) as that happens.

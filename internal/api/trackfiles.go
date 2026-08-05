@@ -80,3 +80,15 @@ func (s *Server) handleOrganize(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]string{"path": path})
 }
+
+func (s *Server) handleWriteTags(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := s.scanner.WriteTags(r.Context(), id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

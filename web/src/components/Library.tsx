@@ -1,11 +1,14 @@
 import { Fragment, useEffect, useState } from 'react'
 import {
+  albumCoverURL,
   listAlbumsByArtist,
   listArtists,
   listTracksByAlbum,
   listTrackFilesByTrack,
   organizeFile,
   previewOrganize,
+  tagWriteSupported,
+  writeTags,
   type Album,
   type Artist,
   type Track,
@@ -91,6 +94,7 @@ export function Library({ apiKey }: { apiKey: string }) {
           <div className="card-grid">
             {albums.map((a) => (
               <button className="library-card" key={a.id} onClick={() => openAlbum(a)}>
+                <AlbumCoverImg apiKey={apiKey} albumId={a.id} />
                 <div className="library-card-title">{a.title}</div>
                 <div className="library-card-sub">
                   {a.release_date ? a.release_date.slice(0, 4) : '—'} · {a.primary_type || 'Album'}
@@ -120,6 +124,24 @@ export function Library({ apiKey }: { apiKey: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+// AlbumCoverImg hides itself entirely on error (no art cached/available
+// for this release, or a fetch failure) rather than showing a browser's
+// broken-image icon — the card still reads fine as title/year/type text
+// only.
+function AlbumCoverImg({ apiKey, albumId }: { apiKey: string; albumId: number }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return (
+    <img
+      className="library-card-cover"
+      src={albumCoverURL(apiKey, albumId)}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
   )
 }
 
@@ -215,6 +237,18 @@ function TrackFiles({ apiKey, files }: { apiKey: string; files: TrackFile[] }) {
     }
   }
 
+  async function handleWriteTags(f: TrackFile) {
+    setBusy(f.id)
+    try {
+      await writeTags(apiKey, f.id)
+      alert('Tags written.')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   if (files.length === 0) return <p className="text-muted">No file linked.</p>
 
   return (
@@ -232,6 +266,11 @@ function TrackFiles({ apiKey, files }: { apiKey: string; files: TrackFile[] }) {
           <button className="toggle" disabled={busy === f.id} onClick={() => handleOrganize(f)}>
             {busy === f.id ? 'Organizing…' : 'Organize'}
           </button>
+          {tagWriteSupported(f.path) && (
+            <button className="toggle" disabled={busy === f.id} onClick={() => handleWriteTags(f)}>
+              {busy === f.id ? 'Writing…' : 'Write tags'}
+            </button>
+          )}
         </li>
       ))}
     </ul>

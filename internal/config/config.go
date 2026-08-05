@@ -54,6 +54,20 @@ type Config struct {
 	// blocking it outright. Optional, but a well-formed User-Agent without
 	// real contact info is still what most API consumers get flagged for.
 	MusicBrainzContactEmail string `yaml:"musicbrainz_contact_email"`
+
+	// ProwlarrURL/ProwlarrAPIKey configure the optional acquisition
+	// pipeline's indexer search — both empty (the default) means
+	// internal/acquisition's Prowlarr client is simply nil, and every
+	// search/grab call reports "not configured" rather than erroring
+	// confusingly against an empty URL. See ROADMAP.md.
+	ProwlarrURL    string `yaml:"prowlarr_url"`
+	ProwlarrAPIKey string `yaml:"prowlarr_api_key"`
+
+	// AcerviNodeURL/AcerviNodeAPIKey configure the optional acquisition
+	// pipeline's download client — same "empty means not configured"
+	// treatment as the Prowlarr fields above.
+	AcerviNodeURL    string `yaml:"acervinode_url"`
+	AcerviNodeAPIKey string `yaml:"acervinode_api_key"`
 }
 
 var validLogLevels = map[string]bool{"debug": true, "info": true, "warn": true, "error": true}

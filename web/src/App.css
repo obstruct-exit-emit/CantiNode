@@ -116,6 +116,16 @@
   border-color: var(--accent);
 }
 
+.library-card-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--bg);
+}
+
 .library-card-title {
   font-weight: 500;
   font-size: 14px;
@@ -561,4 +571,72 @@ table.downloads tbody tr:hover {
 .add-download-panel button[type='submit']:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Wanted (acquisition) */
+.wanted {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wanted-header {
+  display: flex;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.badge-wanted {
+  background: var(--state-queued);
+}
+.badge-downloading {
+  background: var(--state-downloading);
+}
+.badge-completed {
+  background: var(--state-fetching);
+}
+.badge-downloaded,
+.badge-imported {
+  background: var(--state-ready);
+}
+.badge-error {
+  background: var(--state-error);
+}
+.badge-ignored {
+  background: var(--text-muted);
+}
+
+.error-message {
+  color: var(--state-error);
+  font-size: 12px;
+  white-space: normal;
+  margin-top: 2px;
+}
+
+.downloads-activity {
+  margin-top: 8px;
+}
+
+.name-cell {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.downloads-activity h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }

@@ -126,6 +126,61 @@ export function Settings({ apiKey }: { apiKey: string }) {
           {error && <p className="settings-error">{error}</p>}
         </form>
       </div>
+
+      <div className="settings-card">
+        <h2>Acquisition</h2>
+        <p className="settings-help">
+          Optional — connect a <a href="https://prowlarr.com" target="_blank" rel="noreferrer">Prowlarr</a> instance
+          for indexer search and an{' '}
+          <a href="https://github.com/obstruct-exit-emit/AcerviNode" target="_blank" rel="noreferrer">
+            AcerviNode
+          </a>{' '}
+          instance as the download client, to monitor artists and grab releases from the Wanted tab. Leave either
+          blank to leave that part of acquisition unavailable.
+        </p>
+        <form className="general-form" onSubmit={handleSubmit}>
+          <label>
+            Prowlarr URL
+            <input
+              type="text"
+              placeholder="http://localhost:9696"
+              value={settings.prowlarr_url}
+              onChange={(e) => setSettings({ ...settings, prowlarr_url: e.target.value })}
+            />
+          </label>
+          <label>
+            Prowlarr API key
+            <input
+              type="password"
+              value={settings.prowlarr_api_key}
+              onChange={(e) => setSettings({ ...settings, prowlarr_api_key: e.target.value })}
+            />
+          </label>
+          <label>
+            AcerviNode URL
+            <input
+              type="text"
+              placeholder="http://localhost:7846"
+              value={settings.acervinode_url}
+              onChange={(e) => setSettings({ ...settings, acervinode_url: e.target.value })}
+            />
+          </label>
+          <label>
+            AcerviNode API key
+            <input
+              type="password"
+              value={settings.acervinode_api_key}
+              onChange={(e) => setSettings({ ...settings, acervinode_api_key: e.target.value })}
+            />
+          </label>
+
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {success && <p className="settings-success">Saved.</p>}
+          {error && <p className="settings-error">{error}</p>}
+        </form>
+      </div>
     </div>
   )
 }

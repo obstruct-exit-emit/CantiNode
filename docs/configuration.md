@@ -20,12 +20,16 @@ Folders tab instead.
 | `organize_on_match` | `CANTINODE_ORGANIZE_ON_MATCH` | `false` | Move/rename a file immediately once matched, instead of requiring an explicit Organize action |
 | `min_match_confidence` | `CANTINODE_MIN_MATCH_CONFIDENCE` | `0.75` | Minimum MusicBrainz search score (0–1) to auto-accept a fuzzy match; a direct MBID match always wins regardless |
 | `musicbrainz_contact_email` | `CANTINODE_MUSICBRAINZ_CONTACT_EMAIL` | *(empty)* | Included in CantiNode's MusicBrainz User-Agent, per [MusicBrainz's API usage policy](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting) — optional, but recommended |
+| `prowlarr_url` | *(none)* | *(empty)* | Base URL of a self-hosted Prowlarr instance, e.g. `http://localhost:9696` — see [Acquisition](#acquisition) |
+| `prowlarr_api_key` | *(none)* | *(empty)* | Prowlarr's own API key |
+| `acervinode_url` | *(none)* | *(empty)* | Base URL of a self-hosted AcerviNode instance, e.g. `http://localhost:7846` |
+| `acervinode_api_key` | *(none)* | *(empty)* | AcerviNode's own API key |
 
-Everything except `port` can also be changed live through Settings → the
-web UI (or `PUT /api/v1/settings`) — `naming_format`,
-`min_match_confidence`, and `organize_on_match` take effect immediately,
-no restart needed. `port` requires editing `config.yaml` (or the env var)
-and restarting.
+Everything except `port` and `data_dir` can also be changed live through
+Settings → the web UI (or `PUT /api/v1/settings`) — `naming_format`,
+`min_match_confidence`, `organize_on_match`, and the Prowlarr/AcerviNode
+connection details all take effect immediately, no restart needed. `port`
+requires editing `config.yaml` (or the env var) and restarting.
 
 ## Naming format
 
@@ -48,6 +52,23 @@ characters like `:` `/` `?` become `_`) — the format string's own `/`
 separators are what create subfolders, and are left alone. Organizing
 never overwrites an existing file at the destination; it errors instead so
 you can resolve the collision by hand.
+
+## Acquisition
+
+Both `prowlarr_url`/`prowlarr_api_key` and `acervinode_url`/
+`acervinode_api_key` are optional — leaving either blank simply leaves that
+part of the Wanted tab unavailable (search or grab reports a plain "not
+configured" error), nothing else in CantiNode is affected. Both can be set
+directly in `config.yaml`/env or through Settings → Acquisition in the web
+UI, which is generally easier since it's just two URL/key pairs.
+
+CantiNode adds every grab to AcerviNode under the `music` category, which
+AcerviNode pre-registers automatically as Lidarr's own well-known default
+— no separate category setup is needed on the AcerviNode side.
+
+Grabbing a release is always a manual action — CantiNode never
+auto-downloads a search result. See [Roadmap](../ROADMAP.md) Phase 4 for
+why.
 
 ## MusicBrainz rate limiting
 

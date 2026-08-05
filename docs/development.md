@@ -44,12 +44,17 @@ does both steps, in the right order, as one command.
 ## Layout
 
 ```
-cmd/cantinode/            entrypoint: config, database, scanner, HTTP server, background scan loop
+cmd/cantinode/            entrypoint: config, database, scanner, acquisition, HTTP server, background loops
 internal/config/           config.yaml + env overrides, defaults/validation
-internal/database/          SQLite open + embedded migrations, CRUD for root_folders/artists/albums/tracks/track_files
+internal/database/          SQLite open + embedded migrations, CRUD for every table
 internal/tagreader/          reads ID3v1/v2, FLAC/Vorbis comments, MP4/M4A tags (github.com/dhowden/tag)
-internal/musicbrainz/        rate-limited MusicBrainz web service client (lookup + fuzzy search)
-internal/scanner/             scan -> match -> organize pipeline, tying the above together
+internal/tagwriter/          writes ID3v2 (MP3) / Vorbis comments (FLAC) back to a matched file
+internal/coverart/            Cover Art Archive client, disk-cached
+internal/musicbrainz/        rate-limited MusicBrainz web service client (artist/recording lookup + search)
+internal/scanner/             scan -> match -> organize pipeline, tying tagreader+musicbrainz together
+internal/prowlarr/             Prowlarr client: indexer search + resolving a release to a magnet URI/file
+internal/acervinode/          AcerviNode client: qBittorrent + SABnzbd compat-shim add/status
+internal/acquisition/          monitor -> want -> search -> grab -> import, tying prowlarr+acervinode+scanner together
 internal/api/                  native versioned REST API (/api/v1), what the UI runs on
 web/                              React SPA (embedded via go:embed — see web/webui.go)
 docs/                              this documentation
@@ -78,6 +83,38 @@ See `internal/scanner`:
 live `naming_format`/`min_match_confidence`/`organize_on_match` change
 into a running Scanner without a restart — guarded by its own mutex since
 a scan and a settings update can genuinely run concurrently.
+
+## The acquisition pipeline (optional)
+
+See `internal/acquisition`:
+
+- **Monitor** (`monitor.go`): `MonitorArtist` looks an artist up on
+  MusicBrainz and seeds `wanted_albums` from their release groups —
+  `syncWantedAlbums` only wants `primary-type == "Album"` with no
+  secondary types (Live/Compilation/...). `SyncArtist` re-runs this later
+  without resetting an already-downloaded/ignored album back to `wanted`.
+- **Search** (`search.go`): `SearchReleases` queries `internal/prowlarr`
+  with the monitored artist's name plus the wanted album's title.
+- **Grab** (`grab.go`): `GrabRelease` resolves the chosen release's
+  content via `prowlarr.Client.FetchContent` (a magnet URI, or actual
+  `.torrent`/`.nzb` bytes — Prowlarr's own `downloadUrl`/`magnetUrl` are
+  already proxied through Prowlarr itself) and hands it to
+  `internal/acervinode`, recording a `downloads` row. Always a human
+  choice — there's no code path that grabs a search result without an
+  explicit `GrabRelease` call from a user action.
+- **Poll + import** (`poll.go`): `PollDownloads` checks every
+  `downloading` row against AcerviNode; once AcerviNode reports it done,
+  `importDownload` copies the files from AcerviNode's own local disk into
+  the target root folder's `_incoming/download-<id>/` and runs
+  `Scanner.ScanRootFolder` on it immediately. A failed/vanished download
+  reverts its wanted album back to `wanted` (`failDownload`) rather than
+  leaving it stuck.
+
+`Service.UpdateClients` swaps in new Prowlarr/AcerviNode clients live —
+called by `internal/api`'s settings endpoint whenever their connection
+details change, same pattern as `Scanner.UpdateSettings`. Either (or both)
+may be `nil`, meaning "not configured" — every method checks and returns a
+plain error rather than assuming a client exists.
 
 ## Adding a new tag/format source
 

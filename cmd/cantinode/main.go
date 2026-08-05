@@ -15,10 +15,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cantinode/cantinode/internal/acervinode"
+	"github.com/cantinode/cantinode/internal/acquisition"
 	"github.com/cantinode/cantinode/internal/api"
 	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/prowlarr"
 	"github.com/cantinode/cantinode/internal/scanner"
 	"github.com/cantinode/cantinode/web"
 )
@@ -26,6 +30,14 @@ import (
 // version is stamped at build time via -ldflags "-X main.version=...". A
 // plain `go build` (or `go run`) without that flag keeps this default.
 var version = "0.0.0-dev"
+
+// acquisitionPollInterval is how often the background loop checks every
+// in-flight download's status against AcerviNode — independent of (and
+// much shorter than) scan_interval_hours, since a user watching a grab
+// progress wants far more responsive feedback than the library-scan
+// cadence. Not currently exposed as a setting — a fixed, reasonable
+// default rather than one more knob in v1.
+const acquisitionPollInterval = 2 * time.Minute
 
 func main() {
 	if err := run(context.Background()); err != nil {
@@ -62,15 +74,20 @@ func run(ctx context.Context) error {
 
 	mb := musicbrainz.NewClient(version, cfg.MusicBrainzContactEmail)
 	sc := scanner.New(db, mb, slog.Default(), cfg.NamingFormat, cfg.MinMatchConfidence, cfg.OrganizeOnMatch)
+	ca := coverart.NewClient(cfg.DataDir+"/covers", fmt.Sprintf("CantiNode/%s ( https://github.com/cantinode/cantinode )", version))
+
+	aq := acquisition.New(db, mb, sc, slog.Default())
+	aq.UpdateClients(newProwlarrClient(cfg, version), newAcerviClient(cfg))
 
 	// Logged so a config.yaml without an explicit api_key is still usable
 	// — otherwise a randomly generated key (see internal/config) would be
 	// invisible to whoever needs it to reach the API/UI from a script.
 	slog.Info("api key for the native API", "api_key", cfg.APIKey)
 
-	handler := buildHandler(db, sc, cfg, configPath)
+	handler := buildHandler(db, sc, ca, aq, cfg, configPath)
 
 	go runScanLoop(ctx, sc, time.Duration(cfg.ScanIntervalHours)*time.Hour)
+	go runAcquisitionPollLoop(ctx, aq, acquisitionPollInterval)
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
@@ -99,10 +116,10 @@ func run(ctx context.Context) error {
 // buildHandler assembles the native API and the embedded web UI under one
 // *http.ServeMux on one port. Split out from run() so tests can exercise
 // the full routing tree without binding a real socket.
-func buildHandler(db *database.DB, sc *scanner.Scanner, cfg *config.Config, configPath string) http.Handler {
+func buildHandler(db *database.DB, sc *scanner.Scanner, ca *coverart.Client, aq *acquisition.Service, cfg *config.Config, configPath string) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle("/api/v1/", api.NewServer(version, db, sc, cfg, configPath))
+	mux.Handle("/api/v1/", api.NewServer(version, db, sc, ca, aq, cfg, configPath))
 
 	// The embedded web UI is the lowest-priority route — it only ever
 	// receives requests the API pattern above didn't claim.
@@ -147,6 +164,52 @@ func runScanLoop(ctx context.Context, sc *scanner.Scanner, interval time.Duratio
 			scanOnce()
 		}
 	}
+}
+
+// runAcquisitionPollLoop checks every in-flight download's status
+// against AcerviNode on a fixed interval, importing whichever ones it
+// reports done — see internal/acquisition.Service.PollDownloads. A no-op
+// (not an error) whenever AcerviNode isn't configured yet.
+func runAcquisitionPollLoop(ctx context.Context, aq *acquisition.Service, interval time.Duration) {
+	pollOnce := func() {
+		result, err := aq.PollDownloads(ctx)
+		if err != nil {
+			slog.Error("acquisition poll failed", "error", err)
+			return
+		}
+		if result.Checked > 0 {
+			slog.Info("acquisition poll complete", "checked", result.Checked, "imported", result.Imported, "errored", result.Errored)
+		}
+	}
+
+	pollOnce()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pollOnce()
+		}
+	}
+}
+
+// newProwlarrClient/newAcerviClient return nil (meaning "not configured"
+// — see internal/acquisition) when their respective URL is blank in cfg.
+func newProwlarrClient(cfg *config.Config, version string) *prowlarr.Client {
+	if cfg.ProwlarrURL == "" {
+		return nil
+	}
+	return prowlarr.NewClient(cfg.ProwlarrURL, cfg.ProwlarrAPIKey, fmt.Sprintf("CantiNode/%s ( https://github.com/cantinode/cantinode )", version))
+}
+
+func newAcerviClient(cfg *config.Config) *acervinode.Client {
+	if cfg.AcerviNodeURL == "" {
+		return nil
+	}
+	return acervinode.NewClient(cfg.AcerviNodeURL, cfg.AcerviNodeAPIKey)
 }
 
 // parseLogLevel maps config's log_level string onto a slog.Level — config

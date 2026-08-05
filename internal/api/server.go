@@ -14,17 +14,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cantinode/cantinode/internal/acquisition"
 	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/scanner"
 )
 
 // Server is CantiNode's native API.
 type Server struct {
-	version string
-	db      *database.DB
-	scanner *scanner.Scanner
-	mux     *http.ServeMux
+	version     string
+	db          *database.DB
+	scanner     *scanner.Scanner
+	coverart    *coverart.Client
+	acquisition *acquisition.Service
+	mux         *http.ServeMux
 
 	cfgMu      sync.Mutex
 	cfg        *config.Config
@@ -49,13 +53,15 @@ type scanState struct {
 // identifier. cfg is the live, in-memory configuration; changes made
 // through PUT /api/v1/settings are applied to it and persisted to
 // configPath immediately.
-func NewServer(version string, db *database.DB, sc *scanner.Scanner, cfg *config.Config, configPath string) *Server {
+func NewServer(version string, db *database.DB, sc *scanner.Scanner, ca *coverart.Client, aq *acquisition.Service, cfg *config.Config, configPath string) *Server {
 	s := &Server{
-		version:    version,
-		db:         db,
-		scanner:    sc,
-		cfg:        cfg,
-		configPath: configPath,
+		version:     version,
+		db:          db,
+		scanner:     sc,
+		coverart:    ca,
+		acquisition: aq,
+		cfg:         cfg,
+		configPath:  configPath,
 	}
 	s.mux = http.NewServeMux()
 	s.routes()
@@ -77,6 +83,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/artists", s.requireAuth(s.handleListArtists))
 	s.mux.HandleFunc("GET /api/v1/artists/{id}/albums", s.requireAuth(s.handleListAlbumsByArtist))
 	s.mux.HandleFunc("GET /api/v1/albums/{id}/tracks", s.requireAuth(s.handleListTracksByAlbum))
+	// Not requireAuth: an <img src> tag can't send an Authorization
+	// header, so this route accepts the key via ?api_key= too — see
+	// requireAuthHeaderOrQuery's own doc comment.
+	s.mux.HandleFunc("GET /api/v1/albums/{id}/cover", s.requireAuthHeaderOrQuery(s.handleAlbumCover))
 	s.mux.HandleFunc("GET /api/v1/tracks/{id}/files", s.requireAuth(s.handleListTrackFilesByTrack))
 
 	s.mux.HandleFunc("GET /api/v1/track-files/unmatched", s.requireAuth(s.handleListUnmatched))
@@ -84,6 +94,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/track-files/{id}/match", s.requireAuth(s.handleClearMatch))
 	s.mux.HandleFunc("GET /api/v1/track-files/{id}/organize/preview", s.requireAuth(s.handlePreviewOrganize))
 	s.mux.HandleFunc("POST /api/v1/track-files/{id}/organize", s.requireAuth(s.handleOrganize))
+	s.mux.HandleFunc("POST /api/v1/track-files/{id}/write-tags", s.requireAuth(s.handleWriteTags))
 
 	s.mux.HandleFunc("GET /api/v1/musicbrainz/search", s.requireAuth(s.handleMusicBrainzSearch))
 
@@ -92,6 +103,20 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /api/v1/settings", s.requireAuth(s.handleGetSettings))
 	s.mux.HandleFunc("PUT /api/v1/settings", s.requireAuth(s.handleUpdateSettings))
+
+	// Acquisition (optional — see internal/acquisition's own doc comment):
+	// monitor artists, want their albums, search Prowlarr, grab via
+	// AcerviNode.
+	s.mux.HandleFunc("GET /api/v1/musicbrainz/artist-search", s.requireAuth(s.handleArtistSearch))
+	s.mux.HandleFunc("GET /api/v1/monitored-artists", s.requireAuth(s.handleListMonitoredArtists))
+	s.mux.HandleFunc("POST /api/v1/monitored-artists", s.requireAuth(s.handleMonitorArtist))
+	s.mux.HandleFunc("DELETE /api/v1/monitored-artists/{id}", s.requireAuth(s.handleUnmonitorArtist))
+	s.mux.HandleFunc("POST /api/v1/monitored-artists/{id}/sync", s.requireAuth(s.handleSyncArtist))
+	s.mux.HandleFunc("GET /api/v1/monitored-artists/{id}/wanted", s.requireAuth(s.handleListWantedAlbums))
+	s.mux.HandleFunc("POST /api/v1/wanted-albums/{id}/ignore", s.requireAuth(s.handleIgnoreWantedAlbum))
+	s.mux.HandleFunc("GET /api/v1/wanted-albums/{id}/search", s.requireAuth(s.handleSearchReleases))
+	s.mux.HandleFunc("POST /api/v1/wanted-albums/{id}/grab", s.requireAuth(s.handleGrabRelease))
+	s.mux.HandleFunc("GET /api/v1/downloads", s.requireAuth(s.handleListDownloads))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +135,28 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		s.cfgMu.Lock()
+		want := s.cfg.APIKey
+		s.cfgMu.Unlock()
+		if key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(want)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// requireAuthHeaderOrQuery is requireAuth plus a ?api_key= query
+// parameter fallback — for the one route the web UI can't attach a
+// bearer token to at all: a plain HTML <img src="..."> request. Every
+// other route stays header-only, matching the *arr-ecosystem convention
+// of only relaxing this for actual image endpoints, not the API broadly.
+func (s *Server) requireAuthHeaderOrQuery(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if key == "" {
+			key = r.URL.Query().Get("api_key")
+		}
 		s.cfgMu.Lock()
 		want := s.cfg.APIKey
 		s.cfgMu.Unlock()

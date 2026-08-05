@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 
+	"github.com/cantinode/cantinode/internal/acquisition"
 	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/scanner"
@@ -35,6 +38,8 @@ func testServer(t *testing.T, mbHandler http.HandlerFunc) (*Server, *database.DB
 	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", mbSrv.URL)
 
 	sc := scanner.New(db, mb, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	ca := coverart.NewClient(t.TempDir(), "cantinode-test/0.1")
+	aq := acquisition.New(db, mb, sc, nil)
 
 	cfg, err := config.Load("")
 	if err != nil {
@@ -43,7 +48,7 @@ func testServer(t *testing.T, mbHandler http.HandlerFunc) (*Server, *database.DB
 	cfg.APIKey = "test-api-key"
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 
-	s := NewServer("test", db, sc, cfg, configPath)
+	s := NewServer("test", db, sc, ca, aq, cfg, configPath)
 	return s, db, cfg.APIKey
 }
 
@@ -183,6 +188,107 @@ func TestLibraryBrowseEndpoints(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &files)
 	if len(files) != 1 || files[0].ID != tf.ID {
 		t.Errorf("files = %+v", files)
+	}
+}
+
+func TestAlbumCoverEndpoint(t *testing.T) {
+	db, err := database.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	caSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("fake jpeg bytes"))
+	}))
+	t.Cleanup(caSrv.Close)
+	ca := coverart.NewClientWithBaseURL(t.TempDir(), "cantinode-test/0.1", caSrv.URL)
+
+	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", "http://unused.invalid")
+	sc := scanner.New(db, mb, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	aq := acquisition.New(db, mb, sc, nil)
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.APIKey = "test-api-key"
+	s := NewServer("test", db, sc, ca, aq, cfg, filepath.Join(t.TempDir(), "config.yaml"))
+
+	ctx := t.Context()
+	artist, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := db.GetOrCreateAlbum(ctx, artist.ID, "release-mbid", "rg-mbid", "Album", "2020", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Header auth.
+	rec := doRequest(t, s, "GET", "/api/v1/albums/"+itoa(album.ID)+"/cover", "test-api-key", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "fake jpeg bytes" {
+		t.Errorf("body = %q", rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/jpeg" {
+		t.Errorf("Content-Type = %q, want image/jpeg", ct)
+	}
+
+	// Query-param auth (the <img src> path — no Authorization header at all).
+	req := httptest.NewRequest("GET", "/api/v1/albums/"+itoa(album.ID)+"/cover?api_key=test-api-key", nil)
+	rec2 := httptest.NewRecorder()
+	s.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("query-param auth status = %d, body = %s", rec2.Code, rec2.Body.String())
+	}
+
+	// No credentials at all: unauthorized.
+	req = httptest.NewRequest("GET", "/api/v1/albums/"+itoa(album.ID)+"/cover", nil)
+	rec3 := httptest.NewRecorder()
+	s.ServeHTTP(rec3, req)
+	if rec3.Code != http.StatusUnauthorized {
+		t.Errorf("no-credentials status = %d, want 401", rec3.Code)
+	}
+}
+
+func TestWriteTagsEndpoint(t *testing.T) {
+	s, db, apiKey := testServer(t, nil)
+	ctx := t.Context()
+
+	artist, err := db.GetOrCreateArtist(ctx, "a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := db.GetOrCreateAlbum(ctx, artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := db.GetOrCreateTrack(ctx, album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf, err := db.CreateRootFolder(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(rf.Path, "song.mp3")
+	if err := os.WriteFile(path, []byte("fake mp3 audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := db.UpsertTrackFileByPath(ctx, rf.ID, path, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTrackFileMatch(ctx, tf.ID, &track.ID, database.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doRequest(t, s, "POST", "/api/v1/track-files/"+itoa(tf.ID)+"/write-tags", apiKey, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 }
 

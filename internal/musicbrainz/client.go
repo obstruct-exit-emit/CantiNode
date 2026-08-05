@@ -84,6 +84,46 @@ func (c *Client) LookupRecording(ctx context.Context, mbid string) (*Recording, 
 	return &rec, nil
 }
 
+// LookupArtist fetches a single artist by MBID, with their full release
+// group list — used by internal/acquisition to seed a newly monitored
+// artist's wanted albums.
+func (c *Client) LookupArtist(ctx context.Context, mbid string) (*Artist, error) {
+	body, err := c.get(ctx, "/artist/"+url.PathEscape(mbid), url.Values{
+		"inc": {"release-groups"},
+		"fmt": {"json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var artist Artist
+	if err := json.Unmarshal(body, &artist); err != nil {
+		return nil, fmt.Errorf("decode artist %s: %w", mbid, err)
+	}
+	return &artist, nil
+}
+
+// SearchArtists fuzzy-searches for artists matching name, ordered by
+// MusicBrainz's own relevance score, most relevant first — used by the
+// "monitor an artist" UI to resolve a plain-text name to an MBID.
+func (c *Client) SearchArtists(ctx context.Context, name string) ([]Artist, error) {
+	if name == "" {
+		return nil, fmt.Errorf("search artists: name must not be empty")
+	}
+	body, err := c.get(ctx, "/artist/", url.Values{
+		"query": {`artist:"` + escapeQuoted(name) + `"`},
+		"fmt":   {"json"},
+		"limit": {"10"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp artistSearchResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decode artist search: %w", err)
+	}
+	return resp.Artists, nil
+}
+
 // SearchRecordings fuzzy-searches for recordings matching artist/release/
 // title (any may be empty, but at least one should be set for a useful
 // result), ordered by MusicBrainz's own relevance score (Recording.Score,

@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cantinode/cantinode/internal/acquisition"
 	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/scanner"
@@ -51,9 +53,11 @@ func TestBuildHandlerRoutesAPIAndWebUI(t *testing.T) {
 
 	mb := musicbrainz.NewClient(version, "")
 	sc := scanner.New(db, mb, nil, cfg.NamingFormat, cfg.MinMatchConfidence, cfg.OrganizeOnMatch)
+	ca := coverart.NewClient(t.TempDir(), "cantinode-test/0.1")
+	aq := acquisition.New(db, mb, sc, nil)
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 
-	handler := buildHandler(db, sc, cfg, configPath)
+	handler := buildHandler(db, sc, ca, aq, cfg, configPath)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

@@ -81,3 +81,32 @@ type recordingSearchResponse struct {
 	Recordings []Recording `json:"recordings"`
 	Count      int         `json:"count"`
 }
+
+// ReleaseGroupSummary is one of an artist's release groups, as returned
+// by LookupArtist — enough to decide whether internal/acquisition should
+// want it (PrimaryType == "Album", no secondary types like Live/
+// Compilation) without a further lookup.
+type ReleaseGroupSummary struct {
+	ID               string   `json:"id"`
+	Title            string   `json:"title"`
+	PrimaryType      string   `json:"primary-type"`
+	SecondaryTypes   []string `json:"secondary-types"`
+	FirstReleaseDate string   `json:"first-release-date"`
+}
+
+// Artist is a MusicBrainz artist, with its release groups (when fetched
+// via LookupArtist's inc=release-groups). Score is only populated by
+// SearchArtists (0-100, MusicBrainz's own relevance ranking) — always 0
+// on a direct LookupArtist, same convention as Recording.Score.
+type Artist struct {
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	SortName      string                `json:"sort-name"`
+	ReleaseGroups []ReleaseGroupSummary `json:"release-groups"`
+	Score         int                   `json:"score"`
+}
+
+type artistSearchResponse struct {
+	Artists []Artist `json:"artists"`
+	Count   int      `json:"count"`
+}
