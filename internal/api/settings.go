@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/cantinode/cantinode/internal/audiodb"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/prowlarr"
 	"github.com/cantinode/cantinode/internal/qbittorrent"
@@ -39,6 +40,11 @@ type settingsView struct {
 	QBittorrentPassword string `json:"qbittorrent_password"`
 	SABnzbdURL          string `json:"sabnzbd_url"`
 	SABnzbdAPIKey       string `json:"sabnzbd_api_key"`
+
+	// AudioDBAPIKey configures internal/audiodb's artist bio/image
+	// lookup — a blank value means "use TheAudioDB's own public shared
+	// key," not "not configured" (see config.Config.AudioDBAPIKey).
+	AudioDBAPIKey string `json:"audiodb_api_key"`
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +71,7 @@ func settingsFromConfig(cfg *config.Config) settingsView {
 		QBittorrentPassword:     cfg.QBittorrentPassword,
 		SABnzbdURL:              cfg.SABnzbdURL,
 		SABnzbdAPIKey:           cfg.SABnzbdAPIKey,
+		AudioDBAPIKey:           cfg.AudioDBAPIKey,
 	}
 }
 
@@ -98,6 +105,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	candidate.QBittorrentPassword = req.QBittorrentPassword
 	candidate.SABnzbdURL = req.SABnzbdURL
 	candidate.SABnzbdAPIKey = req.SABnzbdAPIKey
+	candidate.AudioDBAPIKey = req.AudioDBAPIKey
 
 	if err := candidate.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -110,6 +118,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	*s.cfg = candidate
 	s.scanner.UpdateSettings(candidate.NamingFormat, candidate.MinMatchConfidence, candidate.OrganizeOnMatch)
 	s.acquisition.UpdateClients(buildProwlarrClient(candidate, s.version), buildQBittorrentClient(candidate), buildSABnzbdClient(candidate))
+	s.acquisition.UpdateAudioDBClient(audiodb.NewClient(candidate.AudioDBAPIKey))
 
 	writeJSON(w, settingsFromConfig(s.cfg))
 }

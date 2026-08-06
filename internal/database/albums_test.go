@@ -36,6 +36,38 @@ func TestGetOrCreateAlbumCreatesThenReuses(t *testing.T) {
 	}
 }
 
+// TestGetOrCreateAlbumDedupesByReleaseGroupNotRelease guards against the
+// original bug this dedup key change fixes: MusicBrainz recordings from
+// the very same physical album can independently resolve to different
+// release editions (see musicbrainz.Recording.BestRelease), so keying
+// album identity on mbid alone used to create one albums row per edition
+// instead of one per canonical album.
+func TestGetOrCreateAlbumDedupesByReleaseGroupNotRelease(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	artist, err := db.GetOrCreateArtist(ctx, "artist-mbid", "Derek and the Dominos", "Derek and the Dominos")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+
+	a1, err := db.GetOrCreateAlbum(ctx, artist.ID, "release-edition-2011", "rg-layla", "Layla and Other Assorted Love Songs", "2011", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum (2011 edition): %v", err)
+	}
+
+	a2, err := db.GetOrCreateAlbum(ctx, artist.ID, "release-edition-1989", "rg-layla", "Layla and Other Assorted Love Songs", "1989", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum (1989 edition): %v", err)
+	}
+	if a2.ID != a1.ID {
+		t.Errorf("second edition of the same release group created a new row: ID = %d, want %d", a2.ID, a1.ID)
+	}
+	if a2.Title != "Layla and Other Assorted Love Songs" || a2.MBID != "release-edition-2011" {
+		t.Errorf("second call should return the first-recorded row as-is, got %+v", a2)
+	}
+}
+
 func TestGetAlbumNotFound(t *testing.T) {
 	db := openTestDB(t)
 	if _, err := db.GetAlbum(t.Context(), 999); err != ErrNotFound {

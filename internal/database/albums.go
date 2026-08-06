@@ -22,10 +22,29 @@ type Album struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// GetOrCreateAlbum returns the existing album for mbid, inserting one if
-// none exists yet.
+// GetOrCreateAlbum returns the existing album for artistID+releaseGroupMBID,
+// inserting one if none exists yet. Album identity is the release GROUP —
+// MusicBrainz's canonical album — not the specific release named by mbid:
+// a Recording independently resolves to whichever of its own releases
+// musicbrainz.Recording.BestRelease picks, so two tracks belonging to the
+// very same physical album can easily carry two different release mbids.
+// Deduplicating on release_group_mbid instead means they still collapse
+// into one album row; whichever release's mbid/title/release_date/
+// primary_type got recorded first is kept as-is on later calls, same as
+// this package's other GetOrCreate* functions.
+//
+// releaseGroupMBID should never actually be empty (MusicBrainz's own
+// release.ReleaseGroup.ID always is set), but falls back to the old
+// mbid-keyed lookup defensively rather than risk duplicate rows if it
+// ever is.
 func (db *DB) GetOrCreateAlbum(ctx context.Context, artistID int64, mbid, releaseGroupMBID, title, releaseDate, primaryType string) (*Album, error) {
-	existing, err := db.getAlbumByMBID(ctx, mbid)
+	var existing *Album
+	var err error
+	if releaseGroupMBID != "" {
+		existing, err = db.getAlbumByReleaseGroupMBID(ctx, artistID, releaseGroupMBID)
+	} else {
+		existing, err = db.getAlbumByMBID(ctx, mbid)
+	}
 	if err == nil {
 		return existing, nil
 	}
@@ -61,6 +80,21 @@ func (db *DB) getAlbumByMBID(ctx context.Context, mbid string) (*Album, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get album by mbid: %w", err)
+	}
+	return &a, nil
+}
+
+// getAlbumByReleaseGroupMBID mirrors getAlbumByMBID, scoped to the release
+// group identity GetOrCreateAlbum now uses — see its doc comment.
+func (db *DB) getAlbumByReleaseGroupMBID(ctx context.Context, artistID int64, releaseGroupMBID string) (*Album, error) {
+	var a Album
+	err := db.QueryRowContext(ctx, albumSelect+` WHERE artist_id = ? AND release_group_mbid = ?`, artistID, releaseGroupMBID).
+		Scan(&a.ID, &a.ArtistID, &a.MBID, &a.ReleaseGroupMBID, &a.Title, &a.ReleaseDate, &a.PrimaryType, &a.CreatedAt, &a.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get album by release group mbid: %w", err)
 	}
 	return &a, nil
 }

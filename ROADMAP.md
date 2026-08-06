@@ -14,6 +14,7 @@ every change lives in the [CHANGELOG](CHANGELOG.md).
 | [2 — Tag writing](#phase-2--tag-writing-) | Fix incorrect/missing tags on disk, not just read them | ✅ |
 | [3 — Cover art](#phase-3--cover-art-) | Cover Art Archive lookup + embedding/caching | ✅ |
 | [4 — Acquisition pipeline](#phase-4--acquisition-pipeline-) | Prowlarr search, monitored artists/wanted albums, manual grab via qBittorrent/SABnzbd, auto-import | ✅ |
+| [4.1 — Unified artist page](#phase-41--unified-artist-page-) | Library and Wanted merged into one per-artist page, cached discography + bio/photo, cancel a grab | ✅ |
 | [5 — LLM playlists](#phase-5--llm-playlists-) | LLM-generated playlists from natural-language prompts | 💡 |
 | [6 — Plex sync](#phase-6--plex-sync-) | Push playlists to Plex; trigger a Plex library scan of paths CantiNode organized | 💡 |
 | [7 — Acquisition hardening](#phase-7--acquisition-hardening-) | Quality profiles, auto-grab, MP4/M4A tag writing, multi-root-folder targeting | 💡 |
@@ -149,11 +150,53 @@ scoping decision, Phase 1) — built organizer-first, then added on request:
   leaving it stuck, so the user can just try a different release.
 - Web UI: a new Wanted tab — monitored artists, per-artist wanted-album
   list with status badges, a release-search-and-grab dialog, and a live
-  downloads-activity view.
+  downloads-activity view. **Superseded by Phase 4.1** — merged into the
+  unified artist page below.
 - Prowlarr, qBittorrent, and SABnzbd are all entirely optional and
   independent — a fresh install has none configured, and every
   acquisition call reports a plain "not configured" error rather than the
   feature being reachable at all in a broken state.
+
+## Phase 4.1 — Unified artist page ✅
+
+Live-testing Phase 4 against a real library surfaced two things worth
+fixing before calling acquisition done: matching a multi-track grab could
+fragment one physical album across several `albums` rows (or, once,
+attribute a track to an unrelated compilation) when per-file fuzzy scores
+diverged, and the separate Library/Wanted tabs meant an artist's owned
+albums and their acquisition state lived in two different places —
+closer to how [LibriNode](https://github.com/obstruct-exit-emit/LibriNode)
+presents an author.
+
+- **Whole-album matching**: files are grouped by directory and resolved
+  against one MusicBrainz release per folder rather than matched
+  independently — see `internal/scanner/folder_match.go`. Complemented by
+  two defense-in-depth fixes for whenever that folder-level resolution
+  falls back to independent per-file matching: `albums` rows are now
+  deduplicated by release-group (not the specific release edition a given
+  file happened to resolve to), and `musicbrainz.Recording.BestRelease`
+  prefers a release whose release-group is a clean, non-compilation/live
+  album over whichever release MusicBrainz's API happened to list first.
+- **Unified artist page**: `monitored_artists` folded into `artists`
+  (`is_monitored`, cached bio/image, `last_synced_at`). Monitoring an
+  artist now caches their *entire* discography (`artist_release_groups`)
+  instead of auto-wanting plain studio albums — nothing is wanted until
+  the user says so. A "Missing" section lists the cached discography
+  minus what's owned or already wanted, grouped by type (Album/EP/Live/
+  Compilation/Other), with per-item and bulk **Add** (just track it) /
+  **Add & Monitor** actions. The Library and Wanted tabs are gone in
+  favor of one page per artist: owned albums, Missing, Wanted (with
+  status/Find release), and that artist's downloads, all together.
+- **Metadata caching**: artist bio and photo come from
+  [TheAudioDB](https://www.theaudiodb.com) (`internal/audiodb`, falls
+  back to its public shared key if none is configured), fetched once on
+  first monitor and cached in the database — never re-fetched just from
+  browsing. A "Refresh metadata" button re-fetches both the bio/photo and
+  the cached discography on demand. Automatic refresh after N days is
+  deferred — see Phase 7.
+- **Cancel a grab**: `DELETE /api/v1/downloads/{id}` removes it from
+  whichever download client it was sent to and reverts the wanted album
+  back to `wanted`, for when a grab turns out to be the wrong pick.
 
 ## Phase 5 — LLM playlists 💡
 
@@ -190,3 +233,7 @@ Follow-on refinements to Phase 4, deliberately left out of the first pass:
   computing the infohash directly from the uploaded bencoded data (would
   need a small bencode parser + SHA1), which is reliable for CantiNode's
   one-grab-at-a-time usage but not under concurrent adds from elsewhere.
+- **Automatic metadata refresh** — an artist's cached bio/photo/
+  discography (Phase 4.1) only updates via the manual "Refresh metadata"
+  button today; a configurable staleness interval (e.g. re-fetch after N
+  days) would keep it current without the user having to remember.

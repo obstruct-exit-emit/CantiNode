@@ -132,7 +132,7 @@ export function Settings({ apiKey }: { apiKey: string }) {
         <p className="settings-help">
           Optional — connect a <a href="https://prowlarr.com" target="_blank" rel="noreferrer">Prowlarr</a> instance
           for indexer search, plus a qBittorrent and/or SABnzbd download client, to monitor artists and grab releases
-          from the Wanted tab. Each connection is independent and can be left blank; point them at genuine
+          from an artist's own page. Each connection is independent and can be left blank; point them at genuine
           qBittorrent/SABnzbd instances, or at{' '}
           <a href="https://github.com/obstruct-exit-emit/AcerviNode" target="_blank" rel="noreferrer">
             AcerviNode
@@ -204,6 +204,22 @@ export function Settings({ apiKey }: { apiKey: string }) {
               onChange={(e) => setSettings({ ...settings, sabnzbd_api_key: e.target.value })}
             />
           </label>
+
+          <h3>TheAudioDB</h3>
+          <label>
+            TheAudioDB API key (optional)
+            <input
+              type="password"
+              placeholder="leave blank to use TheAudioDB's public shared key"
+              value={settings.audiodb_api_key}
+              onChange={(e) => setSettings({ ...settings, audiodb_api_key: e.target.value })}
+            />
+          </label>
+          <p className="settings-help">
+            Used to fetch each monitored artist's biography and photo. A blank key still works — CantiNode falls
+            back to <a href="https://www.theaudiodb.com" target="_blank" rel="noreferrer">TheAudioDB</a>'s own public
+            shared key, the same one Lidarr uses.
+          </p>
 
           <button type="submit" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}

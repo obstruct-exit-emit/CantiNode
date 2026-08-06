@@ -31,7 +31,8 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:7847/api/v1/root-folde
 | GET | `/api/v1/albums/{id}/cover` | Album front cover image — accepts the API key via `?api_key=` too, since an `<img src>` can't send an `Authorization` header (see [Configuration](configuration.md)); 404 if the release has no cover art |
 | GET | `/api/v1/track-files/unmatched` | List files awaiting manual review |
 | POST | `/api/v1/track-files/{id}/match` | Manually link a file to a MusicBrainz recording — body `{"recording_mbid": "...", "release_mbid": "..."}` (`release_mbid` optional) |
-| DELETE | `/api/v1/track-files/{id}/match` | Unlink a file, moving it back to unmatched |
+| DELETE | `/api/v1/track-files/{id}/match` | Unlink a file, moving it back to unmatched (file on disk untouched) |
+| DELETE | `/api/v1/track-files/{id}` | Permanently delete a file — off disk and out of the database |
 | GET | `/api/v1/track-files/{id}/organize/preview` | Compute (without moving) where a matched file would be organized to |
 | POST | `/api/v1/track-files/{id}/organize` | Actually move/rename a matched file per `naming_format` |
 | POST | `/api/v1/track-files/{id}/write-tags` | Embed the file's matched metadata into its own tags (MP3/FLAC only) |
@@ -39,16 +40,20 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:7847/api/v1/root-folde
 | POST | `/api/v1/scan` | Start a full scan (every root folder) in the background — 409 if one's already running |
 | GET | `/api/v1/scan/status` | Current/last scan's status |
 | GET | `/api/v1/musicbrainz/artist-search?query=` | Fuzzy MusicBrainz artist search — what "Monitor an artist" uses to resolve a name to an MBID |
-| GET | `/api/v1/monitored-artists` | List monitored artists |
-| POST | `/api/v1/monitored-artists` | Monitor an artist and seed their wanted albums — body `{"mbid": "..."}` |
-| DELETE | `/api/v1/monitored-artists/{id}` | Stop monitoring (cascades to its wanted albums and any in-flight downloads for them) |
-| POST | `/api/v1/monitored-artists/{id}/sync` | Re-fetch the artist's release groups from MusicBrainz and want any new ones |
-| GET | `/api/v1/monitored-artists/{id}/wanted` | List an artist's wanted albums |
+| GET | `/api/v1/artists/{id}` | One artist's detail — bio/image (cached from TheAudioDB), monitoring state, `owned_album_count` |
+| POST | `/api/v1/artists/monitor` | Start monitoring an artist by MBID — body `{"mbid": "..."}`; caches their entire discography (see [Configuration](configuration.md)) but wants nothing automatically |
+| POST | `/api/v1/artists/{id}/monitor` | Start monitoring an already-known artist (already owned and/or previously unmonitored) |
+| POST | `/api/v1/artists/{id}/unmonitor` | Stop monitoring — just flips the flag; owned albums, wanted albums, and in-flight downloads are untouched |
+| POST | `/api/v1/artists/{id}/refresh-metadata` | Re-fetch the artist's cached discography from MusicBrainz and bio/image from TheAudioDB |
+| GET | `/api/v1/artists/{id}/missing` | Cached release groups not yet owned or wanted — the unified artist page's "Missing" section |
+| POST | `/api/v1/artists/{id}/wanted` | Want one release group from the cached discography — body `{"release_group_mbid": "..."}` ("Add"); the UI separately calls monitor for "Add & Monitor" |
+| GET | `/api/v1/artists/{id}/wanted` | List an artist's wanted albums |
 | POST | `/api/v1/wanted-albums/{id}/ignore` | Mark a wanted album as ignored |
 | GET | `/api/v1/wanted-albums/{id}/search` | Search Prowlarr for this wanted album — 400 if Prowlarr isn't configured |
 | POST | `/api/v1/wanted-albums/{id}/grab` | Grab a release chosen from the search results (body: the release object as returned by search) via qBittorrent or SABnzbd, whichever matches the release's protocol — 400 if Prowlarr or the matching download client isn't configured, or no root folder exists yet |
 | GET | `/api/v1/downloads` | List every tracked download, most recent first |
-| GET | `/api/v1/settings` | Current settings (includes `api_key` and, if set, `prowlarr_api_key`/`qbittorrent_password`/`sabnzbd_api_key`) |
+| DELETE | `/api/v1/downloads/{id}` | Cancel a grab — best-effort removes it from its download client and reverts the wanted album back to `wanted` |
+| GET | `/api/v1/settings` | Current settings (includes `api_key` and, if set, `prowlarr_api_key`/`qbittorrent_password`/`sabnzbd_api_key`/`audiodb_api_key`) |
 | PUT | `/api/v1/settings` | Update settings (`port` in the body is ignored — see [Configuration](configuration.md)) |
 
 All request/response bodies are JSON. A scan (`POST /api/v1/scan`) runs

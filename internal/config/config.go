@@ -82,6 +82,13 @@ type Config struct {
 	// internal/sabnzbd's package doc.
 	SABnzbdURL    string `yaml:"sabnzbd_url"`
 	SABnzbdAPIKey string `yaml:"sabnzbd_api_key"`
+
+	// AudioDBAPIKey configures internal/audiodb's artist bio/image lookup.
+	// Optional — an empty value (the default) falls back to TheAudioDB's
+	// own public shared test key rather than "not configured", since a
+	// missing bio/photo is a minor cosmetic gap, not a broken feature the
+	// way an unconfigured Prowlarr/download client would be.
+	AudioDBAPIKey string `yaml:"audiodb_api_key"`
 }
 
 var validLogLevels = map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
@@ -184,6 +191,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("CANTINODE_MUSICBRAINZ_CONTACT_EMAIL"); v != "" {
 		cfg.MusicBrainzContactEmail = v
+	}
+	if v := os.Getenv("CANTINODE_AUDIODB_API_KEY"); v != "" {
+		cfg.AudioDBAPIKey = v
 	}
 }
 

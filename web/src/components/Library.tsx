@@ -1,315 +1,146 @@
-import { Fragment, useEffect, useState } from 'react'
-import {
-  albumCoverURL,
-  clearMatch,
-  deleteTrackFile,
-  listAlbumsByArtist,
-  listArtists,
-  listTracksByAlbum,
-  listTrackFilesByTrack,
-  organizeFile,
-  previewOrganize,
-  tagWriteSupported,
-  writeTags,
-  type Album,
-  type Artist,
-  type Track,
-  type TrackFile,
-} from '../api'
-
-function formatDuration(ms: number): string {
-  if (!ms) return '—'
-  const totalSeconds = Math.round(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
-
-function formatBytes(bytes: number): string {
-  if (!bytes) return '—'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let n = bytes
-  let i = 0
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024
-    i++
-  }
-  return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
+import { useEffect, useState } from 'react'
+import { listArtists, monitorArtistByMBID, searchMusicBrainzArtists, type Artist, type MusicBrainzArtistSearchResult } from '../api'
+import { ArtistDetail } from './ArtistDetail'
 
 export function Library({ apiKey }: { apiKey: string }) {
   const [artists, setArtists] = useState<Artist[]>([])
-  const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null)
-  const [albums, setAlbums] = useState<Album[]>([])
-  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null)
-  const [tracks, setTracks] = useState<Track[]>([])
+  const [selectedArtistId, setSelectedArtistId] = useState<number | null>(null)
+  const [monitorOpen, setMonitorOpen] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
 
-  useEffect(() => {
+  function refreshArtists() {
     listArtists(apiKey)
       .then(setArtists)
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }, [apiKey])
-
-  function openArtist(artist: Artist) {
-    setSelectedArtist(artist)
-    setSelectedAlbum(null)
-    setAlbums([])
-    setTracks([])
-    listAlbumsByArtist(apiKey, artist.id)
-      .then(setAlbums)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }
 
-  function openAlbum(album: Album) {
-    setSelectedAlbum(album)
-    setTracks([])
-    listTracksByAlbum(apiKey, album.id)
-      .then(setTracks)
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }
+  useEffect(refreshArtists, [apiKey])
 
   if (error) return <p className="load-error">Couldn't load the library: {error}</p>
 
-  if (selectedAlbum && selectedArtist) {
+  if (selectedArtistId !== null) {
     return (
-      <div className="library">
-        <Breadcrumb
-          items={[
-            { label: 'Artists', onClick: () => setSelectedArtist(null) },
-            { label: selectedArtist.name, onClick: () => setSelectedAlbum(null) },
-            { label: selectedAlbum.title },
-          ]}
-        />
-        <TrackTable apiKey={apiKey} tracks={tracks} />
-      </div>
-    )
-  }
-
-  if (selectedArtist) {
-    return (
-      <div className="library">
-        <Breadcrumb items={[{ label: 'Artists', onClick: () => setSelectedArtist(null) }, { label: selectedArtist.name }]} />
-        {albums.length === 0 ? (
-          <p className="empty">No albums yet.</p>
-        ) : (
-          <div className="card-grid">
-            {albums.map((a) => (
-              <button className="library-card" key={a.id} onClick={() => openAlbum(a)}>
-                <AlbumCoverImg apiKey={apiKey} albumId={a.id} />
-                <div className="library-card-title">{a.title}</div>
-                <div className="library-card-sub">
-                  {a.release_date ? a.release_date.slice(0, 4) : '—'} · {a.primary_type || 'Album'}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <ArtistDetail
+        apiKey={apiKey}
+        artistId={selectedArtistId}
+        onBack={() => {
+          setSelectedArtistId(null)
+          refreshArtists()
+        }}
+      />
     )
   }
 
   return (
     <div className="library">
+      <div className="wanted-header">
+        <button className="scan-btn" onClick={() => setMonitorOpen(true)}>
+          + Monitor Artist
+        </button>
+      </div>
+
       {artists.length === 0 ? (
         <p className="empty">
-          No matched music yet. Add a root folder and run a scan — matched artists show up here once files are
-          matched to MusicBrainz.
+          No artists yet. Add a root folder and run a scan to bring in matched music, or monitor an artist to start
+          tracking their discography before you own anything from them.
         </p>
       ) : (
         <div className="card-grid">
           {artists.map((a) => (
-            <button className="library-card" key={a.id} onClick={() => openArtist(a)}>
+            <button className="library-card" key={a.id} onClick={() => setSelectedArtistId(a.id)}>
               <div className="library-card-title">{a.name}</div>
+              {a.is_monitored && <span className="badge badge-wanted">Monitoring</span>}
             </button>
           ))}
         </div>
+      )}
+
+      {monitorOpen && (
+        <MonitorArtistDialog
+          apiKey={apiKey}
+          onClose={() => setMonitorOpen(false)}
+          onMonitored={(artist) => {
+            setMonitorOpen(false)
+            refreshArtists()
+            setSelectedArtistId(artist.id)
+          }}
+        />
       )}
     </div>
   )
 }
 
-// AlbumCoverImg hides itself entirely on error (no art cached/available
-// for this release, or a fetch failure) rather than showing a browser's
-// broken-image icon — the card still reads fine as title/year/type text
-// only.
-function AlbumCoverImg({ apiKey, albumId }: { apiKey: string; albumId: number }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) return null
-  return (
-    <img
-      className="library-card-cover"
-      src={albumCoverURL(apiKey, albumId)}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  )
-}
+function MonitorArtistDialog({
+  apiKey,
+  onClose,
+  onMonitored,
+}: {
+  apiKey: string
+  onClose: () => void
+  onMonitored: (artist: Artist) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<MusicBrainzArtistSearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [adding, setAdding] = useState<string | null>(null)
+  const [error, setError] = useState<string | undefined>(undefined)
 
-function Breadcrumb({ items }: { items: { label: string; onClick?: () => void }[] }) {
-  return (
-    <nav className="breadcrumb">
-      {items.map((item, i) => (
-        <span key={i}>
-          {i > 0 && <span className="breadcrumb-sep">/</span>}
-          {item.onClick ? (
-            <button className="breadcrumb-link" onClick={item.onClick}>
-              {item.label}
-            </button>
-          ) : (
-            <span className="breadcrumb-current">{item.label}</span>
-          )}
-        </span>
-      ))}
-    </nav>
-  )
-}
-
-function TrackTable({ apiKey, tracks }: { apiKey: string; tracks: Track[] }) {
-  const [expanded, setExpanded] = useState<number | null>(null)
-  const [files, setFiles] = useState<TrackFile[]>([])
-
-  function toggle(track: Track) {
-    if (expanded === track.id) {
-      setExpanded(null)
-      return
-    }
-    setExpanded(track.id)
-    listTrackFilesByTrack(apiKey, track.id).then(setFiles)
-  }
-
-  function refreshFiles() {
-    if (expanded !== null) listTrackFilesByTrack(apiKey, expanded).then(setFiles)
-  }
-
-  if (tracks.length === 0) return <p className="empty">No tracks yet.</p>
-
-  return (
-    <table className="downloads">
-      <thead>
-        <tr>
-          <th></th>
-          <th>#</th>
-          <th>Title</th>
-          <th>Duration</th>
-        </tr>
-      </thead>
-      <tbody>
-        {tracks.map((t) => (
-          <Fragment key={t.id}>
-            <tr className="row-clickable" onClick={() => toggle(t)}>
-              <td>{expanded === t.id ? '▾' : '▸'}</td>
-              <td>{t.track_number || '—'}</td>
-              <td>{t.title}</td>
-              <td>{formatDuration(t.duration_ms)}</td>
-            </tr>
-            {expanded === t.id && (
-              <tr>
-                <td colSpan={4}>
-                  <TrackFiles apiKey={apiKey} files={files} onChanged={refreshFiles} />
-                </td>
-              </tr>
-            )}
-          </Fragment>
-        ))}
-      </tbody>
-    </table>
-  )
-}
-
-function TrackFiles({ apiKey, files, onChanged }: { apiKey: string; files: TrackFile[]; onChanged: () => void }) {
-  const [busy, setBusy] = useState<number | null>(null)
-  const [preview, setPreview] = useState<Record<number, string>>({})
-
-  async function handlePreview(f: TrackFile) {
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault()
+    setSearching(true)
+    setError(undefined)
     try {
-      const { path } = await previewOrganize(apiKey, f.id)
-      setPreview((prev) => ({ ...prev, [f.id]: path }))
+      setResults(await searchMusicBrainzArtists(apiKey, query))
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  async function handleOrganize(f: TrackFile) {
-    setBusy(f.id)
-    try {
-      await organizeFile(apiKey, f.id)
-      alert('Organized.')
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setBusy(null)
+      setSearching(false)
     }
   }
 
-  async function handleWriteTags(f: TrackFile) {
-    setBusy(f.id)
+  async function handlePick(a: MusicBrainzArtistSearchResult) {
+    setAdding(a.id)
     try {
-      await writeTags(apiKey, f.id)
-      alert('Tags written.')
+      const artist = await monitorArtistByMBID(apiKey, a.id)
+      onMonitored(artist)
     } catch (err) {
-      alert(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
+      setError(err instanceof Error ? err.message : String(err))
+      setAdding(null)
     }
   }
-
-  async function handleUnmatch(f: TrackFile) {
-    if (!confirm('Unmatch this file? It moves back to the Unmatched review queue; the file itself is untouched.')) return
-    setBusy(f.id)
-    try {
-      await clearMatch(apiKey, f.id)
-      onChanged()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function handleDelete(f: TrackFile) {
-    if (!confirm(`Permanently delete ${f.path}? This removes the file from disk — it cannot be undone.`)) return
-    setBusy(f.id)
-    try {
-      await deleteTrackFile(apiKey, f.id)
-      onChanged()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err))
-      setBusy(null)
-    }
-  }
-
-  if (files.length === 0) return <p className="text-muted">No file linked.</p>
 
   return (
-    <ul className="rows">
-      {files.map((f) => (
-        <li className="row" key={f.id}>
-          <span className="user-row-name mono">{f.path}</span>
-          <span className="text-muted">
-            {f.format.toUpperCase()} · {formatBytes(f.size_bytes)}
-          </span>
-          {preview[f.id] && <span className="text-muted mono">→ {preview[f.id]}</span>}
-          <button className="toggle" onClick={() => handlePreview(f)}>
-            Preview
+    <div className="detail-overlay" onClick={onClose}>
+      <div className="detail-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="detail-header">
+          <h2>Monitor an artist</h2>
+          <button className="detail-close" onClick={onClose}>
+            ✕
           </button>
-          <button className="toggle" disabled={busy === f.id} onClick={() => handleOrganize(f)}>
-            {busy === f.id ? 'Organizing…' : 'Organize'}
+        </div>
+
+        <form onSubmit={handleSearch} className="add-download-panel">
+          <input type="text" placeholder="Artist name" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
+          <button type="submit" disabled={searching || !query.trim()}>
+            {searching ? 'Searching…' : 'Search MusicBrainz'}
           </button>
-          {tagWriteSupported(f.path) && (
-            <button className="toggle" disabled={busy === f.id} onClick={() => handleWriteTags(f)}>
-              {busy === f.id ? 'Writing…' : 'Write tags'}
-            </button>
-          )}
-          <button className="toggle" disabled={busy === f.id} onClick={() => handleUnmatch(f)}>
-            Unmatch
-          </button>
-          <button className="toggle toggle-danger" disabled={busy === f.id} onClick={() => handleDelete(f)}>
-            Delete
-          </button>
-        </li>
-      ))}
-    </ul>
+        </form>
+
+        {error && <p className="settings-error">{error}</p>}
+
+        {results.length > 0 && (
+          <ul className="rows" style={{ marginTop: 16 }}>
+            {results.map((a) => (
+              <li className="row" key={a.id}>
+                <span className="user-row-name">{a.name}</span>
+                <button disabled={adding === a.id} onClick={() => handlePick(a)}>
+                  {adding === a.id ? 'Adding…' : 'Monitor'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   )
 }

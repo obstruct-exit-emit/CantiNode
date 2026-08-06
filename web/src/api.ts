@@ -87,6 +87,18 @@ export interface Artist {
   mbid: string
   name: string
   sort_name: string
+  is_monitored: boolean
+  last_synced_at?: string
+  bio: string
+  image_url: string
+  metadata_fetched_at?: string
+}
+
+// ArtistDetail is Artist plus its owned-album count — GET
+// /api/v1/artists/{id}, the unified artist page's header. The albums
+// themselves are still fetched separately via listAlbumsByArtist.
+export interface ArtistDetail extends Artist {
+  owned_album_count: number
 }
 
 export interface Album {
@@ -278,6 +290,7 @@ export interface Settings {
   qbittorrent_password: string
   sabnzbd_url: string
   sabnzbd_api_key: string
+  audiodb_api_key: string
 }
 
 export function getSettings(apiKey: string): Promise<Settings> {
@@ -305,36 +318,55 @@ export function searchMusicBrainzArtists(apiKey: string, query: string): Promise
   return request(`/api/v1/musicbrainz/artist-search?query=${encodeURIComponent(query)}`, apiKey)
 }
 
-export interface MonitoredArtist {
-  id: number
-  mbid: string
-  name: string
-  sort_name: string
-  added_at: string
-  last_synced_at?: string
+export function getArtist(apiKey: string, id: number): Promise<ArtistDetail> {
+  return request(`/api/v1/artists/${id}`, apiKey)
 }
 
-export function listMonitoredArtists(apiKey: string): Promise<MonitoredArtist[]> {
-  return request('/api/v1/monitored-artists', apiKey)
+// monitorArtistByMBID starts monitoring an artist CantiNode may not have
+// a row for yet at all — the "monitor an artist" MusicBrainz search flow.
+export function monitorArtistByMBID(apiKey: string, mbid: string): Promise<Artist> {
+  return request('/api/v1/artists/monitor', apiKey, { method: 'POST', ...json({ mbid }) })
 }
 
-export function monitorArtist(apiKey: string, mbid: string): Promise<MonitoredArtist> {
-  return request('/api/v1/monitored-artists', apiKey, { method: 'POST', ...json({ mbid }) })
+// monitorArtistByID starts monitoring an artist CantiNode already has a
+// row for (e.g. one it only knows about from owned files) — the unified
+// artist page's own "Monitor" button.
+export function monitorArtistByID(apiKey: string, id: number): Promise<Artist> {
+  return request(`/api/v1/artists/${id}/monitor`, apiKey, { method: 'POST' })
 }
 
 export function unmonitorArtist(apiKey: string, id: number): Promise<void> {
-  return request(`/api/v1/monitored-artists/${id}`, apiKey, { method: 'DELETE' })
+  return request(`/api/v1/artists/${id}/unmonitor`, apiKey, { method: 'POST' })
 }
 
-export function syncArtist(apiKey: string, id: number): Promise<void> {
-  return request(`/api/v1/monitored-artists/${id}/sync`, apiKey, { method: 'POST' })
+// refreshArtistMetadata re-fetches an artist's cached discography and
+// bio/image — the unified artist page's "Refresh metadata" button.
+export function refreshArtistMetadata(apiKey: string, id: number): Promise<void> {
+  return request(`/api/v1/artists/${id}/refresh-metadata`, apiKey, { method: 'POST' })
+}
+
+export interface ReleaseGroupCache {
+  id: number
+  artist_id: number
+  release_group_mbid: string
+  title: string
+  primary_type: string
+  secondary_types: string[]
+  first_release_date: string
+}
+
+// listMissingReleaseGroups is the unified artist page's "Missing"
+// section — cached discography minus whatever's already owned or
+// already wanted.
+export function listMissingReleaseGroups(apiKey: string, artistId: number): Promise<ReleaseGroupCache[]> {
+  return request(`/api/v1/artists/${artistId}/missing`, apiKey)
 }
 
 export type WantedStatus = 'wanted' | 'downloading' | 'downloaded' | 'ignored'
 
 export interface WantedAlbum {
   id: number
-  monitored_artist_id: number
+  artist_id: number
   release_group_mbid: string
   title: string
   primary_type: string
@@ -343,8 +375,18 @@ export interface WantedAlbum {
   added_at: string
 }
 
-export function listWantedAlbums(apiKey: string, monitoredArtistId: number): Promise<WantedAlbum[]> {
-  return request(`/api/v1/monitored-artists/${monitoredArtistId}/wanted`, apiKey)
+export function listWantedAlbums(apiKey: string, artistId: number): Promise<WantedAlbum[]> {
+  return request(`/api/v1/artists/${artistId}/wanted`, apiKey)
+}
+
+// wantArtistAlbum is the unified artist page's per-row/bulk "Add"/"Add &
+// Monitor" action — monitor=true additionally starts monitoring the
+// artist (still no auto-grab either way).
+export function wantArtistAlbum(apiKey: string, artistId: number, releaseGroupMbid: string, monitor?: boolean): Promise<WantedAlbum> {
+  return request(`/api/v1/artists/${artistId}/wanted`, apiKey, {
+    method: 'POST',
+    ...json({ release_group_mbid: releaseGroupMbid, monitor: monitor ?? false }),
+  })
 }
 
 export function ignoreWantedAlbum(apiKey: string, id: number): Promise<void> {

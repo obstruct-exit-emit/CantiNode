@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cantinode/cantinode/internal/acquisition"
+	"github.com/cantinode/cantinode/internal/audiodb"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/database"
@@ -21,6 +22,9 @@ import (
 // testServer wires up a Server against a real in-memory database and a
 // scanner pointed at a local MusicBrainz stand-in (mbHandler, or a 404
 // default if nil), for tests that don't care about matching specifics.
+// TheAudioDB is likewise stubbed against a local server (rather than the
+// real theaudiodb.com) — see internal/acquisition's own newTestService
+// for why.
 func testServer(t *testing.T, mbHandler http.HandlerFunc) (*Server, *database.DB, string) {
 	t.Helper()
 
@@ -37,9 +41,16 @@ func testServer(t *testing.T, mbHandler http.HandlerFunc) (*Server, *database.DB
 	t.Cleanup(mbSrv.Close)
 	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", mbSrv.URL)
 
+	adbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"artists": null}`))
+	}))
+	t.Cleanup(adbSrv.Close)
+
 	sc := scanner.New(db, mb, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
 	ca := coverart.NewClient(t.TempDir(), "cantinode-test/0.1")
 	aq := acquisition.New(db, mb, sc, nil)
+	aq.UpdateAudioDBClient(audiodb.NewClientWithBaseURL("test-key", adbSrv.URL))
 
 	cfg, err := config.Load("")
 	if err != nil {

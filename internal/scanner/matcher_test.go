@@ -71,9 +71,10 @@ type mbRecording struct {
 		Title        string `json:"title"`
 		Date         string `json:"date"`
 		ReleaseGroup struct {
-			ID          string `json:"id"`
-			Title       string `json:"title"`
-			PrimaryType string `json:"primary-type"`
+			ID             string   `json:"id"`
+			Title          string   `json:"title"`
+			PrimaryType    string   `json:"primary-type"`
+			SecondaryTypes []string `json:"secondary-types,omitempty"`
 		} `json:"release-group"`
 	} `json:"releases"`
 }
@@ -97,14 +98,16 @@ func sampleRecording(id string, score int) mbRecording {
 		Title        string `json:"title"`
 		Date         string `json:"date"`
 		ReleaseGroup struct {
-			ID          string `json:"id"`
-			Title       string `json:"title"`
-			PrimaryType string `json:"primary-type"`
+			ID             string   `json:"id"`
+			Title          string   `json:"title"`
+			PrimaryType    string   `json:"primary-type"`
+			SecondaryTypes []string `json:"secondary-types,omitempty"`
 		} `json:"release-group"`
 	}{{ID: "release-mbid", Title: "Geogaddi", Date: "2002-02-04", ReleaseGroup: struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		PrimaryType string `json:"primary-type"`
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		PrimaryType    string   `json:"primary-type"`
+		SecondaryTypes []string `json:"secondary-types,omitempty"`
 	}{ID: "rg-mbid", Title: "Geogaddi", PrimaryType: "Album"}}}
 	return rec
 }
@@ -271,6 +274,56 @@ func TestScanRootFolderRescanDoesNotClearExistingMatch(t *testing.T) {
 	}
 	if len(matched) != 1 {
 		t.Errorf("len(matched) after rescan = %d, want 1 (match should persist)", len(matched))
+	}
+}
+
+// TestScanRootFolderDedupesAlbumAcrossDifferentReleaseEditions is the
+// regression test for the "one album showed up as several library cards"
+// bug: two files whose own embedded recording IDs each independently
+// resolve (via musicbrainz.Recording.BestRelease) to a *different*
+// release edition of the very same release group must still collapse
+// into a single albums row, since that's what actually happened with a
+// real Derek and the Dominos grab — different tracks' recordings each
+// pointed at a different "Layla and Other Assorted Love Songs" pressing.
+func TestScanRootFolderDedupesAlbumAcrossDifferentReleaseEditions(t *testing.T) {
+	recA := sampleRecording("rec-a", 0)
+	recA.Releases[0].ID = "release-edition-a"
+	recA.Releases[0].Date = "2011"
+	recB := sampleRecording("rec-b", 0)
+	recB.Releases[0].ID = "release-edition-b"
+	recB.Releases[0].Date = "1989"
+	// Both recordings' releases share sampleRecording's own "rg-mbid"
+	// release group — same canonical album, two different pressings.
+
+	lookupResponses := map[string]mbRecording{"rec-a": recA, "rec-b": recB}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "one.flac", map[string]string{
+		"TITLE": "Alpha and Omega", "ARTIST": "Boards of Canada", "MUSICBRAINZ_TRACKID": "rec-a",
+	})
+	buildFLACFile(t, rf.Path, "two.flac", map[string]string{
+		"TITLE": "Beta", "ARTIST": "Boards of Canada", "MUSICBRAINZ_TRACKID": "rec-b",
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 2 {
+		t.Fatalf("FilesMatched = %d, want 2", result.FilesMatched)
+	}
+
+	artist, err := s.db.GetOrCreateArtist(ctx, "artist-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	albums, err := s.db.ListAlbumsByArtist(ctx, artist.ID)
+	if err != nil {
+		t.Fatalf("ListAlbumsByArtist: %v", err)
+	}
+	if len(albums) != 1 {
+		t.Fatalf("len(albums) = %d, want 1 (two release editions of the same release group must collapse into one album)", len(albums))
 	}
 }
 

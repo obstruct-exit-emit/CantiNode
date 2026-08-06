@@ -17,15 +17,17 @@
 - Cover art: fetch and disk-cache a matched album's front cover from Cover
   Art Archive, shown in the Library album grid — see `internal/coverart`.
 - Acquisition pipeline (all optional, off by default, and independently
-  configurable): monitor an artist by MusicBrainz search, auto-want their
-  studio albums, search a self-hosted Prowlarr instance for releases, and
-  grab one (manual only, no auto-grab) directly through a qBittorrent
-  and/or SABnzbd connection — a genuine standalone instance of either, or
+  configurable): monitor an artist by MusicBrainz search, search a
+  self-hosted Prowlarr instance for releases, and grab one (manual only,
+  no auto-grab) directly through a qBittorrent and/or SABnzbd connection
+  — a genuine standalone instance of either, or
   [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode), which
   exposes compat shims for both — see `internal/acquisition`,
-  `internal/prowlarr`, `internal/qbittorrent`, `internal/sabnzbd`, and the
-  new Wanted tab. A background poll imports a finished download into the
-  library automatically once its download client reports it done.
+  `internal/prowlarr`, `internal/qbittorrent`, `internal/sabnzbd`. A
+  background poll imports a finished download into the library
+  automatically once its download client reports it done. (The original
+  "Wanted tab" and auto-want-studio-albums-on-monitor behavior were later
+  superseded — see the unified artist page entry below.)
 - Root folder picker: a "Browse..." button in Root Folders opens a
   server-side directory browser (`GET /api/v1/browse-directories`) instead
   of requiring an exact path typed by hand.
@@ -36,6 +38,18 @@
 - Unmatch and Delete actions for track files, in both the Library and
   Unmatched views — Unmatch reverts to unmatched (file untouched), Delete
   removes the file from disk and its own row.
+- Unified artist page, replacing the separate Library/Wanted tabs:
+  `monitored_artists` folded into `artists`. Monitoring an artist now
+  caches their entire discography (`artist_release_groups`, any type)
+  instead of auto-wanting studio albums — nothing's wanted until the user
+  says so, from a new "Missing" section (grouped by Album/EP/Live/
+  Compilation/Other, per-item or bulk **Add**/**Add & Monitor**) sitting
+  alongside owned albums, wanted-album status, and that artist's
+  downloads, all on one page per artist.
+- Artist bio and photo, cached from [TheAudioDB](https://www.theaudiodb.com)
+  (`internal/audiodb`) on first monitor and re-fetched only via a new
+  "Refresh metadata" button — never on every page view. Falls back to
+  TheAudioDB's own public shared key if none is configured in Settings.
 
 ### Fixed
 
@@ -65,3 +79,16 @@
   closeness to the folder's file count), then slotted into that release's
   own tracklist — cutting MusicBrainz call volume per folder from
   O(track count) to O(1-2) as a side effect. See `internal/scanner/folder_match.go`.
+- Two defense-in-depth fixes for whenever folder-based matching still
+  falls back to independent per-file matching: `albums` rows are now
+  deduplicated by release-group MBID rather than the specific release
+  edition a given file happened to resolve to (was letting the same
+  physical album fragment into multiple rows), and
+  `musicbrainz.Recording.BestRelease` now prefers a release belonging to
+  a clean, non-compilation/live release-group over whichever release
+  MusicBrainz's API happened to list first (was misattributing a track to
+  an unrelated compilation/box set that also carried the same recording).
+- The web UI crashed to blank again on opening an artist's page —
+  `secondary_types` marshaled to `null` for a release-group with none,
+  the same nil-slice-to-`null` class of bug as above, this time in
+  `internal/database/artists.go`'s release-group cache scan.

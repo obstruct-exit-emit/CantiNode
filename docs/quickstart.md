@@ -51,13 +51,17 @@
    a [Prowlarr](https://prowlarr.com) instance plus a qBittorrent and/or
    SABnzbd connection — a genuine standalone instance of either, or
    [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode), which
-   exposes compatible APIs for both. Then, in the Wanted tab: monitor an
-   artist (searches MusicBrainz by name), which seeds their studio albums
-   as wanted; **Find release** searches Prowlarr for one, and **Grab**
-   sends your pick to whichever download client matches its protocol.
-   Grabbing is always a manual click — nothing downloads on its own. A
-   finished download is imported into the library automatically once the
-   download client reports it done.
+   exposes compatible APIs for both. Then, from an artist's page in the
+   Library (search by name via **+ Monitor Artist**, or open an artist
+   you already own): **Monitor** caches their whole discography (nothing
+   auto-wanted); the **Missing** section lists what you don't have yet,
+   grouped by type, with **Add** (just track it) or **Add & Monitor**
+   per item or in bulk; once something's wanted, **Find release**
+   searches Prowlarr for it, and **Grab** sends your pick to whichever
+   download client matches its protocol. Grabbing is always a manual
+   click — nothing downloads on its own, and a grab can be **Cancel**ed
+   any time before it's imported. A finished download is imported into
+   the library automatically once the download client reports it done.
 
 Everything here is also a plain REST call under `/api/v1` — see
 [API](api.md) if you'd rather script it.

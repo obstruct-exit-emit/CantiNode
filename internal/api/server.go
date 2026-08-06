@@ -82,6 +82,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/browse-directories", s.requireAuth(s.handleBrowseDirectories))
 
 	s.mux.HandleFunc("GET /api/v1/artists", s.requireAuth(s.handleListArtists))
+	s.mux.HandleFunc("GET /api/v1/artists/{id}", s.requireAuth(s.handleGetArtist))
 	s.mux.HandleFunc("GET /api/v1/artists/{id}/albums", s.requireAuth(s.handleListAlbumsByArtist))
 	s.mux.HandleFunc("GET /api/v1/albums/{id}/tracks", s.requireAuth(s.handleListTracksByAlbum))
 	// Not requireAuth: an <img src> tag can't send an Authorization
@@ -108,13 +109,17 @@ func (s *Server) routes() {
 
 	// Acquisition (optional — see internal/acquisition's own doc comment):
 	// monitor artists, want their albums, search Prowlarr, grab via
-	// qBittorrent or SABnzbd.
+	// qBittorrent or SABnzbd. Artist-scoped rather than the old separate
+	// "monitored artists" resource — see migrations/0004_unified_artist.sql
+	// and internal/database/artists.go's doc comment.
 	s.mux.HandleFunc("GET /api/v1/musicbrainz/artist-search", s.requireAuth(s.handleArtistSearch))
-	s.mux.HandleFunc("GET /api/v1/monitored-artists", s.requireAuth(s.handleListMonitoredArtists))
-	s.mux.HandleFunc("POST /api/v1/monitored-artists", s.requireAuth(s.handleMonitorArtist))
-	s.mux.HandleFunc("DELETE /api/v1/monitored-artists/{id}", s.requireAuth(s.handleUnmonitorArtist))
-	s.mux.HandleFunc("POST /api/v1/monitored-artists/{id}/sync", s.requireAuth(s.handleSyncArtist))
-	s.mux.HandleFunc("GET /api/v1/monitored-artists/{id}/wanted", s.requireAuth(s.handleListWantedAlbums))
+	s.mux.HandleFunc("POST /api/v1/artists/monitor", s.requireAuth(s.handleMonitorArtistByMBID))
+	s.mux.HandleFunc("POST /api/v1/artists/{id}/monitor", s.requireAuth(s.handleMonitorArtistByID))
+	s.mux.HandleFunc("POST /api/v1/artists/{id}/unmonitor", s.requireAuth(s.handleUnmonitorArtist))
+	s.mux.HandleFunc("POST /api/v1/artists/{id}/refresh-metadata", s.requireAuth(s.handleRefreshArtistMetadata))
+	s.mux.HandleFunc("GET /api/v1/artists/{id}/missing", s.requireAuth(s.handleListMissingReleaseGroups))
+	s.mux.HandleFunc("POST /api/v1/artists/{id}/wanted", s.requireAuth(s.handleWantArtistAlbum))
+	s.mux.HandleFunc("GET /api/v1/artists/{id}/wanted", s.requireAuth(s.handleListWantedAlbums))
 	s.mux.HandleFunc("POST /api/v1/wanted-albums/{id}/ignore", s.requireAuth(s.handleIgnoreWantedAlbum))
 	s.mux.HandleFunc("GET /api/v1/wanted-albums/{id}/search", s.requireAuth(s.handleSearchReleases))
 	s.mux.HandleFunc("POST /api/v1/wanted-albums/{id}/grab", s.requireAuth(s.handleGrabRelease))

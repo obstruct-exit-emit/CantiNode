@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/cantinode/cantinode/internal/audiodb"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/prowlarr"
@@ -24,18 +25,20 @@ import (
 	"github.com/cantinode/cantinode/internal/scanner"
 )
 
-// Service ties MusicBrainz, Prowlarr, a qBittorrent-API-compatible
-// torrent client, a SABnzbd-API-compatible usenet client, the database,
-// and internal/scanner together into the monitor -> want -> search ->
-// grab -> import pipeline.
+// Service ties MusicBrainz, TheAudioDB, Prowlarr, a qBittorrent-API-
+// compatible torrent client, a SABnzbd-API-compatible usenet client, the
+// database, and internal/scanner together into the monitor -> want ->
+// search -> grab -> import pipeline.
 //
 // The two download clients are independent and separately optional —
 // each can point at a genuine standalone qBittorrent/SABnzbd instance, or
 // at AcerviNode (which happens to expose both compat shims on one host),
-// or at nothing at all.
+// or at nothing at all. audiodb is never nil — see New — since it always
+// has a usable fallback key (internal/audiodb.publicTestKey).
 type Service struct {
 	db      *database.DB
 	mb      *musicbrainz.Client
+	audiodb *audiodb.Client
 	scanner *scanner.Scanner
 	logger  *slog.Logger
 
@@ -46,12 +49,13 @@ type Service struct {
 }
 
 // New returns a Service with no Prowlarr/download-client configured yet —
-// see UpdateClients.
+// see UpdateClients — and TheAudioDB's own public shared key (until
+// Settings saves a real one via UpdateAudioDBClient).
 func New(db *database.DB, mb *musicbrainz.Client, sc *scanner.Scanner, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{db: db, mb: mb, scanner: sc, logger: logger}
+	return &Service{db: db, mb: mb, audiodb: audiodb.NewClient(""), scanner: sc, logger: logger}
 }
 
 // UpdateClients swaps in new Prowlarr/qBittorrent/SABnzbd clients —
@@ -65,6 +69,23 @@ func (s *Service) UpdateClients(pw *prowlarr.Client, qbit *qbittorrent.Client, s
 	s.prowlarr = pw
 	s.qbit = qbit
 	s.sab = sab
+}
+
+// UpdateAudioDBClient swaps in a new TheAudioDB client — called whenever
+// Settings saves a new audiodb_api_key, same live-update pattern as
+// UpdateClients. Unlike Prowlarr/qBittorrent/SABnzbd, this is never nil:
+// an empty key still means "use TheAudioDB's own public shared key," not
+// "not configured" (see internal/audiodb.NewClient).
+func (s *Service) UpdateAudioDBClient(c *audiodb.Client) {
+	s.clientsMu.Lock()
+	defer s.clientsMu.Unlock()
+	s.audiodb = c
+}
+
+func (s *Service) getAudioDB() *audiodb.Client {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	return s.audiodb
 }
 
 func (s *Service) getProwlarr() *prowlarr.Client {

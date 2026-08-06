@@ -89,8 +89,16 @@ own call, never automatic.
 
 **⬇️ Acquisition (optional)**
 
-- Monitor an artist by MusicBrainz search; CantiNode auto-wants their
-  studio albums and lets you re-sync later to pick up new releases.
+- A unified per-artist page (owned albums and monitoring status, same
+  place): monitor an artist by MusicBrainz search and CantiNode caches
+  their entire discography — nothing auto-wanted, just fetched so
+  browsing it doesn't hammer MusicBrainz. Artist bio/photo cached from
+  [TheAudioDB](https://www.theaudiodb.com) the same way, with a
+  "Refresh metadata" button to re-fetch on demand.
+- The "Missing" section lists everything from the cached discography you
+  don't already own or want, grouped by type (Album/EP/Live/Compilation/
+  Other) with per-item and bulk "Add" (just track it) / "Add & Monitor"
+  actions.
 - Search a self-hosted [Prowlarr](https://prowlarr.com) instance for a
   wanted album and grab your pick directly through a qBittorrent
   connection (torrents) or a SABnzbd connection (usenet) — each
@@ -99,7 +107,7 @@ own call, never automatic.
   compat shims for either, the same way Sonarr/Radarr already talk to
   them. **Always manual** — CantiNode never auto-downloads a search
   result; v1 has no quality-profile system, so nothing decides "best
-  release" but you.
+  release" but you. A grab can be canceled any time before it's imported.
 - A finished download is imported automatically: copied into your
   library and matched/organized the normal way, no manual step once the
   download client reports it done.

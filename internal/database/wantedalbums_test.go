@@ -5,12 +5,12 @@ import "testing"
 func TestGetOrCreateWantedAlbumCreatesThenReuses(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	w1, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-mbid", "Geogaddi", "Album", "2002-02-04")
+	w1, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-mbid", "Geogaddi", "Album", "2002-02-04")
 	if err != nil {
 		t.Fatalf("GetOrCreateWantedAlbum: %v", err)
 	}
@@ -18,7 +18,7 @@ func TestGetOrCreateWantedAlbumCreatesThenReuses(t *testing.T) {
 		t.Errorf("Status = %q, want wanted", w1.Status)
 	}
 
-	w2, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-mbid", "Geogaddi", "Album", "2002-02-04")
+	w2, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-mbid", "Geogaddi", "Album", "2002-02-04")
 	if err != nil {
 		t.Fatalf("GetOrCreateWantedAlbum (second call): %v", err)
 	}
@@ -30,16 +30,16 @@ func TestGetOrCreateWantedAlbumCreatesThenReuses(t *testing.T) {
 func TestListWantedAlbumsByArtistAndStatus(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-mbid", "Geogaddi", "Album", "2002")
+	w, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-mbid", "Geogaddi", "Album", "2002")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	byArtist, err := db.ListWantedAlbumsByArtist(ctx, m.ID)
+	byArtist, err := db.ListWantedAlbumsByArtist(ctx, a.ID)
 	if err != nil {
 		t.Fatalf("ListWantedAlbumsByArtist: %v", err)
 	}

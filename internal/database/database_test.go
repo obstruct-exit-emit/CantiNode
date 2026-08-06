@@ -19,11 +19,11 @@ func TestOpenAppliesMigrations(t *testing.T) {
 	if err := db.QueryRow(`SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version); err != nil {
 		t.Fatalf("query schema_migrations: %v", err)
 	}
-	if version != 2 {
-		t.Errorf("latest migration version = %d, want 2", version)
+	if version != 4 {
+		t.Errorf("latest migration version = %d, want 4", version)
 	}
 
-	for _, table := range []string{"root_folders", "artists", "albums", "tracks", "track_files", "monitored_artists", "wanted_albums", "downloads"} {
+	for _, table := range []string{"root_folders", "artists", "albums", "tracks", "track_files", "artist_release_groups", "wanted_albums", "downloads"} {
 		if _, err := db.Exec("SELECT * FROM " + table + " LIMIT 0"); err != nil {
 			t.Errorf("table %s not created: %v", table, err)
 		}
@@ -50,7 +50,7 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err := db2.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("query schema_migrations: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("schema_migrations row count = %d, want 2", count)
+	if count != 4 {
+		t.Errorf("schema_migrations row count = %d, want 4", count)
 	}
 }

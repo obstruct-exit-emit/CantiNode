@@ -24,6 +24,24 @@ type ReleaseGroup struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	PrimaryType string `json:"primary-type"`
+	// SecondaryTypes flags rg as something other than a plain studio
+	// album despite PrimaryType == "Album" — "Compilation", "Live",
+	// "Soundtrack", etc. Populated on both LookupRecording (inc=
+	// release-groups) and SearchRecordings (included by default) without
+	// any further request — see isCleanAlbum, used by BestRelease to
+	// avoid preferring, say, a box-set rerelease over the actual studio
+	// album a recording also happens to appear on.
+	SecondaryTypes []string `json:"secondary-types"`
+}
+
+// isCleanAlbum reports whether rg is MusicBrainz's convention for an
+// ordinary studio album — PrimaryType "Album" with no SecondaryTypes — as
+// opposed to a compilation/live/soundtrack/etc. release that happens to
+// reuse one of its recordings (e.g. a "best of" box set, or a live
+// recording of the same song). Used by BestRelease to break ties among a
+// recording's releases when no specific release was requested.
+func (rg ReleaseGroup) isCleanAlbum() bool {
+	return rg.PrimaryType == "Album" && len(rg.SecondaryTypes) == 0
 }
 
 // Release is one specific pressing/edition of an album that a Recording
@@ -60,15 +78,29 @@ func (r Recording) PrimaryArtist() ArtistRef {
 // BestRelease returns the release CantiNode should treat as "the album"
 // for this recording: preferredReleaseMBID if it's actually one of the
 // recording's releases (the file's own tags already named a specific
-// release), otherwise the first release MusicBrainz returned. Returns a
-// zero Release if the recording has none linked at all — rare, but
-// possible for a recording with no associated release.
+// release), otherwise the first release belonging to a "clean" studio
+// album (see ReleaseGroup.isCleanAlbum). Recordings are frequently reused
+// across unrelated releases — a compilation, a box set, a live album —
+// and MusicBrainz's own Releases ordering has no preference for the
+// studio album over any of those; without this, a track whose recording
+// happens to also appear on, say, a box set can resolve to that box set
+// instead of the actual album a scanned folder represents. Falls back to
+// the first release of any kind if the recording has no clean album among
+// its releases (fine for a recording that genuinely only exists on a
+// compilation/live release). Returns a zero Release if the recording has
+// none linked at all — rare, but possible for a recording with no
+// associated release.
 func (r Recording) BestRelease(preferredReleaseMBID string) Release {
 	if preferredReleaseMBID != "" {
 		for _, rel := range r.Releases {
 			if rel.ID == preferredReleaseMBID {
 				return rel
 			}
+		}
+	}
+	for _, rel := range r.Releases {
+		if rel.ReleaseGroup.isCleanAlbum() {
+			return rel
 		}
 	}
 	if len(r.Releases) == 0 {

@@ -6,10 +6,9 @@ import { RootFolders } from './components/RootFolders'
 import { ScanStatus } from './components/ScanStatus'
 import { Settings } from './components/Settings'
 import { Unmatched } from './components/Unmatched'
-import { Wanted } from './components/Wanted'
 import './App.css'
 
-type View = 'library' | 'unmatched' | 'wanted' | 'root-folders' | 'settings'
+type View = 'library' | 'unmatched' | 'root-folders' | 'settings'
 
 export default function App() {
   const [apiKey, setApiKey] = useState<string | null>(() => {
@@ -93,9 +92,6 @@ function AuthedApp({
         <button className={view === 'unmatched' ? 'tab tab-active' : 'tab'} onClick={() => setView('unmatched')}>
           Unmatched
         </button>
-        <button className={view === 'wanted' ? 'tab tab-active' : 'tab'} onClick={() => setView('wanted')}>
-          Wanted
-        </button>
         <button className={view === 'root-folders' ? 'tab tab-active' : 'tab'} onClick={() => setView('root-folders')}>
           Root Folders
         </button>
@@ -107,7 +103,6 @@ function AuthedApp({
       <main>
         {view === 'library' && <Library key={libraryKey} apiKey={apiKey} />}
         {view === 'unmatched' && <Unmatched apiKey={apiKey} />}
-        {view === 'wanted' && <Wanted apiKey={apiKey} />}
         {view === 'root-folders' && <RootFolders apiKey={apiKey} />}
         {view === 'settings' && <Settings apiKey={apiKey} />}
       </main>

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cantinode/cantinode/internal/audiodb"
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/prowlarr"
@@ -35,6 +36,12 @@ const sampleArtistJSON = `{
 // tests — a post-import scan against an untagged fixture file just
 // records a per-file read error, which doesn't fail the scan itself
 // (see internal/scanner's own tests for that behavior in depth).
+//
+// audiodb is also stubbed against a local httptest.Server (an
+// artists:null 404-ish response by default) rather than left pointed at
+// the real theaudiodb.com — MonitorArtist/RefreshArtistMetadata always
+// call out to it, and leaving that live would make every such test a
+// slow, flaky, network-dependent one.
 func newTestService(t *testing.T, mbHandler http.HandlerFunc) (*Service, *database.DB) {
 	t.Helper()
 	db, err := database.Open(":memory:")
@@ -50,93 +57,164 @@ func newTestService(t *testing.T, mbHandler http.HandlerFunc) (*Service, *databa
 	t.Cleanup(mbSrv.Close)
 	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", mbSrv.URL)
 
+	adbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"artists": null}`))
+	}))
+	t.Cleanup(adbSrv.Close)
+	adb := audiodb.NewClientWithBaseURL("test-key", adbSrv.URL)
+
 	sc := scanner.New(db, mb, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
 
-	return New(db, mb, sc, nil), db
+	s := New(db, mb, sc, nil)
+	s.UpdateAudioDBClient(adb)
+	return s, db
 }
 
-func TestMonitorArtistSeedsOnlyPlainAlbums(t *testing.T) {
+// TestMonitorArtistCachesFullDiscography replaces the old "only seed
+// plain studio albums" behavior: monitoring no longer auto-wants
+// anything, it just caches the artist's entire discography (every
+// primary/secondary type) so the unified page's "Missing" section can
+// show all of it and let the user pick what to want.
+func TestMonitorArtistCachesFullDiscography(t *testing.T) {
 	s, db := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(sampleArtistJSON))
 	})
 	ctx := t.Context()
 
-	m, err := s.MonitorArtist(ctx, "a-mbid")
+	a, err := s.MonitorArtist(ctx, "a-mbid")
 	if err != nil {
 		t.Fatalf("MonitorArtist: %v", err)
 	}
-	if m.Name != "Boards of Canada" {
-		t.Errorf("Name = %q", m.Name)
+	if a.Name != "Boards of Canada" {
+		t.Errorf("Name = %q", a.Name)
+	}
+	if !a.IsMonitored {
+		t.Error("IsMonitored should be true")
+	}
+	if a.LastSyncedAt == nil {
+		t.Error("LastSyncedAt should be set")
 	}
 
-	wanted, err := db.ListWantedAlbumsByArtist(ctx, m.ID)
+	// Nothing auto-wanted.
+	wanted, err := db.ListWantedAlbumsByArtist(ctx, a.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(wanted) != 2 {
-		t.Fatalf("len(wanted) = %d, want 2 (only the two plain Albums, not the EP or Live album)", len(wanted))
+	if len(wanted) != 0 {
+		t.Errorf("len(wanted) = %d, want 0 (monitoring no longer auto-seeds wanted albums)", len(wanted))
+	}
+
+	// Every release group cached, any type — not just plain Albums.
+	groups, err := db.ListArtistReleaseGroups(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 4 {
+		t.Fatalf("len(groups) = %d, want 4 (all release groups, any type)", len(groups))
 	}
 	titles := map[string]bool{}
-	for _, w := range wanted {
-		titles[w.Title] = true
-		if w.Status != database.WantedStatusWanted {
-			t.Errorf("%s status = %q, want wanted", w.Title, w.Status)
-		}
+	for _, g := range groups {
+		titles[g.Title] = true
 	}
-	if !titles["Music Has the Right to Children"] || !titles["Geogaddi"] {
-		t.Errorf("titles = %v, missing expected albums", titles)
+	for _, want := range []string{"Music Has the Right to Children", "Geogaddi", "In a Beautiful Place", "Live Bootleg"} {
+		if !titles[want] {
+			t.Errorf("missing cached release group %q", want)
+		}
 	}
 }
 
-func TestSyncArtistDoesNotResetNonWantedStatus(t *testing.T) {
+func TestRefreshArtistMetadataDoesNotResetWantedAlbumStatus(t *testing.T) {
 	s, db := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(sampleArtistJSON))
 	})
 	ctx := t.Context()
 
-	m, err := s.MonitorArtist(ctx, "a-mbid")
+	a, err := s.MonitorArtist(ctx, "a-mbid")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wanted, err := db.ListWantedAlbumsByArtist(ctx, m.ID)
+	w, err := s.AddWantedAlbum(ctx, a.ID, "rg-album-1")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("AddWantedAlbum: %v", err)
 	}
-	if err := db.SetWantedAlbumStatus(ctx, wanted[0].ID, database.WantedStatusDownloaded); err != nil {
+	if err := db.SetWantedAlbumStatus(ctx, w.ID, database.WantedStatusDownloaded); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.SyncArtist(ctx, m.ID); err != nil {
-		t.Fatalf("SyncArtist: %v", err)
+	if err := s.RefreshArtistMetadata(ctx, a.ID); err != nil {
+		t.Fatalf("RefreshArtistMetadata: %v", err)
 	}
 
-	got, err := db.GetWantedAlbum(ctx, wanted[0].ID)
+	got, err := db.GetWantedAlbum(ctx, w.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Status != database.WantedStatusDownloaded {
-		t.Errorf("status after re-sync = %q, want downloaded (must not be reset)", got.Status)
+		t.Errorf("status after refresh = %q, want downloaded (must not be reset)", got.Status)
 	}
 
-	refreshed, err := db.GetMonitoredArtist(ctx, m.ID)
+	refreshed, err := db.GetArtist(ctx, a.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if refreshed.LastSyncedAt == nil {
-		t.Error("LastSyncedAt should be set after SyncArtist")
+		t.Error("LastSyncedAt should be set after RefreshArtistMetadata")
+	}
+}
+
+func TestAddWantedAlbumRequiresCachedDiscography(t *testing.T) {
+	s, db := newTestService(t, nil)
+	ctx := t.Context()
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddWantedAlbum(ctx, a.ID, "rg-unknown"); err == nil {
+		t.Error("expected an error wanting a release group that's not in the cached discography")
+	}
+}
+
+func TestAddWantedAlbumDoesNotMonitorArtist(t *testing.T) {
+	s, db := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleArtistJSON))
+	})
+	ctx := t.Context()
+
+	// Cache the discography via a monitor+unmonitor round trip, so the
+	// artist starts back at not-monitored with a populated cache.
+	a, err := s.MonitorArtist(ctx, "a-mbid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UnmonitorArtist(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.AddWantedAlbum(ctx, a.ID, "rg-album-1"); err != nil {
+		t.Fatalf("AddWantedAlbum: %v", err)
+	}
+
+	got, err := db.GetArtist(ctx, a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IsMonitored {
+		t.Error("AddWantedAlbum alone must not flip IsMonitored on — that's the caller's job for \"Add & Monitor\"")
 	}
 }
 
 func TestSearchReleasesRequiresProwlarr(t *testing.T) {
 	s, db := newTestService(t, nil)
 	ctx := t.Context()
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-1", "Album", "Album", "2020")
+	w, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-1", "Album", "Album", "2020")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,11 +227,11 @@ func TestSearchReleasesRequiresProwlarr(t *testing.T) {
 func TestSearchReleasesUsesArtistAndAlbumName(t *testing.T) {
 	s, db := newTestService(t, nil)
 	ctx := t.Context()
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Boards of Canada", "Boards of Canada")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Boards of Canada", "Boards of Canada")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-1", "Geogaddi", "Album", "2002")
+	w, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-1", "Geogaddi", "Album", "2002")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,11 +361,11 @@ func grabTestFixtures(t *testing.T) (s *Service, db *database.DB, wantedAlbumID 
 	s, db = newTestService(t, nil)
 	ctx := t.Context()
 
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-1", "Album", "Album", "2020")
+	w, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-1", "Album", "Album", "2020")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,11 +416,11 @@ func TestGrabReleaseCreatesDownloadAndMarksDownloading(t *testing.T) {
 func TestGrabReleaseRequiresRootFolder(t *testing.T) {
 	s, db := newTestService(t, nil)
 	ctx := t.Context()
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-1", "Album", "Album", "2020")
+	w, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-1", "Album", "Album", "2020")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,11 +548,11 @@ func TestPollDownloadsNotFoundRevertsWantedToWanted(t *testing.T) {
 func TestPollDownloadsNoOpWhenNoClientConfigured(t *testing.T) {
 	s, db := newTestService(t, nil)
 	ctx := t.Context()
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-1", "Album", "Album", "2020")
+	w, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-1", "Album", "Album", "2020")
 	if err != nil {
 		t.Fatal(err)
 	}

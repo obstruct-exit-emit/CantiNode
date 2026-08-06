@@ -18,36 +18,36 @@ const (
 	WantedStatusIgnored     WantedStatus = "ignored"
 )
 
-// WantedAlbum is one release group CantiNode is trying to acquire for a
-// MonitoredArtist — see migrations/0002_acquisition.sql.
+// WantedAlbum is one release group CantiNode is trying to acquire for an
+// Artist — see migrations/0004_unified_artist.sql.
 type WantedAlbum struct {
-	ID                int64        `json:"id"`
-	MonitoredArtistID int64        `json:"monitored_artist_id"`
-	ReleaseGroupMBID  string       `json:"release_group_mbid"`
-	Title             string       `json:"title"`
-	PrimaryType       string       `json:"primary_type"`
-	ReleaseDate       string       `json:"release_date"`
-	Status            WantedStatus `json:"status"`
-	AddedAt           time.Time    `json:"added_at"`
+	ID               int64        `json:"id"`
+	ArtistID         int64        `json:"artist_id"`
+	ReleaseGroupMBID string       `json:"release_group_mbid"`
+	Title            string       `json:"title"`
+	PrimaryType      string       `json:"primary_type"`
+	ReleaseDate      string       `json:"release_date"`
+	Status           WantedStatus `json:"status"`
+	AddedAt          time.Time    `json:"added_at"`
 }
 
-const wantedAlbumSelect = `SELECT id, monitored_artist_id, release_group_mbid, title, primary_type, release_date, status, added_at FROM wanted_albums`
+const wantedAlbumSelect = `SELECT id, artist_id, release_group_mbid, title, primary_type, release_date, status, added_at FROM wanted_albums`
 
 func scanWantedAlbum(row interface{ Scan(...any) error }) (*WantedAlbum, error) {
 	var w WantedAlbum
-	if err := row.Scan(&w.ID, &w.MonitoredArtistID, &w.ReleaseGroupMBID, &w.Title, &w.PrimaryType, &w.ReleaseDate, &w.Status, &w.AddedAt); err != nil {
+	if err := row.Scan(&w.ID, &w.ArtistID, &w.ReleaseGroupMBID, &w.Title, &w.PrimaryType, &w.ReleaseDate, &w.Status, &w.AddedAt); err != nil {
 		return nil, err
 	}
 	return &w, nil
 }
 
 // GetOrCreateWantedAlbum returns the existing wanted album for
-// (monitoredArtistID, releaseGroupMBID), inserting one (as
-// WantedStatusWanted) if none exists yet — the sync step (internal/
-// acquisition) calls this once per release group a monitored artist has
-// on MusicBrainz, so it's naturally idempotent across repeated syncs.
-func (db *DB) GetOrCreateWantedAlbum(ctx context.Context, monitoredArtistID int64, releaseGroupMBID, title, primaryType, releaseDate string) (*WantedAlbum, error) {
-	existing, err := db.getWantedAlbumByReleaseGroup(ctx, monitoredArtistID, releaseGroupMBID)
+// (artistID, releaseGroupMBID), inserting one (as WantedStatusWanted) if
+// none exists yet — the discography-cache/want flow (internal/
+// acquisition) calls this once per release group the user picks, so it's
+// naturally idempotent across repeated calls.
+func (db *DB) GetOrCreateWantedAlbum(ctx context.Context, artistID int64, releaseGroupMBID, title, primaryType, releaseDate string) (*WantedAlbum, error) {
+	existing, err := db.getWantedAlbumByReleaseGroup(ctx, artistID, releaseGroupMBID)
 	if err == nil {
 		return existing, nil
 	}
@@ -57,9 +57,9 @@ func (db *DB) GetOrCreateWantedAlbum(ctx context.Context, monitoredArtistID int6
 
 	now := time.Now().UTC()
 	res, err := db.ExecContext(ctx,
-		`INSERT INTO wanted_albums (monitored_artist_id, release_group_mbid, title, primary_type, release_date, status, added_at)
+		`INSERT INTO wanted_albums (artist_id, release_group_mbid, title, primary_type, release_date, status, added_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		monitoredArtistID, releaseGroupMBID, title, primaryType, releaseDate, WantedStatusWanted, now)
+		artistID, releaseGroupMBID, title, primaryType, releaseDate, WantedStatusWanted, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert wanted album: %w", err)
 	}
@@ -68,15 +68,15 @@ func (db *DB) GetOrCreateWantedAlbum(ctx context.Context, monitoredArtistID int6
 		return nil, fmt.Errorf("last insert id: %w", err)
 	}
 	return &WantedAlbum{
-		ID: id, MonitoredArtistID: monitoredArtistID, ReleaseGroupMBID: releaseGroupMBID,
+		ID: id, ArtistID: artistID, ReleaseGroupMBID: releaseGroupMBID,
 		Title: title, PrimaryType: primaryType, ReleaseDate: releaseDate,
 		Status: WantedStatusWanted, AddedAt: now,
 	}, nil
 }
 
-func (db *DB) getWantedAlbumByReleaseGroup(ctx context.Context, monitoredArtistID int64, releaseGroupMBID string) (*WantedAlbum, error) {
+func (db *DB) getWantedAlbumByReleaseGroup(ctx context.Context, artistID int64, releaseGroupMBID string) (*WantedAlbum, error) {
 	w, err := scanWantedAlbum(db.QueryRowContext(ctx,
-		wantedAlbumSelect+` WHERE monitored_artist_id = ? AND release_group_mbid = ?`, monitoredArtistID, releaseGroupMBID))
+		wantedAlbumSelect+` WHERE artist_id = ? AND release_group_mbid = ?`, artistID, releaseGroupMBID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -98,10 +98,10 @@ func (db *DB) GetWantedAlbum(ctx context.Context, id int64) (*WantedAlbum, error
 	return w, nil
 }
 
-// ListWantedAlbumsByArtist returns every wanted album under
-// monitoredArtistID, newest release first.
-func (db *DB) ListWantedAlbumsByArtist(ctx context.Context, monitoredArtistID int64) ([]WantedAlbum, error) {
-	rows, err := db.QueryContext(ctx, wantedAlbumSelect+` WHERE monitored_artist_id = ? ORDER BY release_date DESC, title`, monitoredArtistID)
+// ListWantedAlbumsByArtist returns every wanted album under artistID,
+// newest release first.
+func (db *DB) ListWantedAlbumsByArtist(ctx context.Context, artistID int64) ([]WantedAlbum, error) {
+	rows, err := db.QueryContext(ctx, wantedAlbumSelect+` WHERE artist_id = ? ORDER BY release_date DESC, title`, artistID)
 	if err != nil {
 		return nil, fmt.Errorf("list wanted albums by artist: %w", err)
 	}

@@ -8,11 +8,11 @@ import (
 func setupWantedAlbum(t *testing.T, db *DB) (*WantedAlbum, *RootFolder) {
 	t.Helper()
 	ctx := t.Context()
-	m, err := db.CreateMonitoredArtist(ctx, "a-mbid", "Artist", "Artist")
+	a, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := db.GetOrCreateWantedAlbum(ctx, m.ID, "rg-mbid", "Album", "Album", "2020")
+	w, err := db.GetOrCreateWantedAlbum(ctx, a.ID, "rg-mbid", "Album", "Album", "2020")
 	if err != nil {
 		t.Fatal(err)
 	}

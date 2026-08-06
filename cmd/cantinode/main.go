@@ -17,6 +17,7 @@ import (
 
 	"github.com/cantinode/cantinode/internal/acquisition"
 	"github.com/cantinode/cantinode/internal/api"
+	"github.com/cantinode/cantinode/internal/audiodb"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/database"
@@ -79,6 +80,7 @@ func run(ctx context.Context) error {
 
 	aq := acquisition.New(db, mb, sc, slog.Default())
 	aq.UpdateClients(newProwlarrClient(cfg, version), newQBittorrentClient(cfg), newSABnzbdClient(cfg))
+	aq.UpdateAudioDBClient(audiodb.NewClient(cfg.AudioDBAPIKey))
 
 	// Logged so a config.yaml without an explicit api_key is still usable
 	// — otherwise a randomly generated key (see internal/config) would be
