@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { listUnmatched, manualMatch, searchMusicBrainz, type MusicBrainzRecording, type TrackFile } from '../api'
+import { deleteTrackFile, listUnmatched, manualMatch, searchMusicBrainz, type MusicBrainzRecording, type TrackFile } from '../api'
 
 function tagsSummary(tagsJson: string): string {
   try {
@@ -15,6 +15,7 @@ export function Unmatched({ apiKey }: { apiKey: string }) {
   const [files, setFiles] = useState<TrackFile[]>([])
   const [error, setError] = useState<string | undefined>(undefined)
   const [matchingFor, setMatchingFor] = useState<TrackFile | null>(null)
+  const [busy, setBusy] = useState<number | null>(null)
 
   function refresh() {
     listUnmatched(apiKey)
@@ -23,6 +24,19 @@ export function Unmatched({ apiKey }: { apiKey: string }) {
   }
 
   useEffect(refresh, [apiKey])
+
+  async function handleDelete(f: TrackFile) {
+    if (!confirm(`Permanently delete ${f.path}? This removes the file from disk — it cannot be undone.`)) return
+    setBusy(f.id)
+    try {
+      await deleteTrackFile(apiKey, f.id)
+      refresh()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
 
   if (error) return <p className="load-error">Couldn't load unmatched files: {error}</p>
 
@@ -40,6 +54,9 @@ export function Unmatched({ apiKey }: { apiKey: string }) {
               </div>
               <button className="toggle" onClick={() => setMatchingFor(f)}>
                 Find match
+              </button>
+              <button className="toggle toggle-danger" disabled={busy === f.id} onClick={() => handleDelete(f)}>
+                Delete
               </button>
             </li>
           ))}

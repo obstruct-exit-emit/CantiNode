@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  cancelDownload,
   grabRelease,
   ignoreWantedAlbum,
   listDownloads,
@@ -288,6 +289,25 @@ function ArtistWantedAlbums({
   )
 }
 
+// isDeadTorrent flags a torrent release with no seeders — grabbing it
+// would just sit at 0% forever, so these sink to the bottom of the list
+// instead of competing with releases that'll actually download.
+function isDeadTorrent(rel: ProwlarrRelease): boolean {
+  return rel.protocol === 'torrent' && (rel.seeders ?? 0) === 0
+}
+
+// sortReleases pushes dead torrents to the bottom; everything else keeps
+// Prowlarr's own relative order (JS's sort is stable).
+function sortReleases(releases: ProwlarrRelease[]): ProwlarrRelease[] {
+  return releases
+    .map((rel, index) => ({ rel, index }))
+    .sort((a, b) => {
+      const deadDiff = Number(isDeadTorrent(a.rel)) - Number(isDeadTorrent(b.rel))
+      return deadDiff !== 0 ? deadDiff : a.index - b.index
+    })
+    .map(({ rel }) => rel)
+}
+
 function ReleaseSearchDialog({
   apiKey,
   wantedAlbum,
@@ -305,7 +325,7 @@ function ReleaseSearchDialog({
 
   useEffect(() => {
     searchReleases(apiKey, wantedAlbum.id)
-      .then(setReleases)
+      .then((r) => setReleases(sortReleases(r)))
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
   }, [apiKey, wantedAlbum.id])
 
@@ -336,20 +356,29 @@ function ReleaseSearchDialog({
 
         {releases !== null && releases.length > 0 && (
           <ul className="rows">
-            {releases.map((rel) => (
-              <li className="row" key={rel.guid}>
-                <span className="user-row-name">
-                  <span>{rel.title}</span>
-                  <span className="text-muted">
-                    {rel.indexer} · {formatBytes(rel.size)} · {rel.protocol}
-                    {rel.protocol === 'torrent' && rel.seeders !== undefined ? ` · ${rel.seeders} seeders` : ''}
+            {releases.map((rel) => {
+              const dead = isDeadTorrent(rel)
+              return (
+                <li className="row" key={rel.guid}>
+                  <span className="user-row-name">
+                    <span>{rel.title}</span>
+                    <span className="text-muted">
+                      {rel.indexer} · {formatBytes(rel.size)} · {rel.protocol}
+                      {rel.protocol === 'torrent' && (
+                        <span className={dead ? 'release-dead' : undefined}>
+                          {' · '}
+                          {rel.seeders ?? 0} seeders · {rel.leechers ?? 0} peers
+                          {dead ? ' (dead)' : ''}
+                        </span>
+                      )}
+                    </span>
                   </span>
-                </span>
-                <button disabled={grabbing === rel.guid} onClick={() => handleGrab(rel)}>
-                  {grabbing === rel.guid ? 'Grabbing…' : 'Grab'}
-                </button>
-              </li>
-            ))}
+                  <button disabled={grabbing === rel.guid || dead} onClick={() => handleGrab(rel)}>
+                    {grabbing === rel.guid ? 'Grabbing…' : dead ? 'No seeders' : 'Grab'}
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
@@ -359,6 +388,7 @@ function ReleaseSearchDialog({
 
 function DownloadsActivity({ apiKey }: { apiKey: string }) {
   const [downloads, setDownloads] = useState<Download[]>([])
+  const [canceling, setCanceling] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -379,6 +409,19 @@ function DownloadsActivity({ apiKey }: { apiKey: string }) {
     }
   }, [apiKey])
 
+  async function handleCancel(d: Download) {
+    if (!confirm(`Cancel "${d.title}"? It's removed from its download client and the album goes back to wanted.`)) return
+    setCanceling(d.id)
+    try {
+      await cancelDownload(apiKey, d.id)
+      setDownloads(await listDownloads(apiKey))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCanceling(null)
+    }
+  }
+
   if (downloads.length === 0) return null
 
   return (
@@ -391,6 +434,7 @@ function DownloadsActivity({ apiKey }: { apiKey: string }) {
             <th>Indexer</th>
             <th>Protocol</th>
             <th>Status</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -402,6 +446,13 @@ function DownloadsActivity({ apiKey }: { apiKey: string }) {
               <td>
                 <span className={`badge badge-${d.status}`}>{d.status}</span>
                 {d.status === 'error' && d.error_message && <div className="error-message">{d.error_message}</div>}
+              </td>
+              <td>
+                {(d.status === 'downloading' || d.status === 'error') && (
+                  <button className="toggle" disabled={canceling === d.id} onClick={() => handleCancel(d)}>
+                    {canceling === d.id ? 'Canceling…' : 'Cancel'}
+                  </button>
+                )}
               </td>
             </tr>
           ))}

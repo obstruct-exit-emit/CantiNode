@@ -136,6 +136,18 @@ func (db *DB) ListDownloads(ctx context.Context) ([]Download, error) {
 	return out, rows.Err()
 }
 
+// DeleteDownload removes a tracked download's own row — used when
+// canceling a grab (see acquisition.Service.CancelDownload). Does not
+// touch the download client itself or the wanted album's status; callers
+// handle both of those first.
+func (db *DB) DeleteDownload(ctx context.Context, id int64) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM downloads WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete download: %w", err)
+	}
+	return nil
+}
+
 // SetDownloadCompleted marks id as completed (the download client has
 // the files on its own local disk, not yet imported into the library).
 func (db *DB) SetDownloadCompleted(ctx context.Context, id int64, completedAt time.Time) error {

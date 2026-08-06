@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/cantinode/cantinode/internal/database"
@@ -125,15 +126,25 @@ func (s *Scanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 }
 
 // ScanRootFolder walks rf.Path for audio files, upserts a track_files row
-// per file found, attempts to match every not-yet-matched file, and
-// removes rows for files no longer present on disk. A per-file read or
-// match error is recorded in the result and does not stop the scan.
+// per file found, then matches every not-yet-matched file, and removes
+// rows for files no longer present on disk. A per-file read or match
+// error is recorded in the result and does not stop the scan.
+//
+// Matching happens in two passes, not inline during the walk: every file
+// is upserted first (result.FilesFound bookkeeping, and a directory can't
+// be grouped until its files all have rows), then not-yet-matched files
+// are grouped by directory (filepath.Dir) and matched together, one
+// folder at a time — see matchFolder. This is CantiNode's whole-album
+// matching: files from the same folder converge on one MusicBrainz
+// release instead of each independently guessing, which is what used to
+// let a single album folder split across several different releases.
 func (s *Scanner) ScanRootFolder(ctx context.Context, rf database.RootFolder) (*ScanResult, error) {
 	// Errors initialized non-nil so it JSON-encodes to [] rather than
 	// null when empty — internal/api returns a ScanResult straight
 	// through to the frontend.
 	result := &ScanResult{Errors: []string{}}
 	var seenPaths []string
+	groups := map[string][]folderEntry{}
 
 	err := filepath.WalkDir(rf.Path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -145,13 +156,35 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf database.RootFolder) (*
 		}
 		seenPaths = append(seenPaths, path)
 
-		if scanErr := s.scanFile(ctx, rf, path, result); scanErr != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", path, scanErr))
+		tf, tags, err := s.upsertFile(ctx, rf, path, result)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", path, err))
+			return nil
 		}
+		if tf.MatchStatus != database.StatusUnmatched {
+			// Already matched (auto or manual) by a previous scan — never
+			// silently re-decided here, and excluded from folder-grouping
+			// entirely. A user who wants to redo a match uses the
+			// manual-match API explicitly.
+			return nil
+		}
+		dir := filepath.Dir(path)
+		groups[dir] = append(groups[dir], folderEntry{tf: tf, tags: tags})
 		return nil
 	})
 	if err != nil {
 		return result, fmt.Errorf("walk %s: %w", rf.Path, err)
+	}
+
+	// Sorted for deterministic scan behavior/logging, not correctness —
+	// map iteration order would otherwise vary run to run.
+	dirs := make([]string, 0, len(groups))
+	for dir := range groups {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		s.matchFolder(ctx, groups[dir], result)
 	}
 
 	removed, err := s.db.DeleteTrackFilesMissing(ctx, rf.ID, seenPaths)
@@ -163,45 +196,50 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf database.RootFolder) (*
 	return result, nil
 }
 
-func (s *Scanner) scanFile(ctx context.Context, rf database.RootFolder, path string, result *ScanResult) error {
+// upsertFile reads path's tags, stats it, and upserts its track_files
+// row — the part of matching that must run inline during the walk (every
+// file needs a row before folder-grouping can even key on it). Matching
+// itself happens afterward, in ScanRootFolder's post-walk per-folder pass.
+func (s *Scanner) upsertFile(ctx context.Context, rf database.RootFolder, path string, result *ScanResult) (*database.TrackFile, *tagreader.Tags, error) {
 	result.FilesFound++
 
 	tags, err := tagreader.Read(path)
 	if err != nil {
-		return fmt.Errorf("read tags: %w", err)
+		return nil, nil, fmt.Errorf("read tags: %w", err)
 	}
 
 	info, err := fileInfoOrZero(path)
 	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
+		return nil, nil, fmt.Errorf("stat file: %w", err)
 	}
 
 	tf, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, path, info.size, tags.Format, 0, 0, tagsJSON(tags))
 	if err != nil {
-		return fmt.Errorf("upsert track file: %w", err)
+		return nil, nil, fmt.Errorf("upsert track file: %w", err)
 	}
+	return tf, tags, nil
+}
 
-	if tf.MatchStatus != database.StatusUnmatched {
-		// Already matched (auto or manual) by a previous scan — never
-		// silently re-decided here. A user who wants to redo a match uses
-		// the manual-match API explicitly.
-		return nil
-	}
-
-	matched, err := s.matchFile(ctx, tf, tags)
+// recordFileResult folds one file's match attempt into result — an error
+// is recorded (never fatal to the rest of the scan), a real match bumps
+// FilesMatched and organizes on match if configured. Shared by
+// matchFolder and its fallback paths (folder_match.go).
+func (s *Scanner) recordFileResult(ctx context.Context, result *ScanResult, tf *database.TrackFile, matched bool, err error) {
 	if err != nil {
-		return fmt.Errorf("match: %w", err)
+		result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", tf.Path, err))
+		return
 	}
-	if matched {
-		result.FilesMatched++
-		if s.getOrganizeOnMatch() {
-			if _, err := s.OrganizeFile(ctx, tf.ID); err != nil {
-				return fmt.Errorf("organize: %w", err)
-			}
-			result.FilesOrganized++
+	if !matched {
+		return
+	}
+	result.FilesMatched++
+	if s.getOrganizeOnMatch() {
+		if _, oerr := s.OrganizeFile(ctx, tf.ID); oerr != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: organize: %v", tf.Path, oerr))
+			return
 		}
+		result.FilesOrganized++
 	}
-	return nil
 }
 
 type statInfo struct{ size int64 }

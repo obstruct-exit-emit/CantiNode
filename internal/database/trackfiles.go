@@ -197,6 +197,18 @@ func scanTrackFileRows(rows *sql.Rows) ([]TrackFile, error) {
 	return out, rows.Err()
 }
 
+// DeleteTrackFile removes a single track_files row by ID — used when the
+// user explicitly deletes a file (see scanner.Scanner.DeleteTrackFile,
+// which removes the file on disk first). Distinct from
+// DeleteTrackFilesMissing, which reconciles a whole root folder against
+// what a scan actually found rather than removing one row on request.
+func (db *DB) DeleteTrackFile(ctx context.Context, id int64) error {
+	if _, err := db.ExecContext(ctx, `DELETE FROM track_files WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete track file %d: %w", id, err)
+	}
+	return nil
+}
+
 // DeleteTrackFilesMissing removes every track_files row under rootFolderID
 // whose path is not in seenPaths — files a scan no longer finds on disk,
 // because they were moved (outside CantiNode's own organizer, which

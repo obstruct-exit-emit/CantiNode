@@ -129,8 +129,14 @@ func (c *Client) SearchArtists(ctx context.Context, name string) ([]Artist, erro
 // result), ordered by MusicBrainz's own relevance score (Recording.Score,
 // 0-100), most relevant first. Used when a scanned file has no MusicBrainz
 // ID of its own to look up directly.
+//
+// release is sanitized first (see sanitizeReleaseTitle) — a raw folder/
+// tag value like "... SHM-CD" or "... 24-96 hdtracks" (common in files
+// sourced from torrents/usenet, including CantiNode's own acquisition
+// pipeline) searches far worse than the same title with that rip/format
+// noise removed, since real MusicBrainz release titles never carry it.
 func (c *Client) SearchRecordings(ctx context.Context, artist, release, title string) ([]Recording, error) {
-	query := buildRecordingQuery(artist, release, title)
+	query := buildRecordingQuery(artist, sanitizeReleaseTitle(release), title)
 	if query == "" {
 		return nil, fmt.Errorf("search recordings: at least one of artist, release, title must be non-empty")
 	}
@@ -148,6 +154,69 @@ func (c *Client) SearchRecordings(ctx context.Context, artist, release, title st
 		return nil, fmt.Errorf("decode recording search: %w", err)
 	}
 	return resp.Recordings, nil
+}
+
+// SearchReleases fuzzy-searches for releases (albums) matching artist/
+// release title, ordered by MusicBrainz's own relevance score, most
+// relevant first — used by internal/scanner's folder-level matching to
+// find the one MusicBrainz release a folder of files most likely
+// represents, when no file in the folder already carries an embedded
+// release MBID of its own.
+//
+// release is sanitized the same way SearchRecordings sanitizes it (see
+// sanitizeReleaseTitle) — same rip/format-junk problem, same fix.
+func (c *Client) SearchReleases(ctx context.Context, artist, release string) ([]ReleaseSearchResult, error) {
+	query := buildReleaseQuery(artist, sanitizeReleaseTitle(release))
+	if query == "" {
+		return nil, fmt.Errorf("search releases: at least one of artist, release must be non-empty")
+	}
+
+	body, err := c.get(ctx, "/release/", url.Values{
+		"query": {query},
+		"fmt":   {"json"},
+		"limit": {"10"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp releaseSearchResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decode release search: %w", err)
+	}
+	return resp.Releases, nil
+}
+
+// buildReleaseQuery mirrors buildRecordingQuery's scoping, just without a
+// title field — a release search has no per-track title to scope by.
+func buildReleaseQuery(artist, release string) string {
+	var parts []string
+	if release != "" {
+		parts = append(parts, `release:"`+escapeQuoted(release)+`"`)
+	}
+	if artist != "" {
+		parts = append(parts, `artist:"`+escapeQuoted(artist)+`"`)
+	}
+	return strings.Join(parts, " AND ")
+}
+
+// LookupReleaseWithTracklist fetches a single release by MBID, with its
+// full medium/track breakdown — used once a target release has been
+// chosen (either a file's own embedded release MBID, or the top
+// SearchReleases candidate) to slot every local file in a folder into a
+// specific track position within that one release.
+func (c *Client) LookupReleaseWithTracklist(ctx context.Context, mbid string) (*ReleaseWithTracklist, error) {
+	body, err := c.get(ctx, "/release/"+url.PathEscape(mbid), url.Values{
+		"inc": {"recordings+artist-credits+release-groups"},
+		"fmt": {"json"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var rel ReleaseWithTracklist
+	if err := json.Unmarshal(body, &rel); err != nil {
+		return nil, fmt.Errorf("decode release %s: %w", mbid, err)
+	}
+	return &rel, nil
 }
 
 // buildRecordingQuery builds a MusicBrainz (Lucene) search query scoped to

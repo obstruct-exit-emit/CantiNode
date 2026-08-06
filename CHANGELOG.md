@@ -26,6 +26,16 @@
   `internal/prowlarr`, `internal/qbittorrent`, `internal/sabnzbd`, and the
   new Wanted tab. A background poll imports a finished download into the
   library automatically once its download client reports it done.
+- Root folder picker: a "Browse..." button in Root Folders opens a
+  server-side directory browser (`GET /api/v1/browse-directories`) instead
+  of requiring an exact path typed by hand.
+- Cancel a grab: `DELETE /api/v1/downloads/{id}` removes it from its
+  download client and reverts the wanted album back to `wanted`.
+- Release picker shows seeders/peers for every torrent result and sinks
+  0-seeder ("dead") torrents to the bottom, disabled from being grabbed.
+- Unmatch and Delete actions for track files, in both the Library and
+  Unmatched views — Unmatch reverts to unmatched (file untouched), Delete
+  removes the file from disk and its own row.
 
 ### Fixed
 
@@ -35,3 +45,23 @@
   library, right after the API key gate succeeded. Found by driving the
   built UI with a headless browser rather than re-reading the code; fixed
   across every affected method, with a regression test per method.
+- A fresh install minted a random API key on every process start but
+  never wrote it to `config.yaml`, so restarting before ever touching
+  Settings silently rotated the key each time. `config.Load` now persists
+  a freshly generated key immediately.
+- MusicBrainz search results polluted by rip/format junk in a file's own
+  Album tag (e.g. "... SHM-CD", "... 24-96 hdtracks") — CantiNode now
+  strips known format/rip tokens before querying, in both automatic
+  matching and the manual "Search MusicBrainz" action.
+- Whole-album (release-based) matching, reworked: matching was originally
+  per-file/independent (`SearchRecordings` per track, no awareness of
+  sibling files), which could split a single album folder across several
+  different `albums` rows — found in a real library where one 14-track
+  folder ended up split across three different MusicBrainz releases of
+  the same release-group, plus one track matched to an entirely unrelated
+  release. Files are now grouped by directory and resolved against one
+  MusicBrainz release per folder (an embedded release MBID if any file
+  carries one, else a release search scored by relevance + track-count
+  closeness to the folder's file count), then slotted into that release's
+  own tracklist — cutting MusicBrainz call volume per folder from
+  O(track count) to O(1-2) as a side effect. See `internal/scanner/folder_match.go`.

@@ -66,6 +66,13 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"status": true, "nzo_ids": []string{id}})
 
 	case "queue":
+		if r.FormValue("name") == "delete" {
+			if n, ok := f.nzbs[r.FormValue("value")]; ok && n.inQueue {
+				delete(f.nzbs, r.FormValue("value"))
+			}
+			json.NewEncoder(w).Encode(map[string]any{"status": true})
+			return
+		}
 		type slot struct {
 			NzoID string `json:"nzo_id"`
 		}
@@ -81,6 +88,13 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"queue": map[string]any{"slots": slots}})
 
 	case "history":
+		if r.FormValue("name") == "delete" {
+			if n, ok := f.nzbs[r.FormValue("value")]; ok && !n.inQueue {
+				delete(f.nzbs, r.FormValue("value"))
+			}
+			json.NewEncoder(w).Encode(map[string]any{"status": true})
+			return
+		}
 		type slot struct {
 			NzoID       string `json:"nzo_id"`
 			Status      string `json:"status"`

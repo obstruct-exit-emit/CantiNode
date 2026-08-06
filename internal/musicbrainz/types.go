@@ -110,3 +110,79 @@ type artistSearchResponse struct {
 	Artists []Artist `json:"artists"`
 	Count   int      `json:"count"`
 }
+
+// ReleaseSearchResult is one candidate from SearchReleases — enough to
+// rank candidates (MusicBrainz's own relevance Score, plus TrackCount to
+// cross-check against how many files are actually in the folder being
+// matched) without paying for a full tracklist fetch on every candidate,
+// only on whichever single one the caller ends up picking (see
+// internal/scanner's folder-level matching).
+type ReleaseSearchResult struct {
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	Date         string         `json:"date"`
+	ArtistCredit []ArtistCredit `json:"artist-credit"`
+	ReleaseGroup ReleaseGroup   `json:"release-group"`
+	TrackCount   int            `json:"track-count"` // aggregate across every medium
+	Score        int            `json:"score"`
+}
+
+type releaseSearchResponse struct {
+	Releases []ReleaseSearchResult `json:"releases"`
+	Count    int                   `json:"count"`
+}
+
+// ReleaseTrack is one track position within a release's medium, as
+// returned by LookupReleaseWithTracklist — distinct from a bare Recording:
+// it carries this specific release's own track/disc position and title,
+// which a bare Recording lookup never does (see scanner.applyMatch's doc
+// comment on where track/disc number normally come from).
+type ReleaseTrack struct {
+	Position int `json:"position"` // 1-based position within its medium — compared against a file's own TrackNumber tag, and what's ultimately stored
+	// Number is MusicBrainz's own display label; not always numeric (e.g.
+	// "A1" on a vinyl release), so Position — not Number — is what
+	// CantiNode actually compares/stores.
+	Number    string    `json:"number"`
+	Title     string    `json:"title"`
+	Length    int       `json:"length"` // milliseconds, this release's own timing (can differ slightly from Recording.Length)
+	Recording Recording `json:"recording"`
+}
+
+// ReleaseMedium is one disc/side of a release, with its own tracklist.
+type ReleaseMedium struct {
+	Format     string         `json:"format"`
+	Position   int            `json:"position"` // disc number
+	TrackCount int            `json:"track-count"`
+	Tracks     []ReleaseTrack `json:"tracks"`
+}
+
+// ReleaseWithTracklist is a release fetched via LookupReleaseWithTracklist
+// (inc=recordings+artist-credits+release-groups) — same identity as
+// Release, plus its full medium/track breakdown. Used by
+// internal/scanner's folder-level matching to slot every local file in a
+// folder into a specific disc/track position within one chosen release.
+type ReleaseWithTracklist struct {
+	ID           string          `json:"id"`
+	Title        string          `json:"title"`
+	Date         string          `json:"date"`
+	ArtistCredit []ArtistCredit  `json:"artist-credit"`
+	ReleaseGroup ReleaseGroup    `json:"release-group"`
+	Media        []ReleaseMedium `json:"media"`
+}
+
+// PrimaryArtist mirrors Recording.PrimaryArtist for a release.
+func (r ReleaseWithTracklist) PrimaryArtist() ArtistRef {
+	if len(r.ArtistCredit) == 0 {
+		return ArtistRef{}
+	}
+	return r.ArtistCredit[0].Artist
+}
+
+// AsRelease returns r's plain Release view — same identity fields, no
+// tracklist — so it can be dropped straight into a synthesized
+// Recording.Releases and reused through applyMatch's existing
+// BestRelease-based plumbing unchanged (see
+// scanner.recordingForReleaseTrack).
+func (r ReleaseWithTracklist) AsRelease() Release {
+	return Release{ID: r.ID, Title: r.Title, Date: r.Date, ReleaseGroup: r.ReleaseGroup}
+}

@@ -45,6 +45,29 @@ func TestAddMagnetAndGetStatus(t *testing.T) {
 	}
 }
 
+func TestRemoveDeletesTorrentAndFiles(t *testing.T) {
+	c, _ := newTestClient(t, "testuser", "test-key")
+	hash, err := c.AddMagnet(t.Context(), "magnet:?xt=urn:btih:5555555555555555555555555555555555555a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Remove(t.Context(), hash); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	if _, err := c.GetStatus(t.Context(), hash); err != ErrNotFound {
+		t.Errorf("GetStatus after Remove: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRemoveUnknownHashIsNotAnError(t *testing.T) {
+	c, _ := newTestClient(t, "testuser", "test-key")
+	if err := c.Remove(t.Context(), "0000000000000000000000000000000000000a"); err != nil {
+		t.Errorf("Remove of an unknown hash should not error: %v", err)
+	}
+}
+
 func TestGetStatusErrorState(t *testing.T) {
 	c, f := newTestClient(t, "testuser", "test-key")
 	hash, err := c.AddMagnet(t.Context(), "magnet:?xt=urn:btih:0000000000000000000000000000000000000a")

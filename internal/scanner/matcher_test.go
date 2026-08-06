@@ -308,6 +308,49 @@ func TestManualMatchAndClearMatch(t *testing.T) {
 	}
 }
 
+func TestDeleteTrackFileRemovesFileAndRow(t *testing.T) {
+	s, rf := newTestScanner(t, nil, nil)
+	ctx := t.Context()
+
+	path := buildFLACFile(t, rf.Path, "song.flac", map[string]string{"TITLE": "Untitled"})
+	tf, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, path, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteTrackFile(ctx, tf.ID); err != nil {
+		t.Fatalf("DeleteTrackFile: %v", err)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("file should be gone from disk, stat err = %v", err)
+	}
+	if _, err := s.db.GetTrackFile(ctx, tf.ID); err != database.ErrNotFound {
+		t.Errorf("GetTrackFile after delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeleteTrackFileToleratesAlreadyMissingFile(t *testing.T) {
+	s, rf := newTestScanner(t, nil, nil)
+	ctx := t.Context()
+
+	path := buildFLACFile(t, rf.Path, "song.flac", map[string]string{"TITLE": "Untitled"})
+	tf, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, path, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteTrackFile(ctx, tf.ID); err != nil {
+		t.Fatalf("DeleteTrackFile should tolerate an already-missing file: %v", err)
+	}
+	if _, err := s.db.GetTrackFile(ctx, tf.ID); err != database.ErrNotFound {
+		t.Errorf("GetTrackFile after delete: err = %v, want ErrNotFound", err)
+	}
+}
+
 // TestScanResultErrorsEmptyIsNotNil guards against the same nil-slice-
 // marshals-to-null bug found in internal/database's List* methods (see
 // database.TestListRootFoldersEmptyIsNotNil) — ScanResult.Errors goes

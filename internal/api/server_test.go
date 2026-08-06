@@ -339,6 +339,36 @@ func TestUnmatchedAndManualMatchFlow(t *testing.T) {
 	}
 }
 
+func TestDeleteTrackFileRemovesFileAndRow(t *testing.T) {
+	s, db, apiKey := testServer(t, nil)
+	ctx := t.Context()
+
+	rf, err := db.CreateRootFolder(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(rf.Path, "song.flac")
+	if err := os.WriteFile(path, []byte("fake audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := db.UpsertTrackFileByPath(ctx, rf.ID, path, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := doRequest(t, s, "DELETE", "/api/v1/track-files/"+itoa(tf.ID), apiKey, nil)
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("file should be gone from disk, stat err = %v", err)
+	}
+	if _, err := db.GetTrackFile(ctx, tf.ID); err != database.ErrNotFound {
+		t.Errorf("GetTrackFile after delete: err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestScanTriggerAndStatus(t *testing.T) {
 	s, _, apiKey := testServer(t, nil)
 

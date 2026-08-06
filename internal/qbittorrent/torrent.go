@@ -123,6 +123,25 @@ func (c *Client) listCategoryTorrents(ctx context.Context) ([]torrentInfo, error
 	return items, nil
 }
 
+// Remove deletes infoHash from the server, including its downloaded
+// files — used to cancel a grab CantiNode itself initiated. Not an error
+// if the server no longer knows this hash (already removed some other
+// way); real qBittorrent's own delete endpoint doesn't distinguish that
+// case from success either.
+func (c *Client) Remove(ctx context.Context, infoHash string) error {
+	form := url.Values{"hashes": {infoHash}, "deleteFiles": {"true"}}
+	resp, err := c.do(ctx, http.MethodPost, "/api/v2/torrents/delete", strings.NewReader(form.Encode()), "application/x-www-form-urlencoded")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("qbittorrent: remove torrent: status %d: %s", resp.StatusCode, body)
+	}
+	return nil
+}
+
 // GetStatus polls the server for infoHash's current status. Returns
 // ErrNotFound if it no longer knows this hash at all.
 func (c *Client) GetStatus(ctx context.Context, infoHash string) (*Status, error) {

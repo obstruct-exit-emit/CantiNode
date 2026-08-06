@@ -155,6 +155,13 @@ export function listUnmatched(apiKey: string): Promise<TrackFile[]> {
   return request('/api/v1/track-files/unmatched', apiKey)
 }
 
+// deleteTrackFile permanently removes a file: off disk, then its own
+// row. Unlike clearMatch (which only unlinks a match), this is not
+// reversible.
+export function deleteTrackFile(apiKey: string, trackFileId: number): Promise<void> {
+  return request(`/api/v1/track-files/${trackFileId}`, apiKey, { method: 'DELETE' })
+}
+
 export function clearMatch(apiKey: string, trackFileId: number): Promise<void> {
   return request(`/api/v1/track-files/${trackFileId}/match`, apiKey, { method: 'DELETE' })
 }
@@ -386,4 +393,11 @@ export interface Download {
 
 export function listDownloads(apiKey: string): Promise<Download[]> {
   return request('/api/v1/downloads', apiKey)
+}
+
+// cancelDownload stops tracking a grab — best-effort removes it from
+// whichever download client it was sent to and reverts the wanted album
+// back to "wanted" so it can be searched again.
+export function cancelDownload(apiKey: string, id: number): Promise<void> {
+  return request(`/api/v1/downloads/${id}`, apiKey, { method: 'DELETE' })
 }

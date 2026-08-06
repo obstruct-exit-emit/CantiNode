@@ -66,16 +66,48 @@ docs/                              this documentation
 See `internal/scanner`:
 
 - **Scan** (`scanner.go`) walks each root folder, reads tags via
-  `internal/tagreader`, and upserts a `track_files` row per file. A
-  rescan never touches an already-matched file's `match_status`/
-  `track_id` — only a fresh file starts `unmatched`.
-- **Match** (`matcher.go`): a file whose tags carry a MusicBrainz
-  recording ID is looked up directly (`Scanner.matchFile`); otherwise a
-  fuzzy search is scored, and only accepted above `min_match_confidence`.
-  Matching creates/reuses `artists`/`albums`/`tracks` rows as needed
-  (`Scanner.applyMatch`) — track/disc number come from the file's own
-  tags, not MusicBrainz (a Recording alone doesn't carry a release-scoped
-  track position).
+  `internal/tagreader`, and upserts a `track_files` row per file
+  (`upsertFile`) — a rescan never touches an already-matched file's
+  `match_status`/`track_id`, only a fresh file starts `unmatched`. As it
+  walks, not-yet-matched files are grouped by directory (`filepath.Dir`)
+  into `groups map[string][]folderEntry`. Matching itself runs in a
+  second pass after the walk completes, one folder-group at a time
+  (`matchFolder`) — not inline during the walk.
+- **Match** (`matcher.go`, `folder_match.go`): a file whose tags carry a
+  MusicBrainz recording ID is looked up directly, independent of its
+  folder (`matchFileDirect`) — the same fast path as before this rework.
+  Every other file in a folder is matched together against **one**
+  MusicBrainz *release* (`matchFolder`/`resolveFolderRelease`): an
+  embedded release MBID on any file is used directly if present;
+  otherwise the folder's own consistent Artist/Album tags
+  (`folderTagConsensus`) drive a `SearchReleases` call, scored by
+  MusicBrainz relevance combined with how close a candidate's own track
+  count is to the folder's file count (`pickBestReleaseCandidate`) — a
+  disambiguator per-file search never had. Each file is then slotted into
+  a specific track within that one release (`slotTrack`): disc+track
+  number from local tags first, falling back to a hand-rolled
+  case/punctuation-insensitive title-similarity score
+  (`titlesim.go`) against the release's own already-fetched tracklist — no
+  extra network call. Every successful slot still goes through the same
+  `Scanner.applyMatch` that existed before this rework (creates/reuses
+  `artists`/`albums`/`tracks` rows) — only the track/disc-number
+  *arguments* passed to it differ: the release's own authoritative
+  position instead of the file's own tags. A folder whose files don't
+  agree on Artist/Album, or whose release search/lookup comes back empty,
+  falls back to the original independent per-file fuzzy search
+  (`matchFileFuzzy`) for just that folder — never a fatal scan error.
+
+  This exists because per-file independent matching could split one
+  album folder across several different `albums` rows — different
+  pressings of the same release-group (or, worse, an unrelated release)
+  whenever per-file fuzzy scores happened to diverge on different tracks.
+  Grouping by folder and resolving one release per folder also cuts
+  MusicBrainz call volume per folder from O(track count) to O(1-2).
+
+  Known limitation: grouping is one filesystem level deep
+  (`filepath.Dir`) — a multi-disc release ripped into `CD1`/`CD2`
+  subfolders is currently treated as two separate folders/albums, not
+  one.
 - **Organize** (`organizer.go`): `FormatPath` renders `naming_format`
   against a matched file's artist/album/track; `OrganizeFile` moves the
   file there, refusing to overwrite an existing destination.

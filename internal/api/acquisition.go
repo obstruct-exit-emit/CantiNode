@@ -139,3 +139,18 @@ func (s *Server) handleListDownloads(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, downloads)
 }
+
+// handleCancelDownload cancels a grab — best-effort removes it from its
+// download client and reverts the wanted album back to "wanted" — see
+// acquisition.Service.CancelDownload.
+func (s *Server) handleCancelDownload(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := s.acquisition.CancelDownload(r.Context(), id); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

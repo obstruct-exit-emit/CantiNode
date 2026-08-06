@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from 'react'
 import {
   albumCoverURL,
+  clearMatch,
+  deleteTrackFile,
   listAlbumsByArtist,
   listArtists,
   listTracksByAlbum,
@@ -177,6 +179,10 @@ function TrackTable({ apiKey, tracks }: { apiKey: string; tracks: Track[] }) {
     listTrackFilesByTrack(apiKey, track.id).then(setFiles)
   }
 
+  function refreshFiles() {
+    if (expanded !== null) listTrackFilesByTrack(apiKey, expanded).then(setFiles)
+  }
+
   if (tracks.length === 0) return <p className="empty">No tracks yet.</p>
 
   return (
@@ -201,7 +207,7 @@ function TrackTable({ apiKey, tracks }: { apiKey: string; tracks: Track[] }) {
             {expanded === t.id && (
               <tr>
                 <td colSpan={4}>
-                  <TrackFiles apiKey={apiKey} files={files} />
+                  <TrackFiles apiKey={apiKey} files={files} onChanged={refreshFiles} />
                 </td>
               </tr>
             )}
@@ -212,7 +218,7 @@ function TrackTable({ apiKey, tracks }: { apiKey: string; tracks: Track[] }) {
   )
 }
 
-function TrackFiles({ apiKey, files }: { apiKey: string; files: TrackFile[] }) {
+function TrackFiles({ apiKey, files, onChanged }: { apiKey: string; files: TrackFile[]; onChanged: () => void }) {
   const [busy, setBusy] = useState<number | null>(null)
   const [preview, setPreview] = useState<Record<number, string>>({})
 
@@ -249,6 +255,31 @@ function TrackFiles({ apiKey, files }: { apiKey: string; files: TrackFile[] }) {
     }
   }
 
+  async function handleUnmatch(f: TrackFile) {
+    if (!confirm('Unmatch this file? It moves back to the Unmatched review queue; the file itself is untouched.')) return
+    setBusy(f.id)
+    try {
+      await clearMatch(apiKey, f.id)
+      onChanged()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function handleDelete(f: TrackFile) {
+    if (!confirm(`Permanently delete ${f.path}? This removes the file from disk — it cannot be undone.`)) return
+    setBusy(f.id)
+    try {
+      await deleteTrackFile(apiKey, f.id)
+      onChanged()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+      setBusy(null)
+    }
+  }
+
   if (files.length === 0) return <p className="text-muted">No file linked.</p>
 
   return (
@@ -271,6 +302,12 @@ function TrackFiles({ apiKey, files }: { apiKey: string; files: TrackFile[] }) {
               {busy === f.id ? 'Writing…' : 'Write tags'}
             </button>
           )}
+          <button className="toggle" disabled={busy === f.id} onClick={() => handleUnmatch(f)}>
+            Unmatch
+          </button>
+          <button className="toggle toggle-danger" disabled={busy === f.id} onClick={() => handleDelete(f)}>
+            Delete
+          </button>
         </li>
       ))}
     </ul>

@@ -96,9 +96,19 @@ func (f *fakeServer) handleTorrentShim(w http.ResponseWriter, r *http.Request) {
 		f.handleAddTorrent(w, r)
 	case r.URL.Path == "/api/v2/torrents/info":
 		f.handleTorrentsInfo(w, r)
+	case r.URL.Path == "/api/v2/torrents/delete" && r.Method == http.MethodPost:
+		f.handleDeleteTorrent(w, r)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (f *fakeServer) handleDeleteTorrent(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	for _, h := range strings.Split(r.FormValue("hashes"), "|") {
+		delete(f.torrents, h)
+	}
+	w.Write([]byte("Ok."))
 }
 
 func (f *fakeServer) handleAddTorrent(w http.ResponseWriter, r *http.Request) {

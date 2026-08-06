@@ -252,6 +252,18 @@ func (f *fakeQBittorrent) handle(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(out)
 
+	case "/api/v2/torrents/delete":
+		if !f.authorized(r) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		r.ParseForm()
+		for _, h := range strings.Split(r.FormValue("hashes"), "|") {
+			delete(f.states, h)
+			delete(f.contentPaths, h)
+		}
+		w.Write([]byte("Ok."))
+
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -480,5 +492,68 @@ func TestPollDownloadsNoOpWhenNoClientConfigured(t *testing.T) {
 	}
 	if result.Checked != 0 {
 		t.Errorf("Checked = %d, want 0 (no download client configured)", result.Checked)
+	}
+}
+
+func TestCancelDownloadRemovesFromClientAndRevertsWanted(t *testing.T) {
+	s, db, wantedAlbumID, qb := grabTestFixtures(t)
+	ctx := t.Context()
+
+	rel := prowlarr.Release{
+		Title:     "X",
+		Protocol:  prowlarr.ProtocolTorrent,
+		MagnetURL: "magnet:?xt=urn:btih:6666666666666666666666666666666666666a",
+	}
+	d, err := s.GrabRelease(ctx, wantedAlbumID, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := qb.states[d.ClientID]; !ok {
+		t.Fatal("fake qBittorrent should have the torrent before cancel")
+	}
+
+	if err := s.CancelDownload(ctx, d.ID); err != nil {
+		t.Fatalf("CancelDownload: %v", err)
+	}
+
+	if _, ok := qb.states[d.ClientID]; ok {
+		t.Error("torrent should have been removed from the download client")
+	}
+	if _, err := db.GetDownload(ctx, d.ID); err != database.ErrNotFound {
+		t.Errorf("GetDownload after cancel: err = %v, want ErrNotFound", err)
+	}
+	w, err := db.GetWantedAlbum(ctx, wantedAlbumID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Status != database.WantedStatusWanted {
+		t.Errorf("wanted status = %q, want reverted to wanted", w.Status)
+	}
+}
+
+func TestCancelDownloadSurvivesClientRemoveFailure(t *testing.T) {
+	s, db, wantedAlbumID, _ := grabTestFixtures(t)
+	ctx := t.Context()
+
+	rel := prowlarr.Release{
+		Title:     "X",
+		Protocol:  prowlarr.ProtocolTorrent,
+		MagnetURL: "magnet:?xt=urn:btih:7777777777777777777777777777777777777a",
+	}
+	d, err := s.GrabRelease(ctx, wantedAlbumID, rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Point the service at a dead qBittorrent URL so the client-side
+	// removal call fails — cancel must still succeed on CantiNode's own
+	// side rather than leaving the row stuck.
+	s.UpdateClients(nil, qbittorrent.NewClient("http://127.0.0.1:1", "u", "p"), nil)
+
+	if err := s.CancelDownload(ctx, d.ID); err != nil {
+		t.Fatalf("CancelDownload should succeed even if the client removal call fails: %v", err)
+	}
+	if _, err := db.GetDownload(ctx, d.ID); err != database.ErrNotFound {
+		t.Errorf("GetDownload after cancel: err = %v, want ErrNotFound", err)
 	}
 }

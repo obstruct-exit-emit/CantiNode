@@ -74,6 +74,15 @@ func TestAcquisitionEndToEndFlow(t *testing.T) {
 			}
 			qbTorrents["abcdef1234567890abcdef1234567890abcdef12"] = true
 			w.Write([]byte("Ok."))
+		case "/api/v2/torrents/delete":
+			ck, err := r.Cookie("SID")
+			if err != nil || !qbSessions[ck.Value] {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			r.ParseForm()
+			delete(qbTorrents, r.FormValue("hashes"))
+			w.Write([]byte("Ok."))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -120,6 +129,30 @@ func TestAcquisitionEndToEndFlow(t *testing.T) {
 	}
 	if len(downloads) != 1 || downloads[0].ID != download.ID {
 		t.Errorf("downloads = %+v", downloads)
+	}
+
+	// Cancel it: removed from the download client, gone from the list,
+	// and the wanted album is back to "wanted".
+	rec = doRequest(t, s, "DELETE", "/api/v1/downloads/"+itoa(download.ID), apiKey, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("cancel status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if qbTorrents["abcdef1234567890abcdef1234567890abcdef12"] {
+		t.Error("qBittorrent fake should no longer have the torrent after cancel")
+	}
+	rec = doRequest(t, s, "GET", "/api/v1/downloads", apiKey, nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &downloads); err != nil {
+		t.Fatal(err)
+	}
+	if len(downloads) != 0 {
+		t.Errorf("downloads after cancel = %+v, want empty", downloads)
+	}
+	rec = doRequest(t, s, "GET", "/api/v1/monitored-artists/"+itoa(monitored.ID)+"/wanted", apiKey, nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &wanted); err != nil {
+		t.Fatal(err)
+	}
+	if wanted[0].Status != database.WantedStatusWanted {
+		t.Errorf("wanted status after cancel = %q, want wanted", wanted[0].Status)
 	}
 
 	// Unmonitor cleans up.

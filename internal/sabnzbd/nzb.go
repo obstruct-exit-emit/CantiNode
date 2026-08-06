@@ -69,6 +69,26 @@ func parseAddResponse(resp *http.Response) (string, error) {
 	return ar.NzoIDs[0], nil
 }
 
+// Remove deletes nzoID from the server, trying both the active queue and
+// history (deleting downloaded files too) since the caller doesn't know
+// which one currently holds it — used to cancel a grab CantiNode itself
+// initiated. Not an error if the server no longer recognizes nzoID in
+// either place (already removed some other way).
+func (c *Client) Remove(ctx context.Context, nzoID string) error {
+	queueResp, err := c.do(ctx, http.MethodGet, url.Values{"mode": {"queue"}, "name": {"delete"}, "value": {nzoID}}, nil, "")
+	if err != nil {
+		return err
+	}
+	queueResp.Body.Close()
+
+	historyResp, err := c.do(ctx, http.MethodGet, url.Values{"mode": {"history"}, "name": {"delete"}, "value": {nzoID}, "del_files": {"1"}}, nil, "")
+	if err != nil {
+		return err
+	}
+	historyResp.Body.Close()
+	return nil
+}
+
 type queueResponse struct {
 	Queue struct {
 		Slots []struct {

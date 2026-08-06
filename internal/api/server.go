@@ -96,6 +96,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/track-files/{id}/organize/preview", s.requireAuth(s.handlePreviewOrganize))
 	s.mux.HandleFunc("POST /api/v1/track-files/{id}/organize", s.requireAuth(s.handleOrganize))
 	s.mux.HandleFunc("POST /api/v1/track-files/{id}/write-tags", s.requireAuth(s.handleWriteTags))
+	s.mux.HandleFunc("DELETE /api/v1/track-files/{id}", s.requireAuth(s.handleDeleteTrackFile))
 
 	s.mux.HandleFunc("GET /api/v1/musicbrainz/search", s.requireAuth(s.handleMusicBrainzSearch))
 
@@ -118,6 +119,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/wanted-albums/{id}/search", s.requireAuth(s.handleSearchReleases))
 	s.mux.HandleFunc("POST /api/v1/wanted-albums/{id}/grab", s.requireAuth(s.handleGrabRelease))
 	s.mux.HandleFunc("GET /api/v1/downloads", s.requireAuth(s.handleListDownloads))
+	s.mux.HandleFunc("DELETE /api/v1/downloads/{id}", s.requireAuth(s.handleCancelDownload))
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

@@ -55,6 +55,20 @@ func (s *Server) handleClearMatch(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleDeleteTrackFile permanently deletes a track file — off disk and
+// out of the database — see scanner.Scanner.DeleteTrackFile.
+func (s *Server) handleDeleteTrackFile(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	if err := s.scanner.DeleteTrackFile(r.Context(), id); err != nil {
+		writeError(w, notFoundStatus(err), err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handlePreviewOrganize(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r, "id")
 	if !ok {

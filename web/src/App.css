@@ -249,6 +249,15 @@ table.downloads tbody tr:hover {
   border-color: var(--accent);
 }
 
+.toggle-danger {
+  color: var(--state-error) !important;
+}
+
+.toggle-danger:hover {
+  border-color: var(--state-error) !important;
+  background: color-mix(in srgb, var(--state-error) 10%, transparent);
+}
+
 /* Cards (Root Folders, Settings) */
 .settings {
   display: flex;
@@ -671,6 +680,10 @@ table.downloads tbody tr:hover {
   font-size: 12px;
   white-space: normal;
   margin-top: 2px;
+}
+
+.release-dead {
+  color: var(--state-error);
 }
 
 .downloads-activity {

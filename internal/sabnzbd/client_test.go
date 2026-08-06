@@ -43,6 +43,48 @@ func TestAddByURLAndGetStatus(t *testing.T) {
 	}
 }
 
+func TestRemoveFromQueue(t *testing.T) {
+	c, f := newTestClient(t, "test-key")
+	nzoID, err := c.AddByURL(t.Context(), "http://indexer.example/release.nzb", "Test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Remove(t.Context(), nzoID); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, ok := f.nzbs[nzoID]; ok {
+		t.Error("nzb should be gone from the fake server after Remove")
+	}
+	if _, err := c.GetStatus(t.Context(), nzoID); err != ErrNotFound {
+		t.Errorf("GetStatus after Remove: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRemoveFromHistory(t *testing.T) {
+	c, f := newTestClient(t, "test-key")
+	nzoID, err := c.AddByURL(t.Context(), "http://indexer.example/release.nzb", "Test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.nzbs[nzoID].inQueue = false
+	f.nzbs[nzoID].historyStat = "Completed"
+
+	if err := c.Remove(t.Context(), nzoID); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, ok := f.nzbs[nzoID]; ok {
+		t.Error("nzb should be gone from the fake server after Remove")
+	}
+}
+
+func TestRemoveUnknownIDIsNotAnError(t *testing.T) {
+	c, _ := newTestClient(t, "test-key")
+	if err := c.Remove(t.Context(), "nzo-nonexistent"); err != nil {
+		t.Errorf("Remove of an unknown id should not error: %v", err)
+	}
+}
+
 func TestGetStatusFailed(t *testing.T) {
 	c, f := newTestClient(t, "test-key")
 	nzoID, err := c.AddByURL(t.Context(), "http://indexer.example/release.nzb", "Test")

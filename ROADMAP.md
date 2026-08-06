@@ -54,6 +54,22 @@ design tokens ported from AcerviNode so all three apps look like one family).
   actually driving the built UI with a headless browser rather than
   re-reading the code, fixed across every affected method, and covered
   with a regression test per method.
+- ✅ **Whole-album (release-based) matching, reworked post-launch** —
+  matching was originally per-file/independent (`SearchRecordings` per
+  track, no awareness of sibling files), which could split a single album
+  folder across several different `albums` rows: found in a real library
+  where one 14-track folder ended up split across three different
+  MusicBrainz releases of the same release-group, plus one track matched
+  to an entirely unrelated release, because each track's fuzzy search
+  happened to score a different candidate highest. Reworked so files are
+  grouped by directory and resolved against one MusicBrainz release per
+  folder (an embedded release MBID if any file carries one, else a
+  release search scored by relevance + how close a candidate's own track
+  count is to the folder's file count), then slotted into that release's
+  own tracklist — the same approach Picard/beets/Lidarr use. Cut
+  MusicBrainz call volume per folder from O(track count) to O(1-2) as a
+  side effect. Existing per-file direct-MBID and fuzzy-search paths kept
+  unchanged as the fast path and the fallback, respectively.
 
 ## Phase 2 — Tag writing ✅
 
