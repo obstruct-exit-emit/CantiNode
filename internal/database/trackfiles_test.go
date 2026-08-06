@@ -153,6 +153,50 @@ func TestDeleteTrackFilesMissing(t *testing.T) {
 	}
 }
 
+func TestListTrackFilesByArtist(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+	rf, _ := db.CreateRootFolder(ctx, "/music")
+
+	artist, _ := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
+	album, _ := db.GetOrCreateAlbum(ctx, artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
+	track, _ := db.GetOrCreateTrack(ctx, album.ID, "t-mbid", "Song", 1, 1, 1000)
+
+	mine, err := db.UpsertTrackFileByPath(ctx, rf.ID, "/music/mine.mp3", 1, "mp3", 128, 1000, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTrackFileMatch(ctx, mine.ID, &track.ID, StatusMatched, 0.9); err != nil {
+		t.Fatal(err)
+	}
+
+	// A different artist's file must not show up.
+	other, _ := db.GetOrCreateArtist(ctx, "b-mbid", "Other", "Other")
+	otherAlbum, _ := db.GetOrCreateAlbum(ctx, other.ID, "al2-mbid", "rg2-mbid", "Other Album", "2021", "Album")
+	otherTrack, _ := db.GetOrCreateTrack(ctx, otherAlbum.ID, "t2-mbid", "Other Song", 1, 1, 1000)
+	otherFile, err := db.UpsertTrackFileByPath(ctx, rf.ID, "/music/other.mp3", 1, "mp3", 128, 1000, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTrackFileMatch(ctx, otherFile.ID, &otherTrack.ID, StatusMatched, 0.9); err != nil {
+		t.Fatal(err)
+	}
+
+	// An unmatched file (no track_id) never matches the join, so it's
+	// correctly absent regardless of artist.
+	if _, err := db.UpsertTrackFileByPath(ctx, rf.ID, "/music/unmatched.mp3", 1, "mp3", 128, 1000, "{}"); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := db.ListTrackFilesByArtist(ctx, artist.ID)
+	if err != nil {
+		t.Fatalf("ListTrackFilesByArtist: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != mine.ID {
+		t.Errorf("list = %+v, want just %d", list, mine.ID)
+	}
+}
+
 func TestListArtistsAndAlbumsOnlyShowMatchedContent(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()

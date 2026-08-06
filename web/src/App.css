@@ -272,6 +272,12 @@ table.downloads tbody tr:hover {
   background: color-mix(in srgb, var(--state-error) 10%, transparent);
 }
 
+.toggle.on {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-soft, color-mix(in srgb, var(--accent) 12%, transparent));
+}
+
 /* Cards (Root Folders, Settings) */
 .settings {
   display: flex;
@@ -801,4 +807,148 @@ table.downloads tbody tr:hover {
 .missing-group-actions {
   display: flex;
   gap: 8px;
+}
+
+/* Generic boxed section — same surface treatment as .settings-card/
+   .artist-header, just without the max-width, so every section on the
+   artist page (Albums/Missing/Wanted/Downloads) reads as one consistent
+   family of cards instead of loose headed lists. */
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.card:last-child {
+  margin-bottom: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.card-head .section-title {
+  margin-bottom: 0;
+}
+
+.card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sort-select {
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.sort-dir-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.sort-dir-buttons .toggle {
+  padding: 5px 8px;
+  line-height: 1;
+}
+
+.remove-panel {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--state-error);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--state-error) 8%, transparent);
+}
+
+.remove-panel p {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.remove-panel label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.rename-plan {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.rename-plan p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.rename-plan .move {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.rename-plan .file-path {
+  overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rename-plan .settings-actions {
+  margin-top: 10px;
+}
+
+.row-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-select input[type='checkbox'] {
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* Compact variant of .card-grid — smaller covers, same grid shape,
+   matching .poster-grid.compact's role in the LibriNode reference. */
+.card-grid.compact {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.card-grid.compact .library-card-title {
+  font-size: 12px;
+}
+
+.card-grid.compact .library-card-sub {
+  font-size: 11px;
 }

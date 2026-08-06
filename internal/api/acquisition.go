@@ -262,3 +262,56 @@ func (s *Server) handleCancelDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handlePreviewOrganizeArtist is the artist page's "Organize..." preview —
+// every naming-template move that would happen across this artist's
+// files, without touching anything on disk. Same {"moves": [...]} shape
+// handleOrganizeArtist's apply returns, minus the per-file errors key
+// (nothing has been attempted yet).
+func (s *Server) handlePreviewOrganizeArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	moves, err := s.scanner.PlanOrganizeArtist(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, map[string]any{"moves": moves})
+}
+
+// handleOrganizeArtist applies the artist-level organize plan — see
+// scanner.Scanner.OrganizeArtist. A per-file failure doesn't fail the
+// whole request (200, not an error status): moves lists what actually
+// succeeded, errors lists what didn't, mirroring how a scan reports
+// per-file errors without aborting.
+func (s *Server) handleOrganizeArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	moves, errs, err := s.scanner.OrganizeArtist(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, map[string]any{"moves": moves, "errors": errs})
+}
+
+// handleRemoveArtist is the artist page's danger "Remove artist" action —
+// see acquisition.Service.RemoveArtist. delete_files=true also deletes
+// the artist's files from disk; omitted or any other value keeps them
+// (unlinked back to unmatched, picked up again on the next scan).
+func (s *Server) handleRemoveArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+	deleteFiles := r.URL.Query().Get("delete_files") == "true"
+	if err := s.acquisition.RemoveArtist(r.Context(), id, deleteFiles); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

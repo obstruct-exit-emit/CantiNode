@@ -125,3 +125,69 @@ func (s *Scanner) OrganizeFile(ctx context.Context, trackFileID int64) (string, 
 	}
 	return newPath, nil
 }
+
+// RenameMove is one track file's planned (or applied) move under
+// organizing — the artist-level counterpart to the single-file preview/
+// apply endpoints, which return just a bare destination path for the one
+// file the caller already knows.
+type RenameMove struct {
+	TrackFileID int64  `json:"file_id"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+}
+
+// PlanOrganizeArtist previews the moves OrganizeArtist would make: every
+// one of artistID's own track files (matched or manual — unmatched files
+// have nothing to organize by, and are silently skipped rather than
+// erroring the whole plan) whose planned path differs from its current
+// one. A file already at its target path is left out entirely — an
+// artist whose files already match the naming template gets an empty
+// plan, not a list of no-op moves.
+func (s *Scanner) PlanOrganizeArtist(ctx context.Context, artistID int64) ([]RenameMove, error) {
+	files, err := s.db.ListTrackFilesByArtist(ctx, artistID)
+	if err != nil {
+		return nil, fmt.Errorf("list track files by artist: %w", err)
+	}
+
+	moves := []RenameMove{}
+	for _, tf := range files {
+		if tf.MatchStatus == database.StatusUnmatched {
+			continue
+		}
+		newPath, err := s.PlanOrganizePath(ctx, tf.ID)
+		if err != nil {
+			return nil, fmt.Errorf("plan organize %s: %w", tf.Path, err)
+		}
+		if newPath == tf.Path {
+			continue
+		}
+		moves = append(moves, RenameMove{TrackFileID: tf.ID, From: tf.Path, To: newPath})
+	}
+	return moves, nil
+}
+
+// OrganizeArtist applies PlanOrganizeArtist's plan, one file at a time via
+// OrganizeFile — a failure moving one file is recorded in errs and does
+// not stop the rest, the same non-aborting pattern ScanResult.Errors uses
+// for a whole scan pass. moves holds only the files that actually moved
+// successfully; the returned error is non-nil only for a failure that
+// aborts before any per-file attempt (e.g. can't even list the artist's
+// files).
+func (s *Scanner) OrganizeArtist(ctx context.Context, artistID int64) (moves []RenameMove, errs []string, err error) {
+	plan, err := s.PlanOrganizeArtist(ctx, artistID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	moves = []RenameMove{}
+	errs = []string{}
+	for _, m := range plan {
+		newPath, oerr := s.OrganizeFile(ctx, m.TrackFileID)
+		if oerr != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", m.From, oerr))
+			continue
+		}
+		moves = append(moves, RenameMove{TrackFileID: m.TrackFileID, From: m.From, To: newPath})
+	}
+	return moves, errs, nil
+}

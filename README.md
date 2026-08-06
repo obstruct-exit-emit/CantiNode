@@ -132,6 +132,65 @@ go build ./cmd/cantinode
 Then open `http://localhost:7847`. Full steps:
 [Installation](docs/installation.md) · [Quickstart](docs/quickstart.md).
 
+### Running under WSL2 (Windows)
+
+CantiNode is a plain Linux binary; on Windows, running it inside WSL2
+(rather than a native Windows build) is the simplest path, and lets it sit
+on the same host as a WSL-based download client. From a Windows shell:
+
+```sh
+# Cross-compile from the Windows-side checkout
+GOOS=linux GOARCH=amd64 go build -o cantinode-linux ./cmd/cantinode
+
+# Copy it into WSL's own filesystem, not /mnt/c — running off the
+# Windows-mounted drive works, but a native ext4 path is faster and
+# avoids 9p filesystem quirks.
+wsl.exe -e bash -lc '
+  mkdir -p /opt/cantinode/data
+  cp /mnt/c/path/to/cantinode-linux /opt/cantinode/cantinode
+  chmod +x /opt/cantinode/cantinode
+  /opt/cantinode/cantinode
+'
+```
+
+**For it to keep running** rather than exit the moment that shell closes,
+WSL2 needs either an attached session or a real init system — a plain
+background `&` process dies when WSL tears down the distro on session
+exit. If your WSL distro has systemd enabled (`systemctl` works), run it
+as a proper service instead:
+
+```ini
+# /etc/systemd/system/cantinode.service
+[Unit]
+Description=CantiNode music library organizer
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/cantinode/cantinode
+WorkingDirectory=/opt/cantinode
+Environment=CANTINODE_DATA_DIR=/opt/cantinode/data
+Environment=CANTINODE_CONFIG=/opt/cantinode/config.yaml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+wsl.exe -e bash -lc 'systemctl daemon-reload && systemctl enable --now cantinode'
+```
+
+Redeploying after a change is then just: rebuild, copy the new binary
+over, and `systemctl restart cantinode`.
+
+Note that WSL2 itself still shuts its lightweight VM down once nothing is
+attached to it and no process is running to keep it warm — a live
+systemd service is enough to prevent that on its own in most setups, but
+if it isn't for yours, keep a terminal (or a scheduled task at login
+running `wsl.exe -e true`) around to hold the distro open.
+
 ## Documentation
 
 | | |

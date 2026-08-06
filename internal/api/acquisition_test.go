@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/prowlarr"
 	"github.com/cantinode/cantinode/internal/qbittorrent"
+	"github.com/cantinode/cantinode/internal/scanner"
 )
 
 const sampleArtistJSON = `{
@@ -310,6 +313,160 @@ func TestWantArtistAlbumWithMonitorFlagMonitorsArtist(t *testing.T) {
 	}
 	if !got.IsMonitored {
 		t.Error("IsMonitored should be true after Add & Monitor")
+	}
+}
+
+// TestArtistOrganizePreviewAndApply exercises GET .../organize/preview and
+// POST .../organize end to end against a real file on disk: the preview
+// lists the move without touching anything, apply actually moves the
+// file and records the new path.
+func TestArtistOrganizePreviewAndApply(t *testing.T) {
+	s, db, apiKey := testServer(t, nil)
+	ctx := t.Context()
+
+	artist, err := db.GetOrCreateArtist(ctx, "a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := db.GetOrCreateAlbum(ctx, artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := db.GetOrCreateTrack(ctx, album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf, err := db.CreateRootFolder(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcPath := filepath.Join(rf.Path, "unsorted.flac")
+	if err := os.WriteFile(srcPath, []byte("fake audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := db.UpsertTrackFileByPath(ctx, rf.ID, srcPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTrackFileMatch(ctx, tf.ID, &track.ID, database.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doRequest(t, s, "GET", "/api/v1/artists/"+itoa(artist.ID)+"/organize/preview", apiKey, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preview status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var preview struct {
+		Moves []scanner.RenameMove `json:"moves"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Moves) != 1 || preview.Moves[0].From != srcPath {
+		t.Fatalf("preview = %+v", preview)
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		t.Error("preview must not touch the file on disk")
+	}
+
+	rec = doRequest(t, s, "POST", "/api/v1/artists/"+itoa(artist.ID)+"/organize", apiKey, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var applied struct {
+		Moves  []scanner.RenameMove `json:"moves"`
+		Errors []string             `json:"errors"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
+		t.Fatal(err)
+	}
+	if len(applied.Moves) != 1 || len(applied.Errors) != 0 {
+		t.Fatalf("applied = %+v", applied)
+	}
+	if _, err := os.Stat(srcPath); !os.IsNotExist(err) {
+		t.Error("original file should be gone after apply")
+	}
+	if _, err := os.Stat(applied.Moves[0].To); err != nil {
+		t.Errorf("file should exist at its new path: %v", err)
+	}
+
+	// Now that the file matches the naming template, a second preview is
+	// empty rather than an unhelpful no-op move.
+	rec = doRequest(t, s, "GET", "/api/v1/artists/"+itoa(artist.ID)+"/organize/preview", apiKey, nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Moves) != 0 {
+		t.Errorf("second preview = %+v, want empty", preview.Moves)
+	}
+}
+
+// TestRemoveArtistEndpoint exercises DELETE /api/v1/artists/{id} end to
+// end for both the keep-files and delete-files query-param paths.
+func TestRemoveArtistEndpoint(t *testing.T) {
+	s, db, apiKey := testServer(t, nil)
+	ctx := t.Context()
+
+	newArtistWithFile := func(mbid, name string) (*database.Artist, string, int64) {
+		artist, err := db.GetOrCreateArtist(ctx, mbid, name, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		album, err := db.GetOrCreateAlbum(ctx, artist.ID, "al-"+mbid, "rg-"+mbid, "Album", "2020", "Album")
+		if err != nil {
+			t.Fatal(err)
+		}
+		track, err := db.GetOrCreateTrack(ctx, album.ID, "t-"+mbid, "Song", 1, 1, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rf, err := db.CreateRootFolder(ctx, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(rf.Path, "song.mp3")
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tf, err := db.UpsertTrackFileByPath(ctx, rf.ID, path, 1, "mp3", 0, 0, "{}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.SetTrackFileMatch(ctx, tf.ID, &track.ID, database.StatusMatched, 1.0); err != nil {
+			t.Fatal(err)
+		}
+		return artist, path, tf.ID
+	}
+
+	// Keep files: artist gone, file survives, track file reverts to
+	// unmatched.
+	keepArtist, keepPath, keepTFID := newArtistWithFile("keep-mbid", "Keep Artist")
+	rec := doRequest(t, s, "DELETE", "/api/v1/artists/"+itoa(keepArtist.ID), apiKey, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("remove (keep files) status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(keepPath); err != nil {
+		t.Error("file should survive when delete_files is omitted")
+	}
+	tf, err := db.GetTrackFile(ctx, keepTFID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tf.MatchStatus != database.StatusUnmatched {
+		t.Errorf("match status = %q, want unmatched", tf.MatchStatus)
+	}
+	if _, err := db.GetArtist(ctx, keepArtist.ID); err != database.ErrNotFound {
+		t.Errorf("GetArtist after remove: err = %v, want ErrNotFound", err)
+	}
+
+	// Delete files: file actually gone from disk.
+	deleteArtist, deletePath, _ := newArtistWithFile("delete-mbid", "Delete Artist")
+	rec = doRequest(t, s, "DELETE", "/api/v1/artists/"+itoa(deleteArtist.ID)+"?delete_files=true", apiKey, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("remove (delete files) status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(deletePath); !os.IsNotExist(err) {
+		t.Errorf("file should be deleted from disk, stat err = %v", err)
 	}
 }
 

@@ -24,6 +24,10 @@ config.yaml
 # Personal Claude Code settings
 .claude/settings.local.json
 
+# Local reference clones of sibling projects (design/UX comparison only,
+# not part of this repo)
+/examples/
+
 # Editor / OS noise
 .vscode/
 .idea/

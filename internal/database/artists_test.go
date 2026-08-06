@@ -34,6 +34,64 @@ func TestGetOrCreateArtistCreatesThenReuses(t *testing.T) {
 	}
 }
 
+// TestDeleteArtistCascadesAlbumsTracksWanted proves DeleteArtist's own FK
+// cascade (albums -> tracks, wanted_albums, artist_release_groups) works
+// as the schema promises. It deliberately does NOT own any track_files —
+// RemoveArtist (internal/acquisition) is responsible for detaching those
+// first; a raw DeleteArtist call against a track_files-owning artist is
+// exactly the orphaning bug DeleteArtist's own doc comment warns about,
+// not something this test exercises.
+func TestDeleteArtistCascadesAlbumsTracksWanted(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	artist, err := db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := db.GetOrCreateAlbum(ctx, artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := db.GetOrCreateTrack(ctx, album.ID, "t-mbid", "Song", 1, 1, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceArtistReleaseGroups(ctx, artist.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-mbid", Title: "Album", PrimaryType: "Album"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	wanted, err := db.GetOrCreateWantedAlbum(ctx, artist.ID, "rg-2", "Other Album", "Album", "2021")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.DeleteArtist(ctx, artist.ID); err != nil {
+		t.Fatalf("DeleteArtist: %v", err)
+	}
+
+	if _, err := db.GetArtist(ctx, artist.ID); err != ErrNotFound {
+		t.Errorf("GetArtist after delete: err = %v, want ErrNotFound", err)
+	}
+	if _, err := db.GetAlbum(ctx, album.ID); err != ErrNotFound {
+		t.Errorf("GetAlbum after delete: err = %v, want ErrNotFound", err)
+	}
+	if _, err := db.GetTrack(ctx, track.ID); err != ErrNotFound {
+		t.Errorf("GetTrack after delete: err = %v, want ErrNotFound", err)
+	}
+	if _, err := db.GetWantedAlbum(ctx, wanted.ID); err != ErrNotFound {
+		t.Errorf("GetWantedAlbum after delete: err = %v, want ErrNotFound", err)
+	}
+	groups, err := db.ListArtistReleaseGroups(ctx, artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("release groups after delete = %+v, want empty", groups)
+	}
+}
+
 func TestGetArtistNotFound(t *testing.T) {
 	db := openTestDB(t)
 	if _, err := db.GetArtist(t.Context(), 999); err != ErrNotFound {

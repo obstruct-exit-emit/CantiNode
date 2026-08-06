@@ -136,6 +136,25 @@ func (db *DB) ListArtists(ctx context.Context) ([]Artist, error) {
 	return out, rows.Err()
 }
 
+// DeleteArtist deletes id outright — the whole-library "Remove artist"
+// action (see acquisition.Service.RemoveArtist). Cascades (per the
+// schema's own FK setup) to albums -> tracks, wanted_albums -> downloads,
+// and artist_release_groups. Deliberately does NOT cascade to
+// track_files: track_files.track_id is ON DELETE SET NULL, not CASCADE,
+// so calling this before every one of the artist's own track_files rows
+// has already been deleted or unlinked (track_id cleared back to nil via
+// SetTrackFileMatch) would silently orphan them — track_id goes NULL but
+// match_status stays whatever it was, e.g. still 'matched' with nothing
+// to point at. Same class of bug migrations/0004_unified_artist.sql's own
+// doc comments call out for wanted_albums/downloads. RemoveArtist is the
+// only intended caller, and it does that cleanup first.
+func (db *DB) DeleteArtist(ctx context.Context, id int64) error {
+	if _, err := db.ExecContext(ctx, `DELETE FROM artists WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete artist %d: %w", id, err)
+	}
+	return nil
+}
+
 // SetArtistMonitored flips id's monitored flag — true when
 // acquisition.MonitorArtist starts tracking it, false when it's
 // unmonitored. Unmonitoring deliberately doesn't touch anything else:

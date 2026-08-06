@@ -13,9 +13,12 @@ import {
   listTrackFilesByTrack,
   listWantedAlbums,
   monitorArtistByID,
+  organizeArtistFiles,
   organizeFile,
   previewOrganize,
+  previewOrganizeArtist,
   refreshArtistMetadata,
+  removeArtist,
   searchReleases,
   tagWriteSupported,
   triggerScan,
@@ -27,6 +30,7 @@ import {
   type Download,
   type ProwlarrRelease,
   type ReleaseGroupCache,
+  type RenameMove,
   type Track,
   type TrackFile,
   type WantedAlbum,
@@ -79,6 +83,59 @@ function groupMissing(groups: ReleaseGroupCache[]): [MissingBucket, ReleaseGroup
   return BUCKET_ORDER.filter((b) => byBucket.has(b)).map((b) => [b, byBucket.get(b)!])
 }
 
+// Albums section view/sort — same pattern as LibriNode's own SortControl
+// (view toggle + sort key + direction), scaled down to what an Album
+// actually has: no series/rating equivalent, so "Type" (primary_type)
+// stands in as the closest thing to a second grouping axis.
+type AlbumsView = 'grid' | 'compact' | 'list'
+type AlbumsSortKey = 'title' | 'date' | 'type'
+type SortDir = 'asc' | 'desc'
+
+function defaultDirFor(key: AlbumsSortKey): SortDir {
+  return key === 'date' ? 'desc' : 'asc'
+}
+
+function sortAlbums(albums: Album[], key: AlbumsSortKey, dir: SortDir): Album[] {
+  const sorted = [...albums]
+  switch (key) {
+    case 'title':
+      sorted.sort((a, b) => a.title.localeCompare(b.title))
+      break
+    case 'date':
+      sorted.sort((a, b) => (a.release_date || '').localeCompare(b.release_date || ''))
+      break
+    case 'type':
+      sorted.sort((a, b) => (a.primary_type || '').localeCompare(b.primary_type || '') || a.title.localeCompare(b.title))
+      break
+  }
+  return dir === 'desc' ? sorted.reverse() : sorted
+}
+
+function DirectionButtons({ value, onChange }: { value: SortDir; onChange: (v: SortDir) => void }) {
+  return (
+    <span className="sort-dir-buttons">
+      <button
+        type="button"
+        className={value === 'desc' ? 'toggle on' : 'toggle'}
+        title="Descending"
+        aria-label="Sort descending"
+        onClick={() => onChange('desc')}
+      >
+        ↓
+      </button>
+      <button
+        type="button"
+        className={value === 'asc' ? 'toggle on' : 'toggle'}
+        title="Ascending"
+        aria-label="Sort ascending"
+        onClick={() => onChange('asc')}
+      >
+        ↑
+      </button>
+    </span>
+  )
+}
+
 export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; artistId: number; onBack: () => void }) {
   const [detail, setDetail] = useState<ArtistDetailType | null>(null)
   const [albums, setAlbums] = useState<Album[]>([])
@@ -92,6 +149,36 @@ export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; art
   const [scanBusy, setScanBusy] = useState(false)
   const [addBusy, setAddBusy] = useState<string | null>(null)
   const [searchingFor, setSearchingFor] = useState<WantedAlbum | null>(null)
+  const [notice, setNotice] = useState('')
+
+  // Organize… (artist-level rename preview/apply).
+  const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null)
+  const [organizeBusy, setOrganizeBusy] = useState(false)
+
+  // Remove artist (danger action).
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [removeBusy, setRemoveBusy] = useState(false)
+
+  // Albums section view/sort.
+  const [albumsView, setAlbumsView] = useState<AlbumsView>('grid')
+  const [albumsSort, setAlbumsSort] = useState<AlbumsSortKey>('title')
+  const [albumsDir, setAlbumsDir] = useState<SortDir>(defaultDirFor('title'))
+  function changeAlbumsSort(key: AlbumsSortKey) {
+    setAlbumsSort(key)
+    setAlbumsDir(defaultDirFor(key))
+  }
+
+  // Missing section: checked rows, for the bulk-add-selected actions
+  // alongside each group's own "add all" buttons.
+  const [selectedMissing, setSelectedMissing] = useState<Set<string>>(new Set())
+  function toggleMissingSelect(mbid: string) {
+    setSelectedMissing((prev) => {
+      const next = new Set(prev)
+      if (next.has(mbid)) next.delete(mbid)
+      else next.add(mbid)
+      return next
+    })
+  }
 
   function refresh() {
     getArtist(apiKey, artistId)
@@ -174,6 +261,61 @@ export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; art
     }
   }
 
+  async function handleAddSelected(monitor: boolean) {
+    const groups = missing.filter((rg) => selectedMissing.has(rg.release_group_mbid))
+    setAddBusy('bulk')
+    try {
+      for (const rg of groups) {
+        await wantArtistAlbum(apiKey, artistId, rg.release_group_mbid, monitor)
+      }
+      setSelectedMissing(new Set())
+      refresh()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAddBusy(null)
+    }
+  }
+
+  async function handlePreviewOrganize() {
+    setOrganizeBusy(true)
+    setNotice('')
+    try {
+      const { moves } = await previewOrganizeArtist(apiKey, artistId)
+      setRenamePlan(moves)
+      if (moves.length === 0) setNotice("This artist's files already match the naming format.")
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOrganizeBusy(false)
+    }
+  }
+
+  async function handleApplyOrganize() {
+    setOrganizeBusy(true)
+    try {
+      const { moves, errors } = await organizeArtistFiles(apiKey, artistId)
+      setNotice(`Moved ${moves.length} file(s)${errors.length ? `, ${errors.length} failed` : ''}.`)
+      setRenamePlan(null)
+      refresh()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setOrganizeBusy(false)
+    }
+  }
+
+  async function handleRemove(deleteFiles: boolean) {
+    setRemoveBusy(true)
+    try {
+      await removeArtist(apiKey, artistId, deleteFiles)
+      onBack()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+      setRemoveBusy(false)
+    }
+  }
+
   function openAlbum(album: Album) {
     setSelectedAlbum(album)
     setTracks([])
@@ -229,23 +371,100 @@ export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; art
             <button className="toggle" disabled={monitorBusy} onClick={handleMonitorToggle}>
               {monitorBusy ? 'Working…' : detail.is_monitored ? 'Unmonitor' : 'Monitor'}
             </button>
-            <button className="toggle" disabled={refreshBusy} onClick={handleRefreshMetadata}>
-              {refreshBusy ? 'Refreshing…' : 'Refresh metadata'}
+            <button className="toggle" disabled={organizeBusy} title="Preview naming-format moves for this artist's files only" onClick={handlePreviewOrganize}>
+              {organizeBusy ? 'Working…' : 'Organize…'}
             </button>
             <button className="toggle" disabled={scanBusy} onClick={handleScan}>
               {scanBusy ? 'Scanning…' : 'Scan files'}
             </button>
+            <button className="toggle" disabled={refreshBusy} onClick={handleRefreshMetadata}>
+              {refreshBusy ? 'Refreshing…' : 'Refresh metadata'}
+            </button>
+            <button className="toggle toggle-danger" disabled={removeBusy} onClick={() => setConfirmRemove(!confirmRemove)}>
+              Remove artist
+            </button>
           </div>
+          {notice && <p className="text-muted">{notice}</p>}
+          {renamePlan && renamePlan.length > 0 && (
+            <div className="rename-plan">
+              <p>{renamePlan.length} file(s) would move to match the naming format:</p>
+              <ul className="rows">
+                {renamePlan.map((m) => (
+                  <li key={m.file_id}>
+                    <div className="move">
+                      <span className="file-path mono text-muted">{m.from}</span>
+                      <span className="file-path mono">→ {m.to}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="settings-actions">
+                <button disabled={organizeBusy} onClick={handleApplyOrganize}>
+                  Apply
+                </button>
+                <button className="toggle" onClick={() => setRenamePlan(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {confirmRemove && (
+            <RemovePanel
+              message={`Remove ${detail.name} entirely? This un-monitors them and removes their owned albums/tracks from CantiNode's library.`}
+              checkboxLabel="Also delete their files from disk"
+              busy={removeBusy}
+              onConfirm={handleRemove}
+              onCancel={() => setConfirmRemove(false)}
+            />
+          )}
         </div>
       </div>
 
-      <section>
-        <h3 className="section-title">Albums</h3>
+      <section className="card">
+        <div className="card-head">
+          <h3 className="section-title">Albums ({albums.length})</h3>
+          {albums.length > 1 && (
+            <span className="card-head-actions">
+              <span className="view-toggle">
+                {(['grid', 'compact', 'list'] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={albumsView === v ? 'toggle on' : 'toggle'}
+                    onClick={() => setAlbumsView(v)}
+                    title={v === 'grid' ? 'Covers' : v === 'compact' ? 'Smaller covers' : 'List'}
+                  >
+                    {v === 'grid' ? 'Grid' : v === 'compact' ? 'Compact' : 'List'}
+                  </button>
+                ))}
+              </span>
+              <select className="sort-select" value={albumsSort} onChange={(e) => changeAlbumsSort(e.target.value as AlbumsSortKey)}>
+                <option value="title">Title</option>
+                <option value="date">Release date</option>
+                <option value="type">Type</option>
+              </select>
+              <DirectionButtons value={albumsDir} onChange={setAlbumsDir} />
+            </span>
+          )}
+        </div>
         {albums.length === 0 ? (
           <p className="empty">No owned albums yet.</p>
+        ) : albumsView === 'list' ? (
+          <ul className="rows">
+            {sortAlbums(albums, albumsSort, albumsDir).map((a) => (
+              <li className="row" key={a.id}>
+                <button className="link" onClick={() => openAlbum(a)}>
+                  {a.title}
+                </button>
+                <span className="text-muted">
+                  {a.release_date ? a.release_date.slice(0, 4) : '—'} · {a.primary_type || 'Album'}
+                </span>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <div className="card-grid">
-            {albums.map((a) => (
+          <div className={albumsView === 'compact' ? 'card-grid compact' : 'card-grid'}>
+            {sortAlbums(albums, albumsSort, albumsDir).map((a) => (
               <button className="library-card" key={a.id} onClick={() => openAlbum(a)}>
                 <AlbumCoverImg apiKey={apiKey} albumId={a.id} />
                 <div className="library-card-title">{a.title}</div>
@@ -258,49 +477,77 @@ export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; art
         )}
       </section>
 
-      <section>
-        <h3 className="section-title">Missing</h3>
+      <section className="card">
+        <div className="card-head">
+          <h3 className="section-title">Missing ({missing.length})</h3>
+          {selectedMissing.size > 0 && (
+            <span className="card-head-actions">
+              <button className="toggle" disabled={addBusy !== null} onClick={() => handleAddSelected(false)}>
+                + Add ({selectedMissing.size})
+              </button>
+              <button className="toggle" disabled={addBusy !== null} onClick={() => handleAddSelected(true)}>
+                + Add & Monitor ({selectedMissing.size})
+              </button>
+            </span>
+          )}
+        </div>
         {missing.length === 0 ? (
           <p className="empty">Nothing missing — monitor or refresh this artist to check for new releases.</p>
         ) : (
-          groupMissing(missing).map(([bucket, groups]) => (
-            <div className="missing-group" key={bucket}>
-              <div className="missing-group-header">
-                <span>
-                  {bucket} <span className="text-muted">({groups.length})</span>
-                </span>
-                <span className="missing-group-actions">
-                  <button className="toggle" disabled={addBusy !== null} onClick={() => handleAddAll(groups, false)}>
-                    + Add all ({groups.length})
-                  </button>
-                  <button className="toggle" disabled={addBusy !== null} onClick={() => handleAddAll(groups, true)}>
-                    + Add & Monitor all ({groups.length})
-                  </button>
-                </span>
+          <>
+            <p className="text-muted">
+              In MusicBrainz's discography but not in your library. <strong>Add</strong> tracks it as wanted;{' '}
+              <strong>Add &amp; Monitor</strong> does the same and flags it for auto-refresh. Grabbing a release is
+              always a manual, per-album choice from the Wanted list below — nothing downloads automatically. Check
+              several rows to add them in one go.
+            </p>
+            {groupMissing(missing).map(([bucket, groups]) => (
+              <div className="missing-group" key={bucket}>
+                <div className="missing-group-header">
+                  <span>
+                    {bucket} <span className="text-muted">({groups.length})</span>
+                  </span>
+                  <span className="missing-group-actions">
+                    <button className="toggle" disabled={addBusy !== null} onClick={() => handleAddAll(groups, false)}>
+                      + Add all ({groups.length})
+                    </button>
+                    <button className="toggle" disabled={addBusy !== null} onClick={() => handleAddAll(groups, true)}>
+                      + Add & Monitor all ({groups.length})
+                    </button>
+                  </span>
+                </div>
+                <ul className="rows">
+                  {groups.map((rg) => (
+                    <li className="row" key={rg.release_group_mbid}>
+                      <span className="row-select">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${rg.title}`}
+                          checked={selectedMissing.has(rg.release_group_mbid)}
+                          onChange={() => toggleMissingSelect(rg.release_group_mbid)}
+                        />
+                        <span className="user-row-name">
+                          <span>{rg.title}</span>
+                          <span className="text-muted">{rg.first_release_date ? rg.first_release_date.slice(0, 4) : '—'}</span>
+                        </span>
+                      </span>
+                      <button className="toggle" disabled={addBusy === rg.release_group_mbid} onClick={() => handleAdd(rg, false)}>
+                        + Add
+                      </button>
+                      <button className="toggle" disabled={addBusy === rg.release_group_mbid} onClick={() => handleAdd(rg, true)}>
+                        + Add & Monitor
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <ul className="rows">
-                {groups.map((rg) => (
-                  <li className="row" key={rg.release_group_mbid}>
-                    <span className="user-row-name">
-                      <span>{rg.title}</span>
-                      <span className="text-muted">{rg.first_release_date ? rg.first_release_date.slice(0, 4) : '—'}</span>
-                    </span>
-                    <button className="toggle" disabled={addBusy === rg.release_group_mbid} onClick={() => handleAdd(rg, false)}>
-                      + Add
-                    </button>
-                    <button className="toggle" disabled={addBusy === rg.release_group_mbid} onClick={() => handleAdd(rg, true)}>
-                      + Add & Monitor
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))
+            ))}
+          </>
         )}
       </section>
 
       {visibleWanted.length > 0 && (
-        <section>
+        <section className="card">
           <h3 className="section-title">Wanted</h3>
           <ul className="rows">
             {visibleWanted.map((w) => (
@@ -334,6 +581,43 @@ export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; art
           }}
         />
       )}
+    </div>
+  )
+}
+
+// RemovePanel is the shared "are you sure" confirmation for a danger
+// action: a message, an opt-in "also delete files" checkbox (always
+// unchecked to start), and Remove/Cancel.
+function RemovePanel({
+  message,
+  checkboxLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  message: string
+  checkboxLabel: string
+  busy: boolean
+  onConfirm: (deleteFiles: boolean) => void
+  onCancel: () => void
+}) {
+  const [deleteFiles, setDeleteFiles] = useState(false)
+
+  return (
+    <div className="remove-panel">
+      <p>{message}</p>
+      <label className="check">
+        <input type="checkbox" checked={deleteFiles} onChange={(e) => setDeleteFiles(e.target.checked)} />
+        {checkboxLabel}
+      </label>
+      <div className="settings-actions">
+        <button className="toggle-danger" disabled={busy} onClick={() => onConfirm(deleteFiles)}>
+          {busy ? 'Removing…' : deleteFiles ? 'Remove & delete files' : 'Remove'}
+        </button>
+        <button className="toggle" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }
@@ -646,7 +930,7 @@ function ArtistDownloads({ apiKey, wantedIDs }: { apiKey: string; wantedIDs: Set
   if (mine.length === 0) return null
 
   return (
-    <section className="downloads-activity">
+    <section className="card downloads-activity">
       <h3 className="section-title">Downloads</h3>
       <table className="downloads">
         <thead>

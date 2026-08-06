@@ -48,6 +48,9 @@ curl -H "Authorization: Bearer $API_KEY" http://localhost:7847/api/v1/root-folde
 | GET | `/api/v1/artists/{id}/missing` | Cached release groups not yet owned or wanted — the unified artist page's "Missing" section |
 | POST | `/api/v1/artists/{id}/wanted` | Want one release group from the cached discography — body `{"release_group_mbid": "..."}` ("Add"); the UI separately calls monitor for "Add & Monitor" |
 | GET | `/api/v1/artists/{id}/wanted` | List an artist's wanted albums |
+| GET | `/api/v1/artists/{id}/organize/preview` | Preview every naming-format move across this artist's own files, without touching disk — `{"moves": [{"file_id", "from", "to"}, ...]}` |
+| POST | `/api/v1/artists/{id}/organize` | Apply that plan — `{"moves": [...], "errors": [...]}`; a per-file failure doesn't fail the whole request |
+| DELETE | `/api/v1/artists/{id}?delete_files=true` | Remove an artist entirely: unlinks/deletes their track files, cancels their in-flight downloads, deletes the artist row (cascading albums/tracks/wanted/cached discography). `delete_files=true` also deletes the files from disk; omitted (default) leaves them on disk, unlinked back to unmatched |
 | POST | `/api/v1/wanted-albums/{id}/ignore` | Mark a wanted album as ignored |
 | GET | `/api/v1/wanted-albums/{id}/search` | Search Prowlarr for this wanted album — 400 if Prowlarr isn't configured |
 | POST | `/api/v1/wanted-albums/{id}/grab` | Grab a release chosen from the search results (body: the release object as returned by search) via qBittorrent or SABnzbd, whichever matches the release's protocol — 400 if Prowlarr or the matching download client isn't configured, or no root folder exists yet |

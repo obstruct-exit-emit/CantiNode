@@ -163,6 +163,136 @@ func TestOrganizeFileRefusesToOverwrite(t *testing.T) {
 	}
 }
 
+// TestPlanOrganizeArtistSkipsUnmatchedAndAlreadyOrganized proves the plan
+// only lists files that actually need to move: an unmatched file (nothing
+// to organize by) and a matched file already at its target path (a no-op
+// move) are both left out, only the one file that genuinely needs
+// relocating shows up.
+func TestPlanOrganizeArtistSkipsUnmatchedAndAlreadyOrganized(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	ctx := t.Context()
+
+	artist, _ := s.db.GetOrCreateArtist(ctx, "a-mbid", "Boards of Canada", "Boards of Canada")
+	album, _ := s.db.GetOrCreateAlbum(ctx, artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	track1, _ := s.db.GetOrCreateTrack(ctx, album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000)
+	track2, _ := s.db.GetOrCreateTrack(ctx, album.ID, "t2-mbid", "Music Is Math", 4, 1, 200000)
+
+	// Needs moving.
+	unsorted := filepath.Join(rf.Path, "unsorted.flac")
+	os.WriteFile(unsorted, []byte("x"), 0o644)
+	tf1, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, unsorted, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(ctx, tf1.ID, &track1.ID, database.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Already at its target path — a no-op, must not appear in the plan.
+	alreadyPath := filepath.Join(rf.Path, "Boards of Canada", "Geogaddi (2002)", "04 - Music Is Math.flac")
+	if err := os.MkdirAll(filepath.Dir(alreadyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(alreadyPath, []byte("x"), 0o644)
+	tf2, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, alreadyPath, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(ctx, tf2.ID, &track2.ID, database.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Unmatched — skipped, not an error.
+	unmatchedPath := filepath.Join(rf.Path, "unmatched.flac")
+	os.WriteFile(unmatchedPath, []byte("x"), 0o644)
+	if _, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, unmatchedPath, 1, "flac", 0, 0, "{}"); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := s.PlanOrganizeArtist(ctx, artist.ID)
+	if err != nil {
+		t.Fatalf("PlanOrganizeArtist: %v", err)
+	}
+	if len(plan) != 1 || plan[0].TrackFileID != tf1.ID || plan[0].From != unsorted {
+		t.Fatalf("plan = %+v, want just tf1 (%d) moving from %s", plan, tf1.ID, unsorted)
+	}
+}
+
+// TestPlanOrganizeArtistEmptyWhenNothingToDo mirrors LibriNode's "files
+// already match the naming templates" empty-plan message — no matched
+// files under the artist at all means an empty (not nil) plan.
+func TestPlanOrganizeArtistEmptyWhenNothingToDo(t *testing.T) {
+	s, _ := setupOrganizeScanner(t)
+	ctx := t.Context()
+	artist, _ := s.db.GetOrCreateArtist(ctx, "a-mbid", "Artist", "Artist")
+
+	plan, err := s.PlanOrganizeArtist(ctx, artist.ID)
+	if err != nil {
+		t.Fatalf("PlanOrganizeArtist: %v", err)
+	}
+	if plan == nil || len(plan) != 0 {
+		t.Errorf("plan = %+v, want a non-nil empty slice", plan)
+	}
+}
+
+// TestOrganizeArtistMovesFilesAndSurvivesPartialFailure proves the bulk
+// apply moves every file its plan calls for, and that one file failing
+// (here: a pre-existing file already occupying its destination, which
+// OrganizeFile refuses to overwrite) doesn't stop the others from moving.
+func TestOrganizeArtistMovesFilesAndSurvivesPartialFailure(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	ctx := t.Context()
+
+	artist, _ := s.db.GetOrCreateArtist(ctx, "a-mbid", "Boards of Canada", "Boards of Canada")
+	album, _ := s.db.GetOrCreateAlbum(ctx, artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	trackOK, _ := s.db.GetOrCreateTrack(ctx, album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000)
+	trackBlocked, _ := s.db.GetOrCreateTrack(ctx, album.ID, "t2-mbid", "Music Is Math", 4, 1, 200000)
+
+	okSrc := filepath.Join(rf.Path, "ok.flac")
+	os.WriteFile(okSrc, []byte("x"), 0o644)
+	tfOK, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, okSrc, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(ctx, tfOK.ID, &trackOK.ID, database.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	blockedSrc := filepath.Join(rf.Path, "blocked.flac")
+	os.WriteFile(blockedSrc, []byte("x"), 0o644)
+	tfBlocked, err := s.db.UpsertTrackFileByPath(ctx, rf.ID, blockedSrc, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(ctx, tfBlocked.ID, &trackBlocked.ID, database.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+	// Occupy the blocked file's destination ahead of time so OrganizeFile
+	// refuses to overwrite it.
+	blockedDest := filepath.Join(rf.Path, "Boards of Canada", "Geogaddi (2002)", "04 - Music Is Math.flac")
+	if err := os.MkdirAll(filepath.Dir(blockedDest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(blockedDest, []byte("already here"), 0o644)
+
+	moves, errs, err := s.OrganizeArtist(ctx, artist.ID)
+	if err != nil {
+		t.Fatalf("OrganizeArtist: %v", err)
+	}
+	if len(moves) != 1 || moves[0].TrackFileID != tfOK.ID {
+		t.Errorf("moves = %+v, want just tfOK (%d)", moves, tfOK.ID)
+	}
+	if len(errs) != 1 {
+		t.Errorf("errs = %+v, want exactly 1 (the blocked file)", errs)
+	}
+	if _, err := os.Stat(okSrc); !os.IsNotExist(err) {
+		t.Error("ok file should have moved off its original path")
+	}
+	if _, err := os.Stat(blockedSrc); err != nil {
+		t.Error("blocked file should still be at its original path after a refused organize")
+	}
+}
+
 func TestOrganizeFileRequiresMatch(t *testing.T) {
 	s, rf := setupOrganizeScanner(t)
 	ctx := t.Context()

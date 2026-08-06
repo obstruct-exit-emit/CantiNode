@@ -443,3 +443,34 @@ export function listDownloads(apiKey: string): Promise<Download[]> {
 export function cancelDownload(apiKey: string, id: number): Promise<void> {
   return request(`/api/v1/downloads/${id}`, apiKey, { method: 'DELETE' })
 }
+
+// RenameMove is one track file's planned (or applied) move under the
+// artist page's "Organize…" action — see internal/scanner.RenameMove.
+export interface RenameMove {
+  file_id: number
+  from: string
+  to: string
+}
+
+// previewOrganizeArtist lists every naming-template move this artist's
+// own files would make, without touching anything on disk.
+export function previewOrganizeArtist(apiKey: string, artistId: number): Promise<{ moves: RenameMove[] }> {
+  return request(`/api/v1/artists/${artistId}/organize/preview`, apiKey)
+}
+
+// organizeArtistFiles applies the artist-level organize plan. A per-file
+// failure doesn't fail the whole call — moves lists what actually
+// succeeded, errors lists what didn't.
+export function organizeArtistFiles(apiKey: string, artistId: number): Promise<{ moves: RenameMove[]; errors: string[] }> {
+  return request(`/api/v1/artists/${artistId}/organize`, apiKey, { method: 'POST' })
+}
+
+// removeArtist un-enrolls an artist from CantiNode entirely — unmonitors
+// them and removes their owned albums/tracks/files from tracking.
+// deleteFiles=true also deletes the underlying files from disk;
+// deleteFiles=false (default) leaves them untouched, to be picked back up
+// as unmatched on the next scan.
+export function removeArtist(apiKey: string, artistId: number, deleteFiles: boolean): Promise<void> {
+  const q = deleteFiles ? '?delete_files=true' : ''
+  return request(`/api/v1/artists/${artistId}${q}`, apiKey, { method: 'DELETE' })
+}

@@ -173,6 +173,28 @@ func (db *DB) ListTrackFilesByTrack(ctx context.Context, trackID int64) ([]Track
 	return scanTrackFileRows(rows)
 }
 
+// ListTrackFilesByArtist returns every track file under any album/track
+// belonging to artistID (joined track_files -> tracks -> albums), ordered
+// by path. Backs the artist page's "Organize…" preview/apply
+// (scanner.PlanOrganizeArtist/OrganizeArtist) and RemoveArtist, both of
+// which need every one of an artist's own files regardless of match
+// status (organize skips unmatched ones itself; RemoveArtist needs to
+// touch every one of them, matched or not).
+func (db *DB) ListTrackFilesByArtist(ctx context.Context, artistID int64) ([]TrackFile, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT tf.id, tf.root_folder_id, tf.track_id, tf.path, tf.size_bytes, tf.format, tf.bitrate_kbps, tf.duration_ms, tf.tags_json, tf.match_status, tf.match_confidence, tf.scanned_at, tf.organized_at
+		FROM track_files tf
+		JOIN tracks t ON t.id = tf.track_id
+		JOIN albums al ON al.id = t.album_id
+		WHERE al.artist_id = ?
+		ORDER BY tf.path`, artistID)
+	if err != nil {
+		return nil, fmt.Errorf("list track files by artist: %w", err)
+	}
+	defer rows.Close()
+	return scanTrackFileRows(rows)
+}
+
 // ListTrackFilesByRootFolder returns every file scanned from rootFolderID.
 func (db *DB) ListTrackFilesByRootFolder(ctx context.Context, rootFolderID int64) ([]TrackFile, error) {
 	rows, err := db.QueryContext(ctx, trackFileSelect+` WHERE root_folder_id = ? ORDER BY path`, rootFolderID)
