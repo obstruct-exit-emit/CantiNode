@@ -205,6 +205,11 @@ export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; art
   }
 
   const wantedIDsForArtist = new Set(wanted.map((w) => w.id))
+  // "downloaded" means it's already an owned album, shown above — listing
+  // it again here would just be a redundant, actionless entry. The
+  // underlying wantedIDsForArtist set above keeps every status (including
+  // downloaded) so its download history still shows in ArtistDownloads.
+  const visibleWanted = wanted.filter((w) => w.status !== 'downloaded')
 
   return (
     <div className="artist-detail">
@@ -294,11 +299,11 @@ export function ArtistDetail({ apiKey, artistId, onBack }: { apiKey: string; art
         )}
       </section>
 
-      {wanted.length > 0 && (
+      {visibleWanted.length > 0 && (
         <section>
           <h3 className="section-title">Wanted</h3>
           <ul className="rows">
-            {wanted.map((w) => (
+            {visibleWanted.map((w) => (
               <li className="row" key={w.id}>
                 <span className="user-row-name">
                   <span>{w.title}</span>

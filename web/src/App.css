@@ -96,6 +96,20 @@
   font-size: 0.92em;
 }
 
+.library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.library-header h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
 /* Library: artist/album grids */
 .card-grid {
   display: grid;
@@ -638,11 +652,6 @@ table.downloads tbody tr:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.wanted-header {
-  display: flex;
-  gap: 8px;
 }
 
 .badge {

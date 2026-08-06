@@ -33,7 +33,8 @@ export function Library({ apiKey }: { apiKey: string }) {
 
   return (
     <div className="library">
-      <div className="wanted-header">
+      <div className="library-header">
+        <h2>Artists</h2>
         <button className="scan-btn" onClick={() => setMonitorOpen(true)}>
           + Monitor Artist
         </button>
@@ -48,6 +49,7 @@ export function Library({ apiKey }: { apiKey: string }) {
         <div className="card-grid">
           {artists.map((a) => (
             <button className="library-card" key={a.id} onClick={() => setSelectedArtistId(a.id)}>
+              <ArtistCoverImg imageUrl={a.image_url} />
               <div className="library-card-title">{a.name}</div>
               {a.is_monitored && <span className="badge badge-wanted">Monitoring</span>}
             </button>
@@ -68,6 +70,15 @@ export function Library({ apiKey }: { apiKey: string }) {
       )}
     </div>
   )
+}
+
+// ArtistCoverImg hides itself entirely on a missing/failed image (no
+// TheAudioDB match yet, or the URL 404s) rather than showing a browser's
+// broken-image icon — the card still reads fine as title/badge only.
+function ArtistCoverImg({ imageUrl }: { imageUrl: string }) {
+  const [failed, setFailed] = useState(false)
+  if (!imageUrl || failed) return null
+  return <img className="library-card-cover" src={imageUrl} alt="" onError={() => setFailed(true)} />
 }
 
 function MonitorArtistDialog({
