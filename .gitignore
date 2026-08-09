@@ -1,8 +1,11 @@
 # Binaries
-/cantinode
-/cantinode.exe
+/librinode
+/librinode.exe
 /dist/
 /bin/
+
+# Old CantiNode source, kept locally for reference during the rewrite
+/exmples/
 
 # Go
 *.test
@@ -14,19 +17,14 @@
 /web/dist/*
 !/web/dist/.gitkeep
 
-# Runtime data (never commit a live database or config)
+# Runtime data (never commit a live library DB or config)
 *.db
 *.db-wal
 *.db-shm
 config.yaml
-/data/
 
 # Personal Claude Code settings
 .claude/settings.local.json
-
-# Local reference clones of sibling projects (design/UX comparison only,
-# not part of this repo)
-/examples/
 
 # Editor / OS noise
 .vscode/

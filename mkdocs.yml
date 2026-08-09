@@ -1,0 +1,20 @@
+site_name: LibriNode
+site_description: Self-hosted automation for ebooks, audiobooks, manga, comics, and magazines
+repo_url: https://github.com/obstruct-exit-emit/LibriNode
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep purple
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Libraries: libraries.md
+  - Acquisition: acquisition.md
+  - Configuration: configuration.md
+  - API: api.md
+  - Development: development.md
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences

@@ -2,9 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CantiNode</title>
+    <title>LibriNode</title>
+    <script>
+      // Apply the saved theme before the bundle loads so the first paint is
+      // already the right color (no dark-to-light flash). Kept in sync by
+      // src/theme.ts afterwards.
+      (function () {
+        try {
+          var pref = localStorage.getItem("librinode-theme") || "auto";
+          var light =
+            pref === "light" ||
+            (pref === "auto" &&
+              window.matchMedia("(prefers-color-scheme: light)").matches);
+          if (light) document.documentElement.dataset.theme = "light";
+        } catch (e) {
+          /* no localStorage (privacy mode) — dark default stands */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

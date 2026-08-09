@@ -1,70 +1,65 @@
 # API
 
-CantiNode's native API is versioned at `/api/v1` — it's the exact API the
-embedded web UI runs on, so anything the UI does is scriptable.
-
-## Authentication
-
-Every route except `GET /api/v1/health` requires
-`Authorization: Bearer <api_key>`, checked against the live config (a key
-regenerated in `config.yaml` takes effect immediately, no restart). See
-[Configuration](configuration.md).
+Everything the UI does goes through the versioned REST API at `/api/v1` —
+same endpoints, fully scriptable. Authenticate with the `X-Api-Key` header
+(or `?apikey=`), or a login session cookie.
 
 ```sh
-curl -H "Authorization: Bearer $API_KEY" http://localhost:7847/api/v1/root-folders
+curl -H "X-Api-Key: <key>" http://localhost:7845/api/v1/system/status
 ```
 
-## Endpoints
+| Area | Endpoints |
+|---|---|
+| System | `GET /system/status`, `GET /ping` (no auth), `GET /health`, `POST /health/check`, `GET /log?lines=N`, `GET /image?url=` (cached provider-image proxy) |
+| Auth | `GET /auth/status` + `POST /auth/login` (unauthenticated), `POST /auth/logout`, `PUT /auth/credentials` (create/change one account; empty username disables all), `GET/POST /auth/users` (adds take `"role": "admin"\|"member"`, default member), `DELETE /auth/users/{username}` (not the default), `PUT /auth/users/{username}/password` (self-service: admin, or the same user), `PUT /auth/users/{username}/role` (`admin`\|`member`; the default user stays admin), `PUT /auth/users/{username}/default`, `POST /auth/apikey/regenerate` |
+| Setup | `GET /setup/status` (unauthenticated — is this a fresh instance?), `POST /auth/setup` (first-run wizard: claim a fresh instance, create the default account, no API key needed) |
+| Backups | `GET/POST /backup`, `DELETE /backup/{name}`, `POST /backup/{name}/restore`, `GET /backup/{name}/download` |
+| Root folders | `GET/POST /rootfolder` (manga roots take a `"variant"`: `color`\|`mono`, default `mono`), `DELETE /rootfolder/{id}`, `GET /filesystem?path=` (folder picker: lists a directory's subfolders and its parent; empty path starts at the filesystem root) |
+| Search | `GET /search?term=&type=author\|book\|manga\|comic` |
+| Authors | `GET/POST /author` (`?library=` scopes; adds take `"library"`), `GET/DELETE /author/{id}` (`?deleteFiles=true`, every library), `PUT /author/{id}/library` (add/remove from ONE format library; `deleteFiles`; auto-deletes the author once in no library), `PUT /author/{id}/monitor`, `PUT /author/{id}/provider` (per-author provider override; `""` follows settings), `POST /author/{id}/refresh` (metadata only — never touches membership/monitoring), `GET /author/{id}/missing?library=` (bibliography gaps), `POST /author/{id}/search?library=` (this author's wanted books only) |
+| Books | `GET/POST /book`, `GET/DELETE /book/{id}` (`?deleteFiles=true`), `GET /book/{id}/cover` (cover from the owned CBZ/CBR's first page; cached under `<data>/covers`), `PUT /book/{id}/library` (membership + monitored + `deleteFiles`; `library:"manga"`/`"comic"` adds/removes a volume/issue, `member:false` forgets its file records so it drops to Missing), `PUT /book/{id}/monitor`, `POST /book/{id}/refresh` |
+| Series | `GET/POST /series`, `GET/DELETE /series/{id}` (`?deleteFiles=true`), `PUT /series/{id}/monitor`, `PUT /series/{id}/provider` (per-series provider override; `""` follows settings), `POST /series/{id}/refresh`, `POST /series/{id}/search` (this series' wanted volumes only; magazines answer with an organize-only notice) |
+| Libraries | `GET /libraries`, `GET /home`, `GET /wanted?library=X`, `GET /calendar?past=30&days=90` |
+| Files | `POST /library/scan` (`?mediaType=` scopes to one library's roots; absent scans all), `POST /library/refresh` (`{"mediaType":"…"}` — background metadata re-sync of the whole library, one at a time; magazines refused),  `GET/POST /library/rename` (preview/apply; `?bookId=`, `?authorId=`/`{"authorId":N}`, `?seriesId=`/`{"seriesId":N}`, or `?mediaType=`/`{"mediaType":"…"}` — one library — scopes, otherwise everything), `GET /bookfile?unmatched=true`, `GET /bookfile/unmatched/options?mediaType=` (existing-file import: per-file suggestion + 0–100 confidence, candidates, duplicate info — all five media types), `POST /bookfile/import-matched` `{"mediaType":"…"}` (bulk-import every confident match), `POST /bookfile/{id}/match` (`{"bookId":N}`, or `{"seriesId":N,"issue":"…"}` to materialize a magazine issue), `POST /bookfile/{id}/replace` `{"bookId":N}` (this file replaces the book's owned copy, which is deleted; manga replaces only the matching variant), `DELETE /bookfile/{id}` (`?deleteFiles=true` also deletes from disk), `DELETE /library/covers/cache` (clear extracted comic covers) |
+| Indexers | `GET/POST /indexer` (native rows are hidden when the caller is Prowlarr), `GET/PUT/DELETE /indexer/{id}`, `POST /indexer/test`, `GET /indexer/schema`, `GET /indexer/native` (built-in native source catalog: name, protocol, media types, URL/key needs), `GET /release?term=` or `?bookId=N&mediaType=` (magazines rejected — organize-only), `GET /release/packs?seriesId=N` (whole-series pack candidates for manga/comics; grab one via the normal grab endpoint with the returned `grabBookId`) |
+| Quality | `GET/POST /qualityprofile`, `PUT/DELETE /qualityprofile/{id}`, `PUT /qualityprofile/{id}/default` |
+| Downloads | `GET/POST /downloadclient` (types: `qbittorrent`, `sabnzbd`, `direct` — the built-in HTTP fetcher, whose `host` is a local download folder), `PUT/DELETE /downloadclient/{id}`, `POST /downloadclient/test`, `POST /release/grab` (protocols `torrent`\|`usenet`\|`direct`; magazines rejected — organize-only), `GET /queue` (each item enriched with its book/grab and live progress; short-cached snapshot), `DELETE /queue/{clientId}/{itemId}` (remove one download + its data, no blocklist), `POST /grab/{id}/cancel` (manually resolve a pending grab as failed, without touching any client — for one whose queue entry is already gone and stuck reporting "pending"), `GET /history?search=&limit=&offset=` (paged: `{"records": […], "total": N}`), `POST /library/import`, `GET /blocklist`, `DELETE /blocklist/{id}` |
+| Auto search | `POST /book/{id}/search?mediaType=`, `POST /library/search` |
+| Settings | `GET/PUT /settings/metadata`, `POST /settings/metadata/test`, `DELETE /settings/metadata/cache` (clear provider images), `DELETE /settings/metadata/descriptions` (blank stored descriptions), `DELETE /cache` (clear all caches), `GET/PUT /settings/naming`, `GET/PUT /settings/import`, `GET/PUT /settings/timings` (background cadences; 0 = default, clamped, applied at startup), `GET/PUT /settings/pathmappings` (remote→local download-path prefixes) |
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/v1/health` | Liveness check, unauthenticated |
-| GET | `/api/v1/version` | Build version |
-| GET | `/api/v1/root-folders` | List root folders |
-| POST | `/api/v1/root-folders` | Add a root folder — body `{"path": "..."}`, path must already exist |
-| DELETE | `/api/v1/root-folders/{id}` | Remove a root folder (its scanned files are forgotten; nothing on disk is touched) |
-| GET | `/api/v1/browse-directories?path=` | List `path`'s subdirectories, on the server's own filesystem — powers the Root Folders "Browse..." picker. An empty/absent `path` lists top-level roots instead (drive letters on Windows, `/` elsewhere) |
-| GET | `/api/v1/artists` | List artists with at least one matched file |
-| GET | `/api/v1/artists/{id}/albums` | List an artist's albums |
-| GET | `/api/v1/albums/{id}/tracks` | List an album's tracks |
-| GET | `/api/v1/tracks/{id}/files` | List the file(s) matched to a track |
-| GET | `/api/v1/albums/{id}/cover` | Album front cover image — accepts the API key via `?api_key=` too, since an `<img src>` can't send an `Authorization` header (see [Configuration](configuration.md)); 404 if the release has no cover art |
-| GET | `/api/v1/track-files/unmatched` | List files awaiting manual review |
-| POST | `/api/v1/track-files/{id}/match` | Manually link a file to a MusicBrainz recording — body `{"recording_mbid": "...", "release_mbid": "..."}` (`release_mbid` optional) |
-| DELETE | `/api/v1/track-files/{id}/match` | Unlink a file, moving it back to unmatched (file on disk untouched) |
-| DELETE | `/api/v1/track-files/{id}` | Permanently delete a file — off disk and out of the database |
-| GET | `/api/v1/track-files/{id}/organize/preview` | Compute (without moving) where a matched file would be organized to |
-| POST | `/api/v1/track-files/{id}/organize` | Actually move/rename a matched file per `naming_format` |
-| POST | `/api/v1/track-files/{id}/write-tags` | Embed the file's matched metadata into its own tags (MP3/FLAC only) |
-| GET | `/api/v1/musicbrainz/search?artist=&album=&title=` | Fuzzy MusicBrainz recording search (any params optional, at least one needed) — what the Unmatched review UI uses |
-| POST | `/api/v1/scan` | Start a full scan (every root folder) in the background — 409 if one's already running |
-| GET | `/api/v1/scan/status` | Current/last scan's status |
-| GET | `/api/v1/musicbrainz/artist-search?query=` | Fuzzy MusicBrainz artist search — what "Monitor an artist" uses to resolve a name to an MBID |
-| GET | `/api/v1/artists/{id}` | One artist's detail — bio/image (cached from TheAudioDB), monitoring state, `owned_album_count` |
-| POST | `/api/v1/artists/monitor` | Start monitoring an artist by MBID — body `{"mbid": "..."}`; caches their entire discography (see [Configuration](configuration.md)) but wants nothing automatically |
-| POST | `/api/v1/artists/{id}/monitor` | Start monitoring an already-known artist (already owned and/or previously unmonitored) |
-| POST | `/api/v1/artists/{id}/unmonitor` | Stop monitoring — just flips the flag; owned albums, wanted albums, and in-flight downloads are untouched |
-| POST | `/api/v1/artists/{id}/refresh-metadata` | Re-fetch the artist's cached discography from MusicBrainz and bio/image from TheAudioDB |
-| GET | `/api/v1/artists/{id}/missing` | Cached release groups not yet owned or wanted — the unified artist page's "Missing" section |
-| POST | `/api/v1/artists/{id}/wanted` | Want one release group from the cached discography — body `{"release_group_mbid": "..."}` ("Add"); the UI separately calls monitor for "Add & Monitor" |
-| GET | `/api/v1/artists/{id}/wanted` | List an artist's wanted albums |
-| GET | `/api/v1/artists/{id}/organize/preview` | Preview every naming-format move across this artist's own files, without touching disk — `{"moves": [{"file_id", "from", "to"}, ...]}` |
-| POST | `/api/v1/artists/{id}/organize` | Apply that plan — `{"moves": [...], "errors": [...]}`; a per-file failure doesn't fail the whole request |
-| DELETE | `/api/v1/artists/{id}?delete_files=true` | Remove an artist entirely: unlinks/deletes their track files, cancels their in-flight downloads, deletes the artist row (cascading albums/tracks/wanted/cached discography). `delete_files=true` also deletes the files from disk; omitted (default) leaves them on disk, unlinked back to unmatched |
-| POST | `/api/v1/wanted-albums/{id}/ignore` | Mark a wanted album as ignored |
-| GET | `/api/v1/wanted-albums/{id}/search` | Search Prowlarr for this wanted album — 400 if Prowlarr isn't configured |
-| POST | `/api/v1/wanted-albums/{id}/grab` | Grab a release chosen from the search results (body: the release object as returned by search) via qBittorrent or SABnzbd, whichever matches the release's protocol — 400 if Prowlarr or the matching download client isn't configured, or no root folder exists yet |
-| GET | `/api/v1/downloads` | List every tracked download, most recent first |
-| DELETE | `/api/v1/downloads/{id}` | Cancel a grab — best-effort removes it from its download client and reverts the wanted album back to `wanted` |
-| GET | `/api/v1/settings` | Current settings (includes `api_key` and, if set, `prowlarr_api_key`/`qbittorrent_password`/`sabnzbd_api_key`/`audiodb_api_key`) |
-| PUT | `/api/v1/settings` | Update settings (`port` in the body is ignored — see [Configuration](configuration.md)) |
+Notes:
 
-All request/response bodies are JSON. A scan (`POST /api/v1/scan`) runs
-asynchronously — MusicBrainz's rate limit means a real scan of an
-unmatched library can take minutes, so the request returns immediately
-(`202 Accepted`) and `GET /api/v1/scan/status` is polled for progress, the
-same way the web UI does. Grabbing a release is synchronous (the add
-itself is fast) but importing it isn't — a background poll picks up a
-finished download and imports it automatically; `GET /api/v1/downloads`
-reflects its status (`downloading` → `completed` → `imported`, or
-`error`) as that happens.
+- `POST /author` takes `{"foreignAuthorId": "...", "library": "ebook"}` and
+  pulls the bibliography as metadata (canonical works by Hardcover
+  readership) — the author joins the library, but no book is enrolled or
+  monitored (see Missing, below). `POST /book`
+  takes `foreignBookId` the same way and monitors + enrolls that one book.
+  `POST /series` takes `{"mediaType": "manga", "foreignSeriesId": ...}`
+  or `{"mediaType": "magazine", "title": "..."}` — like author adds it pulls
+  metadata only (volumes start unmonitored, in the series' Missing section);
+  pass `"monitored": true` for the monitor-everything behavior.
+- The per-author **Missing** section (bibliography gaps not yet monitored
+  or owned in a format library) is `GET /author/{id}/missing?library=`;
+  one-click monitor is the existing `PUT /book/{id}/library`.
+- The Prowlarr-facing surface emulates Readarr v1 (`/api/v1/indexer` accepts
+  Readarr resources; `/system/status` reports a Readarr-compatible
+  `version`, LibriNode's own in `appVersion`). During application sync
+  Prowlarr also reads `/api/v1/rootfolder`, `/qualityprofile`,
+  `/metadataprofile` (Readarr-only), and `/downloadclient` — these return
+  Readarr-shaped resources (download clients carry `protocol` so torrent
+  indexers sync) when the caller's User-Agent is Prowlarr, native JSON
+  otherwise.
+- Book metadata (`/search?type=book`, `POST /author`/`/book`) is served by the
+  active provider with the configured fallbacks behind it: a fallback answers
+  only when the active provider finds nothing, and a record found that way is
+  stored under the fallback's name so its later refresh routes back to the same
+  source.
+- **Admin vs. member**: every server-configuration and account-management route
+  (all `/settings/*`, `/indexer*`, `/downloadclient*`, `/qualityprofile*`,
+  `/rootfolder*`, `/backup*`, `/log`, `/filesystem`, and the `/auth/users`
+  management endpoints) requires an **admin** session and returns 403 for a
+  member. Content routes (search, grab, scan, library browsing) are open to any
+  authenticated user. A valid API key is admin-equivalent, so scripts and
+  Prowlarr are unaffected. `PUT /auth/users/{username}/password` is the one
+  exception — a member may change their own password.
+- Without a metadata token, metadata endpoints return 503.

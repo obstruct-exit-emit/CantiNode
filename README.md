@@ -1,222 +1,102 @@
 <div align="center">
 
-# 🎵 CantiNode
+# 🖋️ LibriNode
 
-**A self-hosted music library organizer.**
+**Self-hosted automation for written media — ebooks, audiobooks, manga, comics, and magazines.**
 
-CantiNode scans folders of music you already have, matches every artist,
-album, and track against MusicBrainz, and organizes the files into a
-consistent layout — a Lidarr-shaped problem tackled from the organization
-side first, with acquisition (indexers, download clients) and richer
-playlisting layered on afterward.
+An alternative in the *arr tradition: monitor what you want, search your indexers, hand releases to your download client, and import everything into clean, reader-ready libraries — automatically.
 
+[![Release](https://img.shields.io/github/v/release/obstruct-exit-emit/LibriNode?include_prereleases&label=release)](https://github.com/obstruct-exit-emit/LibriNode/releases)
+[![CI](https://github.com/obstruct-exit-emit/LibriNode/actions/workflows/ci.yml/badge.svg)](https://github.com/obstruct-exit-emit/LibriNode/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
 
 </div>
 
-> 🚧 **Pre-1.0.** Root folders, library scanning, MusicBrainz matching,
-> manual review, file organization, tag writing, cover art, and an optional
-> Prowlarr + qBittorrent/SABnzbd acquisition pipeline (manual grab only —
-> see [Features](#features)) all work end to end. No LLM playlists, no Plex
-> sync yet — see the [roadmap](ROADMAP.md).
+> 🚧 **Pre-1.0, but feature-complete.** All five media types work end to end — metadata search through automatic grabbing to organized imports. What remains before 1.0 is hardening: real-world burn-in. See the [roadmap](ROADMAP.md).
 
 ---
 
-## Why CantiNode?
+## Why LibriNode?
 
-If you already run [LibriNode](https://github.com/obstruct-exit-emit/LibriNode)
-for your book library or [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)
-for your debrid downloads, CantiNode is their sibling for your music library:
-same single self-contained Go binary, same operator experience, same look —
-built by the same author, in the same style, on purpose.
-
-Where Lidarr treats organization as a side effect of acquisition, CantiNode
-starts from the opposite end: point it at folders of music you already have
-(ripped, purchased, downloaded some other way) and it builds a real library
-out of them — matched to MusicBrainz, browsable, correctly named — without
-requiring an indexer or a download client to get there. An indexer and
-download client are there if you want them, too: monitor an artist and
-CantiNode will search [Prowlarr](https://prowlarr.com) and grab a release
-you pick through a qBittorrent and/or SABnzbd connection — a genuine
-standalone instance of either, or
-[AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode), which exposes
-compatible APIs for both — entirely optional, and grabbing is always your
-own call, never automatic.
+LibriNode is an **alternative** to tools like Readarr (books; development has ended), LazyLibrarian (books and magazines), and Mylar (comics), with a different scope: **all five written-media types managed in one app**, in the familiar *arr style. It sits alongside readers like Kavita, Komga, Calibre, and Audiobookshelf — it feeds them organized libraries rather than replacing them.
 
 ## Features
 
-**📁 Root folders & scanning**
+**📚 Five independent libraries** — each media type gets its own root folders, naming templates, quality profiles, and monitoring. Plex-style: a library appears only once you create it.
 
-- Add one or more root folders; CantiNode walks them for audio files
-  (MP3, FLAC, M4A/AAC, OGG, Opus, WAV) and reads embedded tags
-  (ID3v1/v2, Vorbis comments, MP4 atoms) — pure Go, no external decoder
-  or cgo dependency.
-- A background scan runs on a configurable interval; a scan can also be
-  triggered on demand from the API or the UI.
+| Library | Metadata | Formats |
+|---|---|---|
+| Ebooks | Hardcover, + Open Library / Google Books fallbacks | epub, mobi, azw3, pdf |
+| Audiobooks | Hardcover, + fallbacks | m4b, m4a, mp3, flac, opus |
+| Manga | AniList (no key) or Hardcover | cbz, cbr, epub |
+| Comics | Hardcover or ComicVine | cbz, cbr, pdf |
+| Magazines | Provider-less, added by name *(organize-only today)* | pdf, epub, cbz |
 
-**🎯 MusicBrainz matching**
+**🔍 One acquisition pipeline**
+- **Prowlarr application sync** — add LibriNode as a *Readarr* app and Prowlarr pushes its indexers automatically; manual Newznab/Torznab entry works too
+- **Native indexers** for sources Prowlarr can't reach (AudioBook Bay, Library Genesis) — built-in, off by default, user-enabled
+- Release parsing and scoring that understands formats, retail editions, narrators, volume ranges, and whole-series packs
+- Quality profiles with upgrade handling, a failed-release blocklist, and per-indexer failure backoff
 
-- A file whose tags already carry MusicBrainz IDs (common — Picard and
-  most rippers embed these) is matched directly, high confidence,
-  automatically.
-- Otherwise, CantiNode fuzzy-searches MusicBrainz by artist/album/track
-  title and only accepts a match above a confidence threshold — anything
-  less confident is left for manual review instead of guessing.
-- Unmatched files get their own review queue in the UI: search
-  MusicBrainz yourself and link a file by hand.
+**⬇️ Three download protocols**
+- **qBittorrent** (torrents) and **SABnzbd** (usenet) — category-scoped, seed-goal aware, debrid-bridge compatible (Real-Debrid/TorBox)
+- A built-in **direct fetcher** for plain-HTTP sources — mirror failover, no external program
+- Completed Download Handling: finished grabs import, rename, and organize themselves; remote path mappings for clients on other machines
 
-**🗂️ Organization**
+**🏷️ Reader-ready output**
+- Audiobookshelf folder layouts with `metadata.opf`; Kavita/Komga layouts with `ComicInfo.xml`; OPF sidecars for Calibre
+- Smart scanning: ISBN/ASIN identifier matching (filename + embedded epub metadata), exact title matching, and fuzzy suggestions for everything else
+- Multi-book pack imports, colorized/monochrome manga variants, multi-file audiobooks as single units
 
-- A configurable naming format (default
-  `{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}`) renames and
-  moves matched files into a consistent layout.
-- Preview before you commit — see exactly what will move where — and it
-  never silently overwrites an existing file.
-
-**🏷️ Tag writing**
-
-- Embed a matched file's corrected metadata — artist/album/track, plus
-  its MusicBrainz IDs — back into its own tags (ID3v2 for MP3, Vorbis
-  comments for FLAC), not just CantiNode's database. A one-click "Write
-  tags" action per file, manual like organizing — nothing rewrites a
-  file's tags without you asking it to.
-
-**🖼️ Cover art**
-
-- Front cover art fetched from Cover Art Archive and cached locally,
-  shown in the Library album grid.
-
-**⬇️ Acquisition (optional)**
-
-- A unified per-artist page (owned albums and monitoring status, same
-  place): monitor an artist by MusicBrainz search and CantiNode caches
-  their entire discography — nothing auto-wanted, just fetched so
-  browsing it doesn't hammer MusicBrainz. Artist bio/photo cached from
-  [TheAudioDB](https://www.theaudiodb.com) the same way, with a
-  "Refresh metadata" button to re-fetch on demand.
-- The "Missing" section lists everything from the cached discography you
-  don't already own or want, grouped by type (Album/EP/Live/Compilation/
-  Other) with per-item and bulk "Add" (just track it) / "Add & Monitor"
-  actions.
-- Search a self-hosted [Prowlarr](https://prowlarr.com) instance for a
-  wanted album and grab your pick directly through a qBittorrent
-  connection (torrents) or a SABnzbd connection (usenet) — each
-  independently configurable, pointed at genuine standalone instances or
-  at [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode)'s
-  compat shims for either, the same way Sonarr/Radarr already talk to
-  them. **Always manual** — CantiNode never auto-downloads a search
-  result; v1 has no quality-profile system, so nothing decides "best
-  release" but you. A grab can be canceled any time before it's imported.
-- A finished download is imported automatically: copied into your
-  library and matched/organized the normal way, no manual step once the
-  download client reports it done.
-- Prowlarr, qBittorrent, and SABnzbd are all entirely optional and
-  independent (configured in Settings) — everything above this section
-  works with none of them.
-
-**🖥️ Native API + web UI**
-
-- Versioned REST API (`/api/v1`), API-key authenticated — root folders,
-  library browsing, unmatched-file review, scan control, organize
-  preview/apply, acquisition, settings.
-- A React (Vite) single-page dashboard, embedded into the binary.
+**🖥️ A modern web UI**
+- Poster-grid libraries with detail pages, per-author/series **Missing** sections, per-library **Wanted** cards, a release **Calendar**, and live **Activity**
+- Multi-user login with **admin/member roles**, enforced by the backend; first-run setup wizard
+- Health checks with self-explaining banners, scheduled backups with staged restore, a built-in log viewer
 
 ## Quick start
 
-```sh
-go build ./cmd/cantinode
-./cantinode
-```
+Grab a binary from [Releases](https://github.com/obstruct-exit-emit/LibriNode/releases) (Linux amd64/arm64) — it's a single self-contained file, UI included. A systemd unit ships in the archive.
 
-Then open `http://localhost:7847`. Full steps:
-[Installation](docs/installation.md) · [Quickstart](docs/quickstart.md).
+> Docker and Windows builds are on hold for now (see the [roadmap](ROADMAP.md)) — planned to return later.
 
-### Running under WSL2 (Windows)
-
-CantiNode is a plain Linux binary; on Windows, running it inside WSL2
-(rather than a native Windows build) is the simplest path, and lets it sit
-on the same host as a WSL-based download client. From a Windows shell:
-
-```sh
-# Cross-compile from the Windows-side checkout
-GOOS=linux GOARCH=amd64 go build -o cantinode-linux ./cmd/cantinode
-
-# Copy it into WSL's own filesystem, not /mnt/c — running off the
-# Windows-mounted drive works, but a native ext4 path is faster and
-# avoids 9p filesystem quirks.
-wsl.exe -e bash -lc '
-  mkdir -p /opt/cantinode/data
-  cp /mnt/c/path/to/cantinode-linux /opt/cantinode/cantinode
-  chmod +x /opt/cantinode/cantinode
-  /opt/cantinode/cantinode
-'
-```
-
-**For it to keep running** rather than exit the moment that shell closes,
-WSL2 needs either an attached session or a real init system — a plain
-background `&` process dies when WSL tears down the distro on session
-exit. If your WSL distro has systemd enabled (`systemctl` works), run it
-as a proper service instead:
-
-```ini
-# /etc/systemd/system/cantinode.service
-[Unit]
-Description=CantiNode music library organizer
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/opt/cantinode/cantinode
-WorkingDirectory=/opt/cantinode
-Environment=CANTINODE_DATA_DIR=/opt/cantinode/data
-Environment=CANTINODE_CONFIG=/opt/cantinode/config.yaml
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```sh
-wsl.exe -e bash -lc 'systemctl daemon-reload && systemctl enable --now cantinode'
-```
-
-Redeploying after a change is then just: rebuild, copy the new binary
-over, and `systemctl restart cantinode`.
-
-Note that WSL2 itself still shuts its lightweight VM down once nothing is
-attached to it and no process is running to keep it warm — a live
-systemd service is enough to prevent that on its own in most setups, but
-if it isn't for yours, keep a terminal (or a scheduled task at login
-running `wsl.exe -e true`) around to hold the distro open.
+Then open `http://localhost:7845` — a first-run wizard walks you through your account, libraries, metadata, an indexer, and a download client. Full steps: [Installation](docs/installation.md) · [Quickstart](docs/quickstart.md).
 
 ## Documentation
 
 | | |
 |---|---|
-| [Installation](docs/installation.md) | From source |
+| [Installation](docs/installation.md) | Linux, from source |
 | [Quickstart](docs/quickstart.md) | First-run walkthrough |
-| [Configuration](docs/configuration.md) | config.yaml, ports, naming |
-| [API](docs/api.md) | The native `/api/v1` — everything the web UI does is scriptable |
+| [Libraries](docs/libraries.md) | How each of the five libraries behaves |
+| [Acquisition](docs/acquisition.md) | Indexers, native sources, scoring, download clients |
+| [Configuration](docs/configuration.md) | config.yaml, auth & roles, naming, backups, HTTPS |
+| [API](docs/api.md) | The full REST API — everything the UI does is scriptable |
 | [Development](docs/development.md) | Building, layout, contributing |
 | [Roadmap](ROADMAP.md) | Development history and what's next |
 
 ## Architecture
 
-- **Backend:** Go — one self-contained binary, no runtime dependencies
-- **Database:** SQLite (pure Go, no cgo), embedded migrations
-- **Matching:** `internal/musicbrainz` (rate-limited MusicBrainz client) +
-  `internal/scanner` (scan → match → organize pipeline)
-- **Tags:** `internal/tagreader` (read) + `internal/tagwriter` (write, MP3/FLAC)
-- **Cover art:** `internal/coverart` (Cover Art Archive, disk-cached)
-- **Acquisition (optional):** `internal/acquisition` orchestrates
-  `internal/prowlarr` (indexer search), `internal/qbittorrent` (torrent
-  download client), and `internal/sabnzbd` (usenet download client)
-- **API:** `internal/api`, versioned `/api/v1`
-- **Frontend:** React (Vite) SPA embedded via `go:embed` — same look as
-  LibriNode and AcerviNode
+- **Backend:** Go — one self-contained binary per OS, no runtime dependencies
+- **Frontend:** React (Vite), embedded in the binary, served on one port
+- **Database:** SQLite (pure Go, no cgo) with embedded, tested migrations
+- **API:** versioned REST (`/api/v1`) with API-key auth — the same API the UI uses; Prowlarr-compatible surface for app sync
+- **Default port:** `7845` · **License:** GPL-3.0
+
+## Security
+
+Optional login accounts with **admin/member roles** (members get everyday use, not server configuration — enforced server-side), sessions bound to their accounts, PBKDF2-hashed passwords, constant-time API-key checks, and credential redaction in every error and log line. For remote access, run behind a TLS reverse proxy — examples in the [configuration docs](docs/configuration.md#https--reverse-proxies).
+
+## Development
+
+```sh
+cd web && npm install && npm run build && cd ..   # frontend (Node 22+)
+go build ./cmd/librinode                          # backend  (Go 1.25+)
+./librinode                                       # http://localhost:7845
+```
+
+`go test ./...` runs the full suite. See [Development](docs/development.md) for the package layout, docs preview, and the Windows Smart-App-Control note.
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE).
+[GPL-3.0](LICENSE) — the same family as Sonarr, Radarr, and Prowlarr.

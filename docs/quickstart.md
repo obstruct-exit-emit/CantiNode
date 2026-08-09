@@ -1,67 +1,48 @@
 # Quickstart
 
-1. **Build and run** — see [Installation](installation.md).
+1. **Connect.** Open `http://localhost:7845`. A brand-new instance greets you
+   with a **first-run setup wizard** — create an account (no API key needed)
+   and it walks you through libraries, metadata, an indexer, and a download
+   client. Otherwise, paste the API key from `config.yaml` in the data
+   directory, or add a login account later under **Settings → General →
+   Security** and sign in with a username/password instead.
 
-   ```sh
-   make build
-   ./cantinode
-   ```
+2. **Metadata.** Under **Settings → Metadata**, paste your
+   [Hardcover API token](https://hardcover.app/account/api), hit **Test**,
+   then **Save**. Search goes live immediately. Manga metadata comes from
+   AniList (no key) or Hardcover; comics from Hardcover (the default) or a
+   free [ComicVine key](https://comicvine.gamespot.com/api/) — pick each
+   provider on the same page.
 
-   The first run generates a random API key and prints it to the log:
+3. **Root folders.** Under **Settings → Media Management**, add one root
+   folder per media type you use. Adding a root folder is what makes that
+   library appear in the sidebar.
 
-   ```
-   level=INFO msg="api key for the native API" api_key=<your key>
-   ```
+4. **Add something.** On a library page, hit **+ Add** and search. Adding an
+   author pulls their bibliography as metadata and joins the library,
+   but monitors nothing yet — every book starts in that author's **Missing**
+   section for you to monitor selectively. Adding a specific book pulls its
+   editions and monitors just that one. Manga/comic series work like
+   authors: adding one pulls its volumes as metadata, all starting in the
+   series' **Missing** section — monitor volumes selectively, or flip the
+   series' monitor toggle to monitor everything (including future volumes).
+   Magazines are added by name and are organize-only for now — scanning and
+   organizing work, downloading is disabled.
 
-   It's also written to `config.yaml` (`api_key`) — copy it from either
-   place.
+5. **Scan what you own.** **Scan files** on a library page matches existing
+   files to your books — every item gets an owned/wanted badge. Strays land
+   in an unmatched list with a confidence-rated best guess: import them in
+   one click (or all confident matches at once), resolve duplicates, or add
+   the missing author/series/magazine right from the row.
 
-2. **Open the web UI** at `http://localhost:7847` and paste the API key
-   in when prompted. It's stored in the browser (localStorage) after
-   that, so you won't need to re-enter it on this device.
+6. **Automate acquisition.** Add indexers (**Settings → Indexers**, or sync
+   them from Prowlarr by adding LibriNode as a *Readarr* application — plus
+   optional built-in **native sources** for sites Prowlarr can't reach) and a
+   download client (**Settings → Download Clients**, with **Test** buttons).
+   Monitored items are searched automatically every six hours; **Search
+   wanted**, per-item **Auto grab**, and interactive **Search releases**
+   cover "right now". Finished downloads import, rename, and organize
+   themselves; the **Activity** page shows the queue and history.
 
-3. **Add a root folder** — the Root Folders tab, pointed at a directory
-   of music you already have on disk. The path must already exist;
-   CantiNode organizes an existing library, it doesn't create one.
-
-4. **Scan** — click "Scan now" (top right), or just wait: a scan also
-   runs automatically on startup and then every `scan_interval_hours`
-   (default 6). CantiNode walks the root folder, reads each audio file's
-   tags, and matches it against MusicBrainz:
-   - A file whose tags already carry a MusicBrainz recording ID (common —
-     Picard and most rippers embed these) matches immediately, with full
-     confidence.
-   - Otherwise CantiNode fuzzy-searches MusicBrainz by artist/album/title
-     and accepts the result only if it scores above
-     `min_match_confidence` (default 0.75) — see
-     [Configuration](configuration.md).
-
-5. **Review Unmatched** — anything the scan couldn't confidently match
-   lands in the Unmatched tab. Search MusicBrainz yourself (prefilled
-   from whatever tags the file did have) and pick the right recording to
-   link it by hand.
-
-6. **Browse the Library** — matched artists → albums → tracks. Each track
-   shows its file(s) with a **Preview** (see exactly where it would move
-   to, with no changes yet), **Organize** (actually rename/move it), and
-   — for MP3/FLAC — **Write tags** (embed the matched metadata into the
-   file's own tags) action, using the naming format from Settings.
-
-7. **(Optional) Set up acquisition** — Settings → Acquisition, if you run
-   a [Prowlarr](https://prowlarr.com) instance plus a qBittorrent and/or
-   SABnzbd connection — a genuine standalone instance of either, or
-   [AcerviNode](https://github.com/obstruct-exit-emit/AcerviNode), which
-   exposes compatible APIs for both. Then, from an artist's page in the
-   Library (search by name via **+ Monitor Artist**, or open an artist
-   you already own): **Monitor** caches their whole discography (nothing
-   auto-wanted); the **Missing** section lists what you don't have yet,
-   grouped by type, with **Add** (just track it) or **Add & Monitor**
-   per item or in bulk; once something's wanted, **Find release**
-   searches Prowlarr for it, and **Grab** sends your pick to whichever
-   download client matches its protocol. Grabbing is always a manual
-   click — nothing downloads on its own, and a grab can be **Cancel**ed
-   any time before it's imported. A finished download is imported into
-   the library automatically once the download client reports it done.
-
-Everything here is also a plain REST call under `/api/v1` — see
-[API](api.md) if you'd rather script it.
+7. **Check the Calendar** for upcoming releases, the per-library **Wanted**
+   card for gaps, and **System** for health checks, logs, and backups.

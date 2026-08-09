@@ -1,0 +1,63 @@
+name: Release
+
+# Tag a version to cut a release:
+#   git tag v0.9.0 && git push origin v0.9.0
+# Builds version-stamped binaries (linux amd64/arm64), zips them with the
+# systemd unit, and attaches everything to a GitHub release.
+#
+# Docker and Windows builds are on hold for now (see ROADMAP.md) — both
+# worked and shipped before being pulled back mid-Phase-6 to concentrate on
+# one well-supported Linux path through burn-in.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Binaries + release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build web UI
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          build() {
+            GOOS=$1 GOARCH=$2 go build -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/$3" ./cmd/librinode
+          }
+          build linux amd64 librinode
+          (cd dist && tar czf "librinode-${VERSION}-linux-amd64.tar.gz" librinode && rm librinode)
+          build linux arm64 librinode
+          (cd dist && tar czf "librinode-${VERSION}-linux-arm64.tar.gz" librinode && rm librinode)
+          cp packaging/systemd/librinode.service dist/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/librinode.service
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

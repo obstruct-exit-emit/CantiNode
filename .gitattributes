@@ -1,4 +1,4 @@
-# Normalize everything to LF; the repo is edited from both Windows and WSL/Linux.
+# Normalize everything to LF; the repo is edited from both Windows and WSL.
 * text=auto eol=lf
 
 # Windows-only files keep CRLF

@@ -1,150 +1,347 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
 
-	"github.com/cantinode/cantinode/internal/audiodb"
-	"github.com/cantinode/cantinode/internal/config"
-	"github.com/cantinode/cantinode/internal/prowlarr"
-	"github.com/cantinode/cantinode/internal/qbittorrent"
-	"github.com/cantinode/cantinode/internal/sabnzbd"
+	"github.com/librinode/librinode/internal/config"
+	"github.com/librinode/librinode/internal/metadata"
+	"github.com/librinode/librinode/internal/naming"
 )
 
-// settingsView is config.Config as reported to (and accepted from) the
-// settings UI. Excludes DataDir (an advanced, rarely-touched path
-// setting not worth a quick-edit form field, same treatment AcerviNode
-// gives it) — Port and DataDir both need a restart to actually take
-// effect (a live port rebind / database reopen is out of scope for v1),
-// so DataDir is left config-file-only and Port is included mainly for
-// visibility, not because changing it here does anything until restart.
-type settingsView struct {
-	APIKey                  string  `json:"api_key"`
-	Port                    int     `json:"port"`
-	LogLevel                string  `json:"log_level"`
-	ScanIntervalHours       int     `json:"scan_interval_hours"`
-	NamingFormat            string  `json:"naming_format"`
-	OrganizeOnMatch         bool    `json:"organize_on_match"`
-	MinMatchConfidence      float64 `json:"min_match_confidence"`
-	MusicBrainzContactEmail string  `json:"musicbrainz_contact_email"`
-
-	// Prowlarr/qBittorrent/SABnzbd connection details for the optional
-	// acquisition pipeline (see internal/acquisition) — a blank URL means
-	// "not configured," not an error. qBittorrent and SABnzbd are each
-	// independent: point one, both, or neither at AcerviNode's own compat
-	// shims, or at genuine standalone instances.
-	ProwlarrURL         string `json:"prowlarr_url"`
-	ProwlarrAPIKey      string `json:"prowlarr_api_key"`
-	QBittorrentURL      string `json:"qbittorrent_url"`
-	QBittorrentUsername string `json:"qbittorrent_username"`
-	QBittorrentPassword string `json:"qbittorrent_password"`
-	SABnzbdURL          string `json:"sabnzbd_url"`
-	SABnzbdAPIKey       string `json:"sabnzbd_api_key"`
-
-	// AudioDBAPIKey configures internal/audiodb's artist bio/image
-	// lookup — a blank value means "use TheAudioDB's own public shared
-	// key," not "not configured" (see config.Config.AudioDBAPIKey).
-	AudioDBAPIKey string `json:"audiodb_api_key"`
+// metadataSettingsResponse is the settings UI's view of metadata config:
+// which providers exist, which one is active, and their stored settings.
+type metadataSettingsResponse struct {
+	Active          string   `json:"active"`
+	Available       []string `json:"available"`
+	SeriesAvailable []string `json:"seriesAvailable"`
+	// Fallbacks is the ordered list of book providers consulted when Active
+	// finds nothing; a subset of Available, never including Active itself.
+	Fallbacks []string                     `json:"fallbacks"`
+	Providers map[string]metadata.Settings `json:"providers"`
+	// MangaProviders / ComicProviders list the providers that can serve each
+	// series media type (for the selectors); the singular fields are the
+	// chosen ones.
+	MangaProviders []string `json:"mangaProviders"`
+	MangaProvider  string   `json:"mangaProvider"`
+	ComicProviders []string `json:"comicProviders"`
+	ComicProvider  string   `json:"comicProvider"`
+	// Per-library volume-cover source, "file" or "provider" (effective
+	// values — defaults applied).
+	MangaCoverSource string `json:"mangaCoverSource"`
+	ComicCoverSource string `json:"comicCoverSource"`
+	// Global, provider-agnostic metadata preferences (effective values).
+	Language            string `json:"language"`
+	Country             string `json:"country"`
+	IncludeAdult        bool   `json:"includeAdult"`
+	IncludeCompilations bool   `json:"includeCompilations"`
 }
 
-func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	s.cfgMu.Lock()
-	view := settingsFromConfig(s.cfg)
-	s.cfgMu.Unlock()
-	writeJSON(w, view)
-}
-
-func settingsFromConfig(cfg *config.Config) settingsView {
-	return settingsView{
-		APIKey:                  cfg.APIKey,
-		Port:                    cfg.Port,
-		LogLevel:                cfg.LogLevel,
-		ScanIntervalHours:       cfg.ScanIntervalHours,
-		NamingFormat:            cfg.NamingFormat,
-		OrganizeOnMatch:         cfg.OrganizeOnMatch,
-		MinMatchConfidence:      cfg.MinMatchConfidence,
-		MusicBrainzContactEmail: cfg.MusicBrainzContactEmail,
-		ProwlarrURL:             cfg.ProwlarrURL,
-		ProwlarrAPIKey:          cfg.ProwlarrAPIKey,
-		QBittorrentURL:          cfg.QBittorrentURL,
-		QBittorrentUsername:     cfg.QBittorrentUsername,
-		QBittorrentPassword:     cfg.QBittorrentPassword,
-		SABnzbdURL:              cfg.SABnzbdURL,
-		SABnzbdAPIKey:           cfg.SABnzbdAPIKey,
-		AudioDBAPIKey:           cfg.AudioDBAPIKey,
+func (s *server) metadataSettingsResponse() metadataSettingsResponse {
+	ms := s.cfg.MetadataSettings()
+	resp := metadataSettingsResponse{
+		Active:              ms.Active,
+		Available:           metadata.Available(),
+		SeriesAvailable:     metadata.SeriesAvailable(),
+		Fallbacks:           ms.Fallbacks,
+		Providers:           ms.Providers,
+		MangaProviders:      metadata.AvailableSeriesProviders("manga"),
+		MangaProvider:       s.cfg.MangaSeriesProvider(),
+		ComicProviders:      metadata.AvailableSeriesProviders("comic"),
+		ComicProvider:       s.cfg.ComicSeriesProvider(),
+		MangaCoverSource:    s.cfg.CoverSourceFor("manga"),
+		ComicCoverSource:    s.cfg.CoverSourceFor("comic"),
+		Language:            s.cfg.MetadataLanguage(),
+		Country:             s.cfg.MetadataCountry(),
+		IncludeAdult:        s.cfg.IncludeAdult(),
+		IncludeCompilations: s.cfg.IncludeCompilations(),
 	}
+	if resp.Fallbacks == nil {
+		resp.Fallbacks = []string{}
+	}
+	// Every registered provider shows up in the form, configured or not.
+	for _, name := range append(append([]string{}, resp.Available...), resp.SeriesAvailable...) {
+		if _, ok := resp.Providers[name]; !ok {
+			resp.Providers[name] = metadata.Settings{}
+		}
+	}
+	return resp
 }
 
-// handleUpdateSettings validates and applies a candidate settings change,
-// persists it to config.yaml, and pushes naming_format/
-// min_match_confidence/organize_on_match into the live Scanner (see
-// scanner.Scanner.UpdateSettings) so they take effect on the very next
-// scan — no restart needed. Port is intentionally not writable here (see
-// settingsView): it's included in the response for visibility only.
-func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	var req settingsView
+func validCoverSource(v string) bool {
+	return v == "" || v == "file" || v == "provider"
+}
+
+func (s *server) handleGetMetadataSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.metadataSettingsResponse())
+}
+
+// handlePutMetadataSettings saves provider settings, persists them to
+// config.yaml, and hot-swaps the active provider — no restart needed.
+func (s *server) handlePutMetadataSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Active              string                       `json:"active"`
+		Fallbacks           []string                     `json:"fallbacks"`
+		Providers           map[string]metadata.Settings `json:"providers"`
+		MangaProvider       string                       `json:"mangaProvider"`
+		ComicProvider       string                       `json:"comicProvider"`
+		MangaCoverSource    string                       `json:"mangaCoverSource"`
+		ComicCoverSource    string                       `json:"comicCoverSource"`
+		Language            string                       `json:"language"`
+		Country             string                       `json:"country"`
+		IncludeAdult        bool                         `json:"includeAdult"`
+		IncludeCompilations bool                         `json:"includeCompilations"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.Active != "" && !slices.Contains(metadata.Available(), req.Active) {
+		writeError(w, http.StatusBadRequest, "unknown provider: "+req.Active)
+		return
+	}
+	// Fallbacks must be known book providers, and never the active one (it is
+	// always tried first — listing it as a fallback too is meaningless).
+	fallbacks := make([]string, 0, len(req.Fallbacks))
+	seenFallback := map[string]bool{}
+	for _, fb := range req.Fallbacks {
+		if fb == "" || fb == req.Active || seenFallback[fb] {
+			continue
+		}
+		if !slices.Contains(metadata.Available(), fb) {
+			writeError(w, http.StatusBadRequest, "unknown fallback provider: "+fb)
+			return
+		}
+		seenFallback[fb] = true
+		fallbacks = append(fallbacks, fb)
+	}
+	if req.MangaProvider != "" && req.MangaProvider != "none" &&
+		!slices.Contains(metadata.AvailableSeriesProviders("manga"), req.MangaProvider) {
+		writeError(w, http.StatusBadRequest, "unknown manga provider: "+req.MangaProvider)
+		return
+	}
+	if req.ComicProvider != "" && req.ComicProvider != "none" &&
+		!slices.Contains(metadata.AvailableSeriesProviders("comic"), req.ComicProvider) {
+		writeError(w, http.StatusBadRequest, "unknown comic provider: "+req.ComicProvider)
+		return
+	}
+	if !validCoverSource(req.MangaCoverSource) || !validCoverSource(req.ComicCoverSource) {
+		writeError(w, http.StatusBadRequest, "cover source must be file or provider")
+		return
+	}
+	if req.Providers == nil {
+		req.Providers = map[string]metadata.Settings{}
+	}
+
+	ms := config.MetadataSettings{
+		Active:              req.Active,
+		Fallbacks:           fallbacks,
+		Providers:           req.Providers,
+		MangaProvider:       req.MangaProvider,
+		ComicProvider:       req.ComicProvider,
+		MangaCoverSource:    req.MangaCoverSource,
+		ComicCoverSource:    req.ComicCoverSource,
+		Language:            strings.ToLower(strings.TrimSpace(req.Language)),
+		Country:             strings.ToLower(strings.TrimSpace(req.Country)),
+		IncludeAdult:        req.IncludeAdult,
+		IncludeCompilations: req.IncludeCompilations,
+	}
+	// Build with the global preferences injected (same shape ProviderSettings
+	// produces once the config is saved); "none" means no preference.
+	lang, country := ms.Language, ms.Country
+	if lang == "none" {
+		lang = ""
+	}
+	if country == "none" {
+		country = ""
+	}
+	injected := make(map[string]metadata.Settings, len(ms.Providers))
+	for name, ps := range ms.Providers {
+		ps.Language, ps.Country, ps.IncludeAdult = lang, country, ms.IncludeAdult
+		ps.IncludeCompilations = ms.IncludeCompilations
+		injected[name] = ps
+	}
+	if err := s.metadata.ConfigureWithFallbacks(ms.Active, ms.Fallbacks, injected); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.cfg.SetMetadata(ms); err != nil {
+		writeError(w, http.StatusInternalServerError, "saving config: "+err.Error())
+		return
+	}
+	s.metadata.ConfigureSeries(s.cfg.ProviderSettings(), s.cfg.SeriesSelection())
+	s.refreshHealth()
+	writeJSON(w, http.StatusOK, s.metadataSettingsResponse())
+}
+
+// --- Naming settings ---
+
+// exampleTokenData renders template previews with a recognizable book.
+var exampleTokenData = naming.TokenData{
+	AuthorName:     "Terry Pratchett",
+	AuthorSortName: "Pratchett, Terry",
+	BookTitle:      "The Colour of Magic",
+	SeriesTitle:    "Discworld",
+	SeriesPosition: 1,
+	ReleaseYear:    "1983",
+}
+
+type namingSettingsResponse struct {
+	config.NamingSettings
+	Tokens           []string `json:"tokens"`
+	Example          string   `json:"example"`
+	AudiobookExample string   `json:"audiobookExample"`
+}
+
+func namingResponse(ns config.NamingSettings) namingSettingsResponse {
+	audiobookDir := naming.Format(ns.AudiobookFile, exampleTokenData)
+	return namingSettingsResponse{
+		NamingSettings: ns,
+		Tokens:         naming.Tokens,
+		Example: filepath.ToSlash(filepath.Join(
+			naming.FormatPath(ns.EbookFolder, exampleTokenData),
+			naming.Format(ns.EbookFile, exampleTokenData)+".epub",
+		)),
+		AudiobookExample: filepath.ToSlash(filepath.Join(
+			naming.FormatPath(ns.AudiobookFolder, exampleTokenData),
+			audiobookDir,
+			audiobookDir+".m4b",
+		)),
+	}
+}
+
+func (s *server) handleGetNamingSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, namingResponse(s.cfg.NamingSettings()))
+}
+
+func (s *server) handlePutNamingSettings(w http.ResponseWriter, r *http.Request) {
+	var req config.NamingSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	// Empty fields fall back to defaults (SetNaming fills them), so partial
+	// payloads can never wipe another media type's templates.
+	if err := s.cfg.SetNaming(req); err != nil {
+		writeError(w, http.StatusInternalServerError, "saving config: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, namingResponse(s.cfg.NamingSettings()))
+}
+
+// --- Import settings ---
+
+func (s *server) handleGetImportSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.ImportSettings())
+}
+
+func (s *server) handlePutImportSettings(w http.ResponseWriter, r *http.Request) {
+	var req config.ImportSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.cfg.SetImport(req); err != nil {
+		writeError(w, http.StatusInternalServerError, "saving config: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.cfg.ImportSettings())
+}
+
+// --- Remote path mappings ---
+
+func (s *server) handleGetPathMappings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.PathMappings())
+}
+
+// handlePutPathMappings replaces the whole mapping list (the UI edits it as
+// one small table).
+func (s *server) handlePutPathMappings(w http.ResponseWriter, r *http.Request) {
+	var req []config.PathMapping
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.cfg.SetPathMappings(req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.cfg.PathMappings())
+}
+
+// --- Background timing settings ---
+
+func (s *server) handleGetTimingSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.TimingSettings())
+}
+
+// handlePutTimingSettings saves the background-loop cadences. Values are
+// clamped by SetTimings; changes take effect on the next server start.
+func (s *server) handlePutTimingSettings(w http.ResponseWriter, r *http.Request) {
+	var req config.TimingSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.cfg.SetTimings(req); err != nil {
+		writeError(w, http.StatusInternalServerError, "saving config: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.cfg.TimingSettings())
+}
+
+// handleTestMetadataProvider builds a provider from the submitted (unsaved)
+// settings and checks it against the live API.
+func (s *server) handleTestMetadataProvider(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string            `json:"provider"`
+		Settings metadata.Settings `json:"settings"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Provider == "" {
+		writeError(w, http.StatusBadRequest, "provider is required")
 		return
 	}
 
-	s.cfgMu.Lock()
-	defer s.cfgMu.Unlock()
-
-	candidate := *s.cfg
-	candidate.LogLevel = req.LogLevel
-	candidate.ScanIntervalHours = req.ScanIntervalHours
-	candidate.NamingFormat = req.NamingFormat
-	candidate.OrganizeOnMatch = req.OrganizeOnMatch
-	candidate.MinMatchConfidence = req.MinMatchConfidence
-	candidate.MusicBrainzContactEmail = req.MusicBrainzContactEmail
-	candidate.ProwlarrURL = req.ProwlarrURL
-	candidate.ProwlarrAPIKey = req.ProwlarrAPIKey
-	candidate.QBittorrentURL = req.QBittorrentURL
-	candidate.QBittorrentUsername = req.QBittorrentUsername
-	candidate.QBittorrentPassword = req.QBittorrentPassword
-	candidate.SABnzbdURL = req.SABnzbdURL
-	candidate.SABnzbdAPIKey = req.SABnzbdAPIKey
-	candidate.AudioDBAPIKey = req.AudioDBAPIKey
-
-	if err := candidate.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	p, err := metadata.Build(req.Provider, req.Settings)
+	if errors.Is(err, metadata.ErrNotConfigured) {
+		writeError(w, http.StatusBadRequest, "provider is not configured — enter a token first")
 		return
 	}
-	if err := candidate.Save(s.configPath); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	*s.cfg = candidate
-	s.scanner.UpdateSettings(candidate.NamingFormat, candidate.MinMatchConfidence, candidate.OrganizeOnMatch)
-	s.acquisition.UpdateClients(buildProwlarrClient(candidate, s.version), buildQBittorrentClient(candidate), buildSABnzbdClient(candidate))
-	s.acquisition.UpdateAudioDBClient(audiodb.NewClient(candidate.AudioDBAPIKey))
 
-	writeJSON(w, settingsFromConfig(s.cfg))
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	if v, ok := p.(metadata.Validator); ok {
+		err = v.Validate(ctx)
+	} else {
+		// No cheap validation call — a tiny search exercises auth instead.
+		_, err = p.SearchBooks(ctx, "test")
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "provider": req.Provider})
 }
 
-// buildProwlarrClient/buildQBittorrentClient/buildSABnzbdClient return
-// nil (meaning "not configured" — see internal/acquisition) when their
-// respective URL is blank, rather than a Client that would just fail
-// every call against an empty base URL.
-
-func buildProwlarrClient(cfg config.Config, version string) *prowlarr.Client {
-	if cfg.ProwlarrURL == "" {
-		return nil
+// handleClearMetadataCache deletes the downloaded provider images (author
+// portraits and cover art). They re-download from the provider as pages are
+// viewed; this just reclaims disk (or forces fresh art).
+func (s *server) handleClearMetadataCache(w http.ResponseWriter, r *http.Request) {
+	removed, freed, err := s.images.Clear()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
-	return prowlarr.NewClient(cfg.ProwlarrURL, cfg.ProwlarrAPIKey, "CantiNode/"+version+" ( https://github.com/cantinode/cantinode )")
-}
-
-func buildQBittorrentClient(cfg config.Config) *qbittorrent.Client {
-	if cfg.QBittorrentURL == "" {
-		return nil
-	}
-	return qbittorrent.NewClient(cfg.QBittorrentURL, cfg.QBittorrentUsername, cfg.QBittorrentPassword)
-}
-
-func buildSABnzbdClient(cfg config.Config) *sabnzbd.Client {
-	if cfg.SABnzbdURL == "" {
-		return nil
-	}
-	return sabnzbd.NewClient(cfg.SABnzbdURL, cfg.SABnzbdAPIKey)
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed, "freedBytes": freed})
 }

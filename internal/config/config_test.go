@@ -3,180 +3,128 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestLoadDefaults(t *testing.T) {
-	cfg, err := Load("")
+func TestLoadFirstRunCreatesConfigWithAPIKey(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Port != 7847 {
-		t.Errorf("Port = %d, want 7847", cfg.Port)
-	}
 	if cfg.APIKey == "" {
-		t.Error("APIKey should be auto-generated when unset")
+		t.Error("expected a generated API key on first run")
 	}
-	if cfg.NamingFormat == "" {
-		t.Error("NamingFormat should have a default")
+	if cfg.Port != 7845 {
+		t.Errorf("default port = %d, want 7845", cfg.Port)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "config.yaml")); err != nil {
+		t.Errorf("config.yaml not persisted: %v", err)
+	}
+
+	// Second load must reuse the same key, not regenerate.
+	cfg2, err := Load(dir)
+	if err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	if cfg2.APIKey != cfg.APIKey {
+		t.Error("API key changed between loads")
 	}
 }
 
-func TestLoadFromFile(t *testing.T) {
+func TestImportSettingsDefaultOnAndPersistOff(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(path, []byte("port: 9000\napi_key: test-key\nlog_level: debug\n"), 0o600); err != nil {
+
+	// First run: all Completed Download Handling options default to on.
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	is := cfg.ImportSettings()
+	if !is.PackImportAll || !is.RemoveCompleted || !is.DeleteCompletedFiles {
+		t.Fatalf("defaults not all on: %+v", is)
+	}
+
+	// Turning them all off must persist — not get dropped and re-defaulted.
+	if err := cfg.SetImport(ImportSettings{}); err != nil {
+		t.Fatalf("SetImport: %v", err)
+	}
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	is = reloaded.ImportSettings()
+	if is.PackImportAll || is.RemoveCompleted || is.DeleteCompletedFiles {
+		t.Errorf("explicit off did not persist: %+v", is)
+	}
+}
+
+// TestAuthUserMigrationAndManagement: a legacy single-account config migrates
+// into the user list as the default; users can be added, promoted, and
+// removed — but never the default.
+func TestAuthUserMigrationAndManagement(t *testing.T) {
+	dir := t.TempDir()
+	legacy := "auth:\n  username: alice\n  password_hash: pbkdf2-sha256$1$aa$bb\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(legacy), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(path)
+	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Port != 9000 {
-		t.Errorf("Port = %d, want 9000", cfg.Port)
+	a := cfg.AuthSettings()
+	if !a.Enabled() || len(a.Users) != 1 || a.Users[0].Username != "alice" ||
+		!a.Users[0].Default || a.Users[0].PasswordHash != "pbkdf2-sha256$1$aa$bb" {
+		t.Fatalf("migrated auth = %+v", a)
 	}
-	if cfg.APIKey != "test-key" {
-		t.Errorf("APIKey = %q, want test-key", cfg.APIKey)
+	if a.Username != "" {
+		t.Error("legacy username field should be cleared after migration")
 	}
-	if cfg.LogLevel != "debug" {
-		t.Errorf("LogLevel = %q, want debug", cfg.LogLevel)
-	}
-	// Fields not set in the file should still fall back to defaults.
-	if cfg.ScanIntervalHours != 6 {
-		t.Errorf("ScanIntervalHours = %d, want default 6", cfg.ScanIntervalHours)
-	}
-}
 
-func TestLoadMissingFileUsesDefaults(t *testing.T) {
-	dir := t.TempDir()
-	cfg, err := Load(filepath.Join(dir, "does-not-exist.yaml"))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+	// Add a second user; alice stays default.
+	if err := cfg.AddUser("bob", "hash-b", RoleMember); err != nil {
+		t.Fatal(err)
 	}
-	if cfg.Port != 7847 {
-		t.Errorf("Port = %d, want default 7847", cfg.Port)
+	if err := cfg.AddUser("Bob", "hash-b2", RoleMember); err == nil {
+		t.Error("case-insensitive duplicate username should be rejected")
+	}
+	// The default cannot be removed.
+	if err := cfg.RemoveUser("alice"); err == nil {
+		t.Error("removing the default user should fail")
+	}
+	// Promote bob, then alice becomes removable.
+	if err := cfg.SetDefaultUser("bob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.RemoveUser("alice"); err != nil {
+		t.Fatalf("removing ex-default alice: %v", err)
+	}
+
+	// Everything survives a reload.
+	cfg2, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a = cfg2.AuthSettings()
+	if len(a.Users) != 1 || a.Users[0].Username != "bob" || !a.Users[0].Default {
+		t.Fatalf("reloaded users = %+v", a.Users)
 	}
 }
 
 func TestEnvOverrides(t *testing.T) {
-	t.Setenv("CANTINODE_PORT", "1234")
-	t.Setenv("CANTINODE_LOG_LEVEL", "warn")
-	t.Setenv("CANTINODE_ORGANIZE_ON_MATCH", "true")
-	t.Setenv("CANTINODE_MIN_MATCH_CONFIDENCE", "0.5")
+	t.Setenv("LIBRINODE_PORT", "9999")
+	t.Setenv("LIBRINODE_LOG_LEVEL", "debug")
 
-	cfg, err := Load("")
+	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Port != 1234 {
-		t.Errorf("Port = %d, want 1234 from env", cfg.Port)
+	if cfg.Port != 9999 {
+		t.Errorf("Port = %d, want 9999 from env", cfg.Port)
 	}
-	if cfg.LogLevel != "warn" {
-		t.Errorf("LogLevel = %q, want warn from env", cfg.LogLevel)
-	}
-	if !cfg.OrganizeOnMatch {
-		t.Error("OrganizeOnMatch should be true from env")
-	}
-	if cfg.MinMatchConfidence != 0.5 {
-		t.Errorf("MinMatchConfidence = %v, want 0.5 from env", cfg.MinMatchConfidence)
-	}
-}
-
-func TestValidate(t *testing.T) {
-	tests := []struct {
-		name    string
-		mutate  func(*Config)
-		wantErr bool
-	}{
-		{"valid defaults", func(c *Config) {}, false},
-		{"bad port", func(c *Config) { c.Port = 0 }, true},
-		{"bad log level", func(c *Config) { c.LogLevel = "verbose" }, true},
-		{"zero scan interval", func(c *Config) { c.ScanIntervalHours = 0 }, true},
-		{"empty naming format", func(c *Config) { c.NamingFormat = "" }, true},
-		{"confidence too high", func(c *Config) { c.MinMatchConfidence = 1.5 }, true},
-		{"confidence too low", func(c *Config) { c.MinMatchConfidence = -0.1 }, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := defaults()
-			cfg.APIKey = "x"
-			tt.mutate(cfg)
-			err := cfg.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() err = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestSaveRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-
-	cfg := defaults()
-	cfg.APIKey = "abc123"
-	cfg.Port = 5555
-	if err := cfg.Save(path); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if loaded.Port != 5555 || loaded.APIKey != "abc123" {
-		t.Errorf("round trip mismatch: got Port=%d APIKey=%q", loaded.Port, loaded.APIKey)
-	}
-}
-
-func TestLoadPersistsGeneratedAPIKey(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yaml")
-
-	first, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if first.APIKey == "" {
-		t.Fatal("APIKey should be auto-generated")
-	}
-
-	// A second Load against the same path — simulating a process
-	// restart before Settings was ever touched — must reuse the same
-	// key, not mint a new one, since the first Load should have written
-	// it back to path.
-	second, err := Load(path)
-	if err != nil {
-		t.Fatalf("second Load: %v", err)
-	}
-	if second.APIKey != first.APIKey {
-		t.Errorf("APIKey changed across restarts: first=%q second=%q", first.APIKey, second.APIKey)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("expected config file to be written: %v", err)
-	}
-	if !strings.Contains(string(data), first.APIKey) {
-		t.Errorf("config file does not contain the generated api_key: %s", data)
-	}
-}
-
-func TestNewAPIKeyIsUnique(t *testing.T) {
-	a, err := NewAPIKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := NewAPIKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a == b {
-		t.Error("NewAPIKey should not produce identical keys")
-	}
-	if len(a) != 64 {
-		t.Errorf("len(a) = %d, want 64 (32 bytes hex-encoded)", len(a))
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want debug from env", cfg.LogLevel)
 	}
 }

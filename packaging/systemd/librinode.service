@@ -1,0 +1,32 @@
+# LibriNode systemd unit.
+#
+# Install (as root):
+#   useradd --system --home /var/lib/librinode --create-home librinode
+#   cp librinode /usr/local/bin/
+#   cp librinode.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now librinode
+#
+# Data lives in /var/lib/librinode; the web UI is on http://localhost:7845.
+
+[Unit]
+Description=LibriNode written-media automation server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=librinode
+Group=librinode
+ExecStart=/usr/local/bin/librinode --data /var/lib/librinode
+Restart=on-failure
+RestartSec=5
+
+# Hardening — relax ReadWritePaths to cover your media folders.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/librinode
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

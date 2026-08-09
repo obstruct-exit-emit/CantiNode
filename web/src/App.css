@@ -1,954 +1,1871 @@
-.app {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 24px 20px 48px;
+:root {
+  color-scheme: dark;
+  --bg: #14141b;
+  --card: #1d1d27;
+  --card-2: #23232f;
+  --border: #2c2c3a;
+  --text: #e8e6e3;
+  --muted: #9a97a3;
+  --muted-soft: rgba(154, 151, 163, 0.15);
+  --accent: #8e7cc3;
+  --accent-dim: #3a3350;
+  --accent-soft: rgba(142, 124, 195, 0.12);
+  --danger: #b3543f;
+  --danger-soft: rgba(179, 84, 63, 0.14);
+  --ok: #5f9e6e;
+  --ok-soft: rgba(95, 158, 110, 0.14);
+  /* Informational blue (downloading badges, release-score pills). */
+  --info: #7aa2f7;
+  --info-faint: rgba(122, 162, 247, 0.08);
+  --info-soft: rgba(122, 162, 247, 0.15);
+  --info-strong: rgba(122, 162, 247, 0.3);
+  --warn: #c9a227;
+  --log-err: #e08575;
+  --log-warn: #d9b26a;
+  --code-bg: #22222c;
+  --btn-text: #14141b; /* text on accent-filled buttons */
+  --skel-mid: #3a3a4c;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --shadow-strong: rgba(0, 0, 0, 0.5);
+  --overlay: rgba(0, 0, 0, 0.55);
 }
 
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 24px;
+/* Light theme: same variable contract, paper-toned values. Activated by the
+   sidebar theme control (persisted per browser); "auto" follows the OS. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f3ef;
+  --card: #fdfdfb;
+  --card-2: #f0eeeb;
+  --border: #d9d5cf;
+  --text: #26232e;
+  --muted: #6e6a78;
+  --muted-soft: rgba(110, 106, 120, 0.14);
+  --accent: #6b58a8;
+  --accent-dim: #ddd5ef;
+  --accent-soft: rgba(107, 88, 168, 0.1);
+  --danger: #a3442f;
+  --danger-soft: rgba(163, 68, 47, 0.12);
+  --ok: #3e7d4e;
+  --ok-soft: rgba(62, 125, 78, 0.14);
+  --info: #3a68c0;
+  --info-faint: rgba(58, 104, 192, 0.07);
+  --info-soft: rgba(58, 104, 192, 0.13);
+  --info-strong: rgba(58, 104, 192, 0.28);
+  --warn: #94770f;
+  --log-err: #a3442f;
+  --log-warn: #8a6d1a;
+  --code-bg: #eceae5;
+  --btn-text: #ffffff;
+  --skel-mid: #e6e3dd;
+  --shadow: rgba(30, 25, 45, 0.18);
+  --shadow-strong: rgba(30, 25, 45, 0.25);
+  --overlay: rgba(30, 25, 45, 0.4);
 }
 
-.app-header h1 {
-  font-size: 22px;
+* {
+  box-sizing: border-box;
+}
+
+body {
   margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
 }
 
-.tabs {
+.app {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+nav {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 20px;
+  gap: 0.25rem;
 }
 
 .tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  padding: 8px 4px;
-  margin-right: 16px;
-  font-size: 14px;
-}
-
-.tab:hover {
-  color: var(--text);
-}
-
-.tab-active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-  font-weight: 500;
-}
-
-.scan-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.scan-btn {
-  padding: 6px 14px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 500;
-  font-size: 13px;
-}
-
-.scan-btn:hover {
-  opacity: 0.9;
-}
-
-.scan-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.empty {
-  color: var(--text-muted);
-  text-align: center;
-  padding: 48px 0;
-}
-
-.load-error {
-  background: color-mix(in srgb, var(--state-error) 12%, transparent);
-  color: var(--state-error);
-  border: 1px solid var(--state-error);
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-}
-
-.text-muted {
-  color: var(--text-muted);
-}
-
-.mono {
-  font-family: var(--mono);
-  font-size: 0.92em;
-}
-
-.library-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.library-header h2 {
-  font-size: 18px;
-  margin: 0;
-}
-
-/* Library: artist/album grids */
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.library-card {
-  text-align: left;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  color: var(--text);
-}
-
-.library-card:hover {
-  border-color: var(--accent);
-}
-
-.library-card-cover {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
   border-radius: 6px;
-  margin-bottom: 8px;
-  background: var(--bg);
-}
-
-.library-card-title {
-  font-weight: 500;
-  font-size: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.library-card-sub {
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-top: 4px;
-}
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 16px;
-  font-size: 13px;
-}
-
-.breadcrumb-link {
-  background: none;
-  border: none;
-  color: var(--accent);
-  padding: 0;
-  font-size: 13px;
-}
-
-.breadcrumb-current {
-  color: var(--text-muted);
-}
-
-.breadcrumb-sep {
-  color: var(--text-muted);
-  margin: 0 6px;
-}
-
-/* Shared table styling (Library tracks) */
-table.downloads {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-table.downloads th,
-table.downloads td {
-  text-align: left;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
-}
-
-table.downloads th {
-  color: var(--text-muted);
-  font-weight: 500;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-table.downloads tbody tr:last-child td {
-  border-bottom: none;
-}
-
-table.downloads tbody tr:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-.row-clickable {
+  padding: 0.45rem 0.9rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
-/* Shared "rows" list (root folders, unmatched files, settings users) */
-.rows {
-  list-style: none;
-  margin: 0 0 16px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.rows .row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.rows .row:last-child {
-  border-bottom: none;
-}
-
-.user-row-name {
-  flex: 1 1 auto;
-  min-width: 120px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.rows .row button,
-.rows .row .toggle {
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: none;
+.tab.active {
   color: var(--text);
-  font-size: 12px;
-  font: inherit;
+  background: var(--card);
+  border-color: var(--border);
 }
 
-.rows .row button:hover {
-  border-color: var(--accent);
-}
-
-.toggle-danger {
-  color: var(--state-error) !important;
-}
-
-.toggle-danger:hover {
-  border-color: var(--state-error) !important;
-  background: color-mix(in srgb, var(--state-error) 10%, transparent);
-}
-
-.toggle.on {
+.subnav .tab.active {
+  background: var(--accent-soft);
   border-color: var(--accent);
   color: var(--text);
-  background: var(--accent-soft, color-mix(in srgb, var(--accent) 12%, transparent));
 }
 
-/* Cards (Root Folders, Settings) */
-.settings {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.settings-card {
-  max-width: 640px;
-  background: var(--bg-elevated);
+.card {
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 20px 24px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
 }
 
-.settings-card h2 {
-  font-size: 16px;
-  margin: 0 0 10px;
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 0.4rem;
+  font-size: 1.1rem;
 }
 
-.settings-help {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: 0 0 14px;
+/* The muted lead paragraph that introduces a card, kept close to its heading. */
+.card > h2 + .muted {
+  margin-top: 0;
+  margin-bottom: 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  max-width: 62ch;
 }
 
-.settings-card form {
-  display: flex;
-  gap: 8px;
+/* Settings page heading above the section tabs. */
+.settings-header {
+  margin-bottom: 1rem;
 }
 
-.settings-card input {
-  flex: 1;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
+.settings-header h1 {
+  margin: 0 0 0.15rem;
+  font-size: 1.5rem;
 }
 
-.settings-card input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.settings-card button {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 500;
-}
-
-.settings-card button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.settings-success {
-  color: var(--state-ready);
-  font-size: 13px;
-  margin: 10px 0 0;
-}
-
-.settings-error {
-  color: var(--state-error);
-  font-size: 13px;
-  margin: 10px 0 0;
-}
-
-.api-key-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.api-key-value {
-  flex: 1;
-  overflow-wrap: anywhere;
-  font-size: 12.5px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 10px;
-}
-
-.api-key-row button {
-  flex-shrink: 0;
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: none;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.api-key-row button:hover {
-  border-color: var(--accent);
-}
-
-.general-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.general-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.general-form h3 {
-  font-size: 13px;
-  margin: 6px 0 -2px;
-  color: var(--text);
-}
-
-.general-form input,
-.general-form select {
-  padding: 7px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  text-transform: none;
-  letter-spacing: normal;
-}
-
-.general-form input:focus,
-.general-form select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.general-form button[type='submit'] {
-  align-self: flex-start;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 500;
-}
-
-.general-form button[type='submit']:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.general-form label.toggle-row {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  text-transform: none;
-  letter-spacing: normal;
-  color: var(--text);
-}
-
-.general-form label.toggle-row input[type='checkbox'] {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  background: none;
-  flex: none;
-}
-
-/* Full-page gate: ApiKeyGate */
-.gate {
-  min-height: 100svh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.gate-card {
-  width: 100%;
-  max-width: 360px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 28px;
-  text-align: center;
-}
-
-.gate-card h1 {
-  margin: 0 0 8px;
-  font-size: 24px;
-}
-
-.gate-card p {
-  color: var(--text-muted);
-  font-size: 13.5px;
-  margin: 0 0 16px;
-}
-
-.gate-card input {
-  width: 100%;
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  margin-bottom: 12px;
-}
-
-.gate-card input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.gate-error {
-  color: var(--state-error) !important;
-  margin-bottom: 12px !important;
-}
-
-.gate-card button {
-  width: 100%;
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 500;
-}
-
-.gate-card button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-/* Manual match dialog (Unmatched) */
-.detail-overlay {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in srgb, black 45%, transparent);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 20px;
-  overflow-y: auto;
-  z-index: 10;
-}
-
-.detail-panel {
-  width: 100%;
-  max-width: 640px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px 24px 24px;
-}
-
-.detail-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.detail-header h2 {
-  font-size: 17px;
+.settings-header .muted {
   margin: 0;
-  overflow-wrap: anywhere;
+  font-size: 0.92rem;
 }
 
-.detail-close {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  padding: 2px 8px;
+.card.error {
+  border-color: var(--danger);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+code {
+  background: var(--code-bg);
+  padding: 0.15em 0.4em;
   border-radius: 4px;
 }
 
-.detail-close:hover {
-  color: var(--state-error);
-  background: color-mix(in srgb, var(--state-error) 10%, transparent);
+dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
 }
 
-.add-download-panel {
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+form {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  gap: 0.5rem;
 }
 
-.add-download-panel input[type='text'] {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+input,
+select {
   background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--text);
+  padding: 0.55rem 0.75rem;
   font: inherit;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.add-download-panel input[type='text']:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.add-download-panel button[type='submit'] {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
-  font-weight: 500;
-  align-self: flex-start;
+input {
+  flex: 1;
 }
 
-/* Directory browser (Root Folders' "Browse..." picker) */
-.directory-browser-current {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: 0 0 10px;
-  word-break: break-all;
-}
-
-.directory-browser-list {
-  max-height: 320px;
-  overflow-y: auto;
-  margin-bottom: 16px;
-}
-
-.directory-browser-entry {
+/* Checkboxes must never flex-grow like text inputs, and pick up the accent. */
+input[type="checkbox"],
+input[type="radio"] {
+  flex: none;
+  width: auto;
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
-.directory-browser-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+/* A checkbox-with-label option: control and text on one baseline-aligned row. */
+label.check {
+  color: var(--text);
+  font-size: 0.92rem;
 }
 
-.directory-browser-actions button {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+label.check > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+button {
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: var(--btn-text);
+  font-weight: 600;
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.danger {
+  background: var(--danger);
+  color: var(--text);
+}
+
+button.link {
   background: none;
   color: var(--text);
-  font: inherit;
-}
-
-.directory-browser-actions button:last-child {
-  border: none;
-  background: var(--accent);
-  color: var(--accent-text);
+  padding: 0.25rem 0;
+  text-align: left;
   font-weight: 500;
 }
 
-.directory-browser-actions button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.add-download-panel button[type='submit']:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-/* Wanted (acquisition) */
-.wanted {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.badge {
-  display: inline-block;
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #fff;
-  white-space: nowrap;
-}
-
-.badge-wanted {
-  background: var(--state-queued);
-}
-.badge-downloading {
-  background: var(--state-downloading);
-}
-.badge-completed {
-  background: var(--state-fetching);
-}
-.badge-downloaded,
-.badge-imported {
-  background: var(--state-ready);
-}
-.badge-error {
-  background: var(--state-error);
-}
-.badge-ignored {
-  background: var(--text-muted);
-}
-
-.error-message {
-  color: var(--state-error);
-  font-size: 12px;
-  white-space: normal;
-  margin-top: 2px;
-}
-
-.release-dead {
-  color: var(--state-error);
-}
-
-.downloads-activity {
-  margin-top: 8px;
-}
-
-.name-cell {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.downloads-activity h3 {
-  font-size: 14px;
-  margin: 0 0 8px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-/* Unified artist page (ArtistDetail) */
-.artist-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.artist-header {
-  display: flex;
-  gap: 20px;
-  background: var(--bg-elevated);
+button.toggle {
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px 24px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 0.25rem 0.6rem;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 
-.artist-header-image {
-  width: 120px;
-  height: 120px;
-  border-radius: 10px;
-  object-fit: cover;
-  background: var(--bg);
-  flex-shrink: 0;
+button.toggle:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+  filter: none;
 }
 
-.artist-header-info {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+button.toggle.on {
+  border-color: var(--ok);
+  color: var(--ok);
 }
 
-.artist-header-info h2 {
+button.toggle.on:hover:not(:disabled) {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.rows {
+  list-style: none;
   margin: 0;
-  font-size: 20px;
+  padding: 0;
 }
 
-.artist-bio {
-  color: var(--text-muted);
-  font-size: 13.5px;
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.rows > li {
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0;
 }
 
-.artist-header-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 4px;
+.rows > li:last-child {
+  border-bottom: none;
 }
 
-.section-title {
-  font-size: 13px;
-  margin: 0 0 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.rows.nested {
+  margin: 0.25rem 0 0.5rem 1.25rem;
 }
 
-.missing-group {
-  margin-bottom: 18px;
+.rows.nested > li {
+  border-bottom: none;
+  padding: 0.2rem 0;
 }
 
-.missing-group:last-child {
-  margin-bottom: 0;
-}
-
-.missing-group-header {
+.row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 13.5px;
-  font-weight: 500;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 6px;
+  gap: 0.75rem;
 }
 
-.missing-group-actions {
+.row-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
 }
 
-/* Generic boxed section — same surface treatment as .settings-card/
-   .artist-header, just without the max-width, so every section on the
-   artist page (Albums/Missing/Wanted/Downloads) reads as one consistent
-   family of cards instead of loose headed lists. */
-.card {
-  background: var(--bg-elevated);
+.row-actions button {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.book-detail {
+  margin: 0.25rem 0 0.5rem 1.4rem;
+}
+
+.book-detail p {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.search-form {
+  margin-bottom: 1rem;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 480px;
+}
+
+.settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.settings-form select {
+  align-self: flex-start;
+  min-width: 200px;
+}
+
+/* Bordered sub-section inside a settings card (one per library type). */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: var(--card-2);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px 24px;
-  margin-bottom: 20px;
+  border-radius: 8px;
+  padding: 1rem 1.1rem 1.1rem;
 }
 
-.card:last-child {
-  margin-bottom: 0;
+.settings-section h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.settings-section > .muted {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* Collapsible "advanced" block: common fields stay visible, the rest tuck away. */
+.disclosure {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  align-self: stretch;
+}
+
+.disclosure > summary {
+  cursor: pointer;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  list-style: none;
+  user-select: none;
+  border-radius: 8px;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.disclosure > summary:hover {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  color: var(--muted);
+}
+
+.disclosure[open] > summary::before {
+  content: "▾";
+}
+
+.disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0 0.9rem 0.9rem;
+}
+
+/* Sub-heading that separates blocks of settings within one card. */
+.settings-subhead {
+  margin: 0.5rem 0 -0.25rem;
+  font-size: 0.95rem;
+}
+
+/* Track list of a multi-file audiobook unit, tucked under its folder row. */
+.track-list {
+  margin: 0.15rem 0 0.25rem 1.4rem;
+}
+
+.track-list > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+/* One toggle-plus-its-help block, kept tight so help pairs with its control. */
+.opt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.opt-help {
+  margin: 0 0 0 1.65rem;
+  font-size: 0.82rem;
+}
+
+/* Small muted note under a field or inside a disclosure. */
+.field-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.token-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.token-row input {
+  flex: 1;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.notice {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+}
+
+.notice.ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.notice.bad {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 0.75rem;
 }
 
-.card-head .section-title {
-  margin-bottom: 0;
+.card-head h2 {
+  margin: 0;
 }
 
+/* Right-side controls of a card header (bulk action + sort), kept together. */
 .card-head-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.5rem;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
+/* Compact sort dropdown — a plain select matching the app's other dropdowns
+   (see .rb-controls select), just sized down to sit in a card header. */
 .sort-select {
-  font-size: 12px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: none;
-  color: var(--text);
-  font: inherit;
-}
-
-.view-toggle {
-  display: flex;
-  gap: 4px;
-}
-
-.sort-dir-buttons {
-  display: flex;
-  gap: 4px;
-}
-
-.sort-dir-buttons .toggle {
-  padding: 5px 8px;
-  line-height: 1;
-}
-
-.remove-panel {
-  margin-top: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--state-error);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--state-error) 8%, transparent);
-}
-
-.remove-panel p {
-  margin: 0 0 8px;
-  font-size: 13px;
-}
-
-.remove-panel label.check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  margin-bottom: 10px;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.5rem;
   cursor: pointer;
 }
 
-.rename-plan {
-  margin-top: 10px;
-  padding-top: 10px;
+.owned {
+  font-size: 0.78rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  white-space: nowrap;
+}
+
+.owned.yes {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.owned.no {
+  background: var(--muted-soft);
+  color: var(--muted);
+}
+
+/* Slim download progress bar (Activity queue rows, book detail). */
+.progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--muted-soft);
+  overflow: hidden;
+  margin: 0.35rem 0 0.15rem;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.6s ease;
+}
+
+.progress-fill.done {
+  background: var(--ok);
+}
+
+.progress-fill.bad {
+  background: var(--danger);
+}
+
+/* Downloading badge: between wanted (muted) and owned (green). */
+.owned.dl {
+  background: var(--info-soft);
+  color: var(--accent);
+}
+
+/* --- First-run setup wizard --- */
+.wizard {
+  max-width: 620px;
+  margin: 2rem auto 0;
+}
+
+.wizard-dots {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.wizard-dots .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.wizard-dots .dot.done {
+  background: var(--ok);
+}
+
+.wizard-dots .dot.active {
+  background: var(--accent);
+}
+
+.wizard-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+  padding-top: 0.9rem;
   border-top: 1px solid var(--border);
 }
 
-.rename-plan p {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--text-muted);
+.wizard-nav .wizard-skip {
+  margin-left: auto;
 }
 
-.rename-plan .move {
+/* --- Security card: user list --- */
+.pill.user-default {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+/* Inline add-user / change-password form under a user row. */
+.user-form {
+  margin: 0.5rem 0 0.75rem 1.4rem;
+}
+
+/* --- Folder picker (root-folder Browse…) --- */
+.folder-browser {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  max-width: 520px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
+  gap: 0.5rem;
 }
 
-.rename-plan .file-path {
-  overflow-wrap: anywhere;
+.fb-path {
+  display: flex;
+  gap: 0.5rem;
 }
 
-.settings-actions {
+.fb-path input {
+  flex: 1;
+}
+
+.fb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.fb-list li {
+  border-bottom: 1px solid var(--border);
+}
+
+.fb-list li:last-child {
+  border-bottom: none;
+}
+
+.fb-list button.link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.88rem;
+}
+
+.fb-list button.link:hover {
+  background: var(--info-faint);
+}
+
+.fb-empty {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.fb-error {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.fb-actions {
+  margin-top: 0.1rem;
+}
+
+/* --- Release browser (interactive search) --- */
+.release-browser {
+  margin-top: 0.5rem;
+}
+
+.rb-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.rb-summary {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.rb-summary strong {
+  color: var(--ok);
+}
+
+.rb-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   flex-wrap: wrap;
 }
 
-.rename-plan .settings-actions {
-  margin-top: 10px;
+.rb-controls select {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.4rem;
 }
 
-.row-select {
+.rb-sep {
+  width: 1px;
+  height: 1.1rem;
+  background: var(--border);
+  margin: 0 0.25rem;
+}
+
+.rb-searching::before {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.5em;
+  border: 2px solid var(--muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.1em;
+  animation: rb-spin 0.8s linear infinite;
+}
+
+@keyframes rb-spin {
+  to { transform: rotate(360deg); }
+}
+
+.rb-list .rb-title {
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.rb-meta {
+  font-size: 0.78rem;
+  margin: 0.15rem 0 0.1rem 1.5rem;
+}
+
+.rb-rejected .rb-title,
+.rb-rejected .rb-meta {
+  opacity: 0.65;
+}
+
+.rb-why {
+  color: var(--danger);
+  opacity: 1;
+}
+
+/* Always-visible metric values (size / seeders / age) on each release row;
+   the one matching the active sort lights up. */
+.rb-meta .metric {
+  white-space: nowrap;
+}
+
+.rb-meta .metric::before {
+  content: "· ";
+}
+
+.rb-meta .metric.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pill.rb-score.on {
+  background: var(--info-strong);
+}
+
+.rb-errors {
+  font-size: 0.82rem;
+  margin: 0 0 0.4rem;
+}
+
+/* Small inline badge: score, format, retail. */
+.pill {
+  display: inline-block;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  margin-left: 0.35rem;
+  background: var(--muted-soft);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pill.rb-score {
+  background: var(--info-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pill.rb-retail {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.pill.rb-pack {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pill.match-confidence {
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* The cross-format badge as a link: keeps the pill look (the .owned classes
+   above win over the global button accent) but reads as clickable. */
+button.owned-link {
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+button.owned-link:hover {
+  filter: none;
+  border-color: currentColor;
+}
+
+.file-path {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+/* Unmatched-file rows carry both a long file path and wide actions (Add /
+   Match-to-book select / Import). Let them wrap so the path takes its own
+   full-width line and the actions sit below, instead of the path collapsing
+   to a one-character-per-line vertical strip. */
+.unmatched-files .row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.unmatched-files .file-path {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.unmatched-files .row-actions {
+  flex-wrap: wrap;
+}
+
+/* The "Match to book…" select can be long; keep it inside the row. */
+.unmatched-files .row-actions select {
+  max-width: 100%;
+}
+
+.rename-plan {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+
+.rename-plan p {
+  margin-top: 0;
+}
+
+.move {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.2rem 0;
 }
 
-.row-select input[type='checkbox'] {
-  flex: none;
-  accent-color: var(--accent);
+/* --- Plex-style layout: sidebar + content --- */
+.app.with-sidebar {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1.5rem;
+  max-width: 1200px;
+}
+
+.sidebar {
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+  border-right: 1px solid var(--border);
+  padding-right: 1rem;
+  min-height: 80vh;
+}
+
+.sidebar .brand {
+  font-size: 1.3rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.nav-item {
+  background: none;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.nav-item:hover {
+  background: var(--card);
+}
+
+.nav-item.active {
+  background: var(--accent-dim);
+  font-weight: 600;
+}
+
+.nav-icon {
+  margin-right: 0.35rem;
+}
+
+.nav-group {
+  margin: 0.9rem 0 0.25rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding-left: 0.6rem;
+}
+
+@media (max-width: 800px) {
+  .app.with-sidebar {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: static;
+    border-right: none;
+    min-height: auto;
+  }
+  .sidebar nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 0.35rem;
+  }
+  /* Group labels stay visible on the wrapped horizontal nav: each takes its
+     own full-width line, so groups read as labeled clusters, not one soup. */
+  .nav-group {
+    flex-basis: 100%;
+    margin: 0.5rem 0 0.1rem;
+    padding-left: 0.2rem;
+  }
+}
+
+/* --- Home rows --- */
+.home-row h3 {
+  margin: 0.75rem 0 0.4rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.home-strip {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+/* Tiles are buttons (they open the book/series page) — undo the global
+   button chrome and keep the plain poster look, with a hover lift. */
+.home-tile {
+  flex: 0 0 96px;
+  width: 96px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-weight: normal;
+  color: var(--text);
+  text-align: left;
   cursor: pointer;
 }
 
-/* Compact variant of .card-grid — smaller covers, same grid shape,
-   matching .poster-grid.compact's role in the LibriNode reference. */
-.card-grid.compact {
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 8px;
+.home-tile:hover {
+  filter: none;
 }
 
-.card-grid.compact .library-card-title {
-  font-size: 12px;
+.home-tile:hover img,
+.home-tile:hover .home-cover-fallback {
+  border-color: var(--accent);
 }
 
-.card-grid.compact .library-card-sub {
-  font-size: 11px;
+.home-tile:hover .home-tile-title {
+  text-decoration: underline;
+}
+
+.home-tile img,
+.home-cover-fallback {
+  width: 96px;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.home-cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.home-tile-title {
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-tile-sub {
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Removal confirmation panel (opt-in delete-files checkbox) --- */
+.remove-panel {
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+
+.remove-panel p {
+  margin: 0 0 0.5rem;
+}
+
+.remove-panel label.check {
+  display: block;
+  margin-bottom: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* --- Log viewer --- */
+.log-view {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0 0;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Grid filter + incremental rendering --- */
+.grid-filter {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+button.show-more {
+  display: block;
+  margin: 1rem auto 0;
+}
+
+/* --- Calendar agenda --- */
+.calendar-day {
+  margin-bottom: 0.75rem;
+}
+
+.calendar-date {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.calendar-date.today {
+  color: var(--accent);
+}
+
+/* --- Author Missing section: compact expandable rows --- */
+.group-heading {
+  margin: 0.9rem 0 0.15rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.missing-detail {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.35rem 0 0.6rem 1.25rem;
+}
+
+/* Cover + about at the top of an expanded manga volume (reuses the
+   .missing-thumb / .missing-about styling). */
+.volume-about {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.missing-thumb {
+  flex: 0 0 48px;
+  width: 48px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.missing-thumb.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+
+.missing-about {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- Health banner + issue lines --- */
+.health-banner {
+  border-color: var(--warn);
+  padding: 0.75rem 1.25rem;
+}
+
+.health-issue {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+  color: var(--warn);
+}
+
+.health-issue.error {
+  color: var(--danger);
+}
+
+/* --- Settings sub-navigation (grouped pages) --- */
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 1.25rem;
+  padding: 0.3rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.subnav .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.subnav .tab:hover:not(.active) {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.tab-icon {
+  font-size: 0.95em;
+  line-height: 1;
+}
+
+/* --- Embedded add panel --- */
+.add-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+
+/* --- *arr-style poster grid (authors / series) --- */
+.poster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.poster-card {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+
+.poster-card:hover .poster {
+  border-color: var(--accent);
+}
+
+.poster-card.selected .poster {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.poster-card:hover {
+  filter: none;
+}
+
+.poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.poster.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  color: var(--muted);
+}
+
+.poster-title {
+  font-size: 0.82rem;
+  margin-top: 0.35rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.poster-sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact books view: same grid, smaller cards. */
+.poster-grid.compact {
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 0.6rem;
+}
+
+.poster-grid.compact .poster-title {
+  font-size: 0.72rem;
+  margin-top: 0.2rem;
+}
+
+.poster-grid.compact .poster-sub {
+  font-size: 0.64rem;
+}
+
+/* Books-section view toggle (grid/compact/list) — sits beside the sort
+   controls in the card header. */
+.view-toggle {
+  display: flex;
+  gap: 0.25rem;
+}
+
+/* Ascending/descending button pair beside a sort dropdown. */
+.sort-dir-buttons {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.sort-dir-buttons .toggle {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+/* Cross-format badge/button: pushed to the right edge of the expanded
+   book detail, so it sits under the row's owned/rating/monitored badges. */
+.settings-actions .cross-format {
+  margin-left: auto;
+}
+
+/* --- Detail pages (author / series) --- */
+button.link.back {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+button.link.back:hover {
+  color: var(--text);
+  filter: none;
+}
+
+.detail-head {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.detail-art {
+  flex: 0 0 130px;
+  width: 130px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.detail-art.fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  color: var(--muted);
+}
+
+.detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-info h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+}
+
+.detail-desc {
+  font-size: 0.88rem;
+  color: var(--muted);
+  margin: 0.5rem 0 0.75rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 600px) {
+  .detail-head {
+    flex-direction: column;
+  }
+  .detail-art {
+    width: 100px;
+    flex-basis: auto;
+  }
+}
+
+/* ---- App-wide UI layer: toasts + confirm dialog ---- */
+
+.toasts {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(380px, calc(100vw - 2rem));
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  box-shadow: 0 6px 24px var(--shadow);
+  animation: toast-in 0.18s ease-out;
+}
+
+.toast.ok {
+  border-left-color: var(--ok);
+}
+
+.toast.bad {
+  border-left-color: var(--danger);
+}
+
+.toast-msg {
+  flex: 1;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.toast-x {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.1rem;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.toast-x:hover {
+  color: var(--text);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 10px 40px var(--shadow-strong);
+}
+
+.modal h3 {
+  margin: 0 0 0.5rem;
+}
+
+.modal-msg {
+  margin: 0 0 1rem;
+  white-space: pre-line;
+  line-height: 1.45;
+}
+
+/* ---- Search-and-add poster grid ---- */
+
+.add-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.add-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem;
+}
+
+.add-card .poster {
+  background: var(--card);
+}
+
+.add-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+}
+
+.add-card-body .poster-title {
+  margin-top: 0.15rem;
+}
+
+.add-blurb {
+  margin: 0.3rem 0 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---- Skeleton loading states ---- */
+
+.skel {
+  background: linear-gradient(
+    100deg,
+    var(--border) 40%,
+    var(--skel-mid) 50%,
+    var(--border) 60%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.skel-line {
+  height: 0.85rem;
+  margin: 0.5rem 0;
+  width: 100%;
+}
+
+.skel-line.short {
+  width: 55%;
+}
+
+.skel-line.row-skel {
+  height: 2.2rem;
+  margin: 0.65rem 0;
+}
+
+.skel-poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+}
+
+.skel-poster-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.skel-art {
+  width: 150px;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+@keyframes skel-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* ---- Sidebar global search ---- */
+
+.sidebar-search {
+  margin: 0 0 0.75rem;
+}
+
+.sidebar-search input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.sidebar-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ---- Saved-item rows (Settings: indexers, clients, profiles) ---- */
+
+.saved-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.saved-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.saved-sub {
+  font-size: 0.8rem;
+}
+
+.pill.off {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ---- Quality profile format chips ---- */
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.85rem;
+}
+
+.chip-label {
+  padding: 0 0.25rem;
+  font-weight: 600;
+}
+
+.chip-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.25rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.chip-btn:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.chip-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.chip-x:hover {
+  color: var(--danger);
+}
+
+.chip-entry {
+  width: 7.5rem;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  padding: 0.25rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.chip-entry:focus {
+  outline: none;
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+/* ---- P3 surface passes ---- */
+
+/* Calendar: clickable items + when-badges */
+.cal-item {
+  text-align: left;
+  padding: 0;
+}
+
+.pill.cal-when {
+  margin-left: 0.5rem;
+  font-weight: 500;
+}
+
+.calendar-date.today .pill.cal-when {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* System: status as a tile grid */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.9rem 1.25rem;
+  margin: 0;
+}
+
+.status-grid dt {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.status-grid dd {
+  margin: 0 0 0.4rem;
+  overflow-wrap: anywhere;
+}
+
+/* Log: level coloring */
+.log-line.err {
+  color: var(--log-err);
+}
+
+.log-line.warn {
+  color: var(--log-warn);
+}
+
+/* Auth entry screens */
+.auth-card {
+  max-width: 400px;
+  margin: 2.5rem auto 0;
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.auth-card form button[type=submit] {
+  align-self: stretch;
+}
+
+.app:not(.with-sidebar) > .content > .brand {
+  text-align: center;
+  margin-top: 7vh;
+  font-size: 1.9rem;
+}
+
+/* ---- Bulk select on Missing rows ---- */
+
+.row-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.row-select input[type=checkbox] {
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.group-heading .group-monitor {
+  margin-left: 0.75rem;
+  font-size: 0.78rem;
+}
+
+/* ---- Responsive: small screens ---- */
+
+@media (max-width: 700px) {
+  .content {
+    padding: 1rem;
+  }
+
+  .poster-grid {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 0.6rem;
+  }
+
+  /* Card headers and row action clusters wrap instead of overflowing. */
+  .card-head,
+  .row,
+  .row-actions,
+  .rb-controls {
+    flex-wrap: wrap;
+  }
+
+  .row-actions {
+    justify-content: flex-end;
+  }
+
+  /* Long paths and release titles break instead of forcing overflow. */
+  .file-path,
+  .rb-title {
+    overflow-wrap: anywhere;
+  }
+
+  /* Toasts span the viewport bottom on phones instead of hugging a corner. */
+  .toasts {
+    top: auto;
+    bottom: 1rem;
+    left: 1rem;
+    right: 1rem;
+  }
+
+  .toast {
+    max-width: none;
+  }
+
+  .modal {
+    margin: 0 1rem;
+    width: auto;
+  }
+
+  .settings-form {
+    max-width: none;
+  }
+
+  .settings-form input,
+  .settings-form select {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .detail-info .row-actions {
+    justify-content: flex-start;
+  }
+
+  .auth-card {
+    margin: 4vh auto;
+  }
+}
+
+/* ---- Library empty states ---- */
+
+.empty-state {
+  text-align: center;
+  padding: 2.5rem 1rem 2rem;
+  max-width: 460px;
+  margin: 0 auto;
+}
+
+.empty-state .empty-icon {
+  font-size: 2.6rem;
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+.empty-state h3 {
+  margin: 0 0 0.4rem;
+}
+
+.empty-state .settings-actions {
+  justify-content: center;
+  margin-top: 1rem;
 }

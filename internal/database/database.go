@@ -1,17 +1,15 @@
-// Package database owns CantiNode's SQLite connection and embedded schema
-// migrations. See rootfolders.go, artists.go, albums.go, tracks.go, and
-// trackfiles.go for the CRUD surface over each table defined here.
+// Package database opens LibriNode's SQLite database and applies embedded
+// schema migrations. The driver is modernc.org/sqlite (pure Go, no cgo),
+// which keeps Windows and cross-compiled builds toolchain-free.
 package database
 
 import (
-	"context"
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"sort"
-	"strconv"
-	"strings"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -19,134 +17,85 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// DB wraps a *sql.DB opened against CantiNode's SQLite database, with
-// migrations already applied.
-type DB struct {
-	*sql.DB
-}
-
-// Open opens (creating if necessary) the SQLite database at dsn and applies
-// any migrations that haven't run yet. dsn is a modernc.org/sqlite data
-// source, e.g. a file path or ":memory:".
-func Open(dsn string) (*DB, error) {
-	sqlDB, err := sql.Open("sqlite", dsn)
+func Open(path string) (*sql.DB, error) {
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)", path)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("open database: %w", err)
-	}
-	// A single connection keeps migration ordering predictable and avoids
-	// SQLite "database is locked" errors under modernc.org/sqlite's driver
-	// — the same tradeoff AcerviNode's database package makes. It also
-	// means the foreign_keys pragma (per-connection, off by default in
-	// SQLite) stays in effect for every query, enabling the track_files/
-	// albums/tracks cascade deletes.
-	sqlDB.SetMaxOpenConns(1)
-	if _, err := sqlDB.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("enable foreign_keys: %w", err)
-	}
-	// WAL + synchronous=NORMAL instead of SQLite's own defaults (a rollback
-	// journal, synchronous=FULL): each write is an append rather than a
-	// full-file fsync, which matters here since SetMaxOpenConns(1) already
-	// serializes every operation through one connection — a slow fsync on
-	// one write directly delays everyone else's turn, including the web
-	// UI's own polling. A no-op on an in-memory (":memory:") database, e.g.
-	// in tests.
-	if _, err := sqlDB.Exec(`PRAGMA journal_mode = WAL`); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("enable WAL journal mode: %w", err)
-	}
-	if _, err := sqlDB.Exec(`PRAGMA synchronous = NORMAL`); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("set synchronous=NORMAL: %w", err)
-	}
-
-	db := &DB{DB: sqlDB}
-	if err := db.migrate(context.Background()); err != nil {
-		sqlDB.Close()
 		return nil, err
+	}
+	// SQLite allows one writer; a single connection avoids SQLITE_BUSY races.
+	db.SetMaxOpenConns(1)
+
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrating database: %w", err)
 	}
 	return db, nil
 }
 
-func (db *DB) migrate(ctx context.Context) error {
-	if _, err := db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version    INTEGER PRIMARY KEY,
-			applied_at TIMESTAMP NOT NULL
-		)`); err != nil {
-		return fmt.Errorf("create schema_migrations: %w", err)
+func migrate(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version TEXT PRIMARY KEY,
+		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`); err != nil {
+		return err
 	}
 
-	applied := map[int]bool{}
-	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
+	applied := map[string]bool{}
+	rows, err := db.Query(`SELECT version FROM schema_migrations`)
 	if err != nil {
-		return fmt.Errorf("read schema_migrations: %w", err)
+		return err
 	}
+	defer rows.Close()
 	for rows.Next() {
-		var v int
+		var v string
 		if err := rows.Scan(&v); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan schema_migrations: %w", err)
+			return err
 		}
 		applied[v] = true
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	rows.Close()
 
-	entries, err := migrationsFS.ReadDir("migrations")
+	names, err := fs.Glob(migrationsFS, "migrations/*.sql")
 	if err != nil {
-		return fmt.Errorf("read embedded migrations: %w", err)
+		return err
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	sort.Strings(names)
 
-	for _, entry := range entries {
-		version, err := migrationVersion(entry.Name())
+	// Schema migrations may rebuild tables (SQLite can't alter CHECK
+	// constraints); foreign keys stay off while they run so parent-table
+	// rebuilds don't trip child references.
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	defer db.Exec(`PRAGMA foreign_keys=ON`)
+
+	for _, name := range names {
+		if applied[name] {
+			continue
+		}
+		script, err := migrationsFS.ReadFile(name)
 		if err != nil {
 			return err
 		}
-		if applied[version] {
-			continue
-		}
-
-		sqlBytes, err := migrationsFS.ReadFile("migrations/" + entry.Name())
+		tx, err := db.Begin()
 		if err != nil {
-			return fmt.Errorf("read migration %s: %w", entry.Name(), err)
+			return err
 		}
-
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("begin migration %s: %w", entry.Name(), err)
-		}
-		if _, err := tx.ExecContext(ctx, string(sqlBytes)); err != nil {
+		if _, err := tx.Exec(string(script)); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("apply migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("applying %s: %w", name, err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
-			version, time.Now().UTC()); err != nil {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, name); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("record migration %s: %w", entry.Name(), err)
+			return fmt.Errorf("recording %s: %w", name, err)
 		}
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %s: %w", entry.Name(), err)
+			return err
 		}
+		slog.Info("applied migration", "migration", name)
 	}
-
 	return nil
-}
-
-// migrationVersion extracts the leading integer from a migration filename
-// like "0001_init.sql" -> 1.
-func migrationVersion(filename string) (int, error) {
-	prefix, _, ok := strings.Cut(filename, "_")
-	if !ok {
-		return 0, fmt.Errorf("migration filename %q missing '_' separator", filename)
-	}
-	version, err := strconv.Atoi(prefix)
-	if err != nil {
-		return 0, fmt.Errorf("migration filename %q has non-numeric version: %w", filename, err)
-	}
-	return version, nil
 }

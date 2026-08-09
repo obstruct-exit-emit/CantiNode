@@ -1,18 +1,15 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
-// https://vite.dev/config/
+// The dev server proxies API calls to the Go backend on LibriNode's port,
+// so `npm run dev` + `go run ./cmd/librinode` work together out of the box.
+// Production builds land in web/dist, which the Go binary will embed/serve.
 export default defineConfig({
   plugins: [react()],
-  build: {
-    outDir: 'dist',
-  },
   server: {
-    // Proxies API calls to the Go backend during `npm run dev`, matching
-    // LibriNode/AcerviNode's own dev-server convention (7845/7846;
-    // CantiNode's default port is 7847).
     proxy: {
-      '/api': 'http://localhost:7847',
+      "/api": "http://localhost:7845",
+      "/ping": "http://localhost:7845",
     },
   },
-})
+});
