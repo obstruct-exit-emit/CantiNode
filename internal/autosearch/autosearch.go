@@ -65,9 +65,6 @@ func (s *Service) SearchBook(ctx context.Context, bookID int64, mediaType string
 	// a book is only acquirable as a format it was added as.
 	if book.MediaType == "book" {
 		member := book.InEbookLibrary
-		if mediaType == "audiobook" {
-			member = book.InAudiobookLibrary
-		}
 		if !member {
 			return &BookOutcome{BookID: bookID, BookTitle: book.Title, MediaType: mediaType,
 				Message: "not in the " + mediaType + " library — add it there first"}, nil
@@ -95,11 +92,8 @@ func (s *Service) SearchBook(ctx context.Context, bookID int64, mediaType string
 
 // ownedIn reports whether the book has a file of the given media type.
 func (s *Service) ownedIn(book *library.Book, mediaType string) bool {
-	switch mediaType {
-	case "ebook":
+	if mediaType == "ebook" {
 		return book.HasEbookFile
-	case "audiobook":
-		return book.HasAudiobookFile
 	}
 	return book.HasFile
 }
@@ -183,11 +177,6 @@ func (s *Service) searchOne(ctx context.Context, book *library.Book, mediaType s
 		}
 		query = author.Name + " " + book.Title
 		nativeQuery = book.Title // scraped sources match the bare title, not "author title"
-		if mediaType == "audiobook" {
-			// Categories do most of the filtering; the keyword helps
-			// indexers with sloppy category mapping.
-			query += " audiobook"
-		}
 		otherTitles := otherBookTitles(s.store, book)
 		score = func(rel indexer.Release) release.Candidate {
 			return release.Score(rel, prefs, book, author, otherTitles)
@@ -357,10 +346,9 @@ func (s *Service) pendingBookIDs() (map[string]bool, error) {
 }
 
 // wants lists the media types a book should be searched as: ebooks whenever
-// monitored and fileless; audiobooks additionally require a monitored
-// audiobook edition (the per-book opt-in). Owned formats stay wanted in
-// upgrade mode (minScore > 0) while the profile allows upgrades and the
-// owned format is below the cutoff.
+// monitored and fileless. Owned formats stay wanted in upgrade mode
+// (minScore > 0) while the profile allows upgrades and the owned format is
+// below the cutoff.
 type want struct {
 	mediaType string
 	minScore  int
@@ -383,13 +371,6 @@ func (s *Service) wants(book *library.Book) []want {
 			wants = append(wants, want{mediaType: "ebook"})
 		} else if min, ok := s.upgradeMinScore(book, "ebook"); ok {
 			wants = append(wants, want{mediaType: "ebook", minScore: min})
-		}
-	}
-	if book.InAudiobookLibrary && book.AudiobookMonitored {
-		if !book.HasAudiobookFile {
-			wants = append(wants, want{mediaType: "audiobook"})
-		} else if min, ok := s.upgradeMinScore(book, "audiobook"); ok {
-			wants = append(wants, want{mediaType: "audiobook", minScore: min})
 		}
 	}
 	return wants

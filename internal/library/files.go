@@ -14,9 +14,7 @@ type RootFolder struct {
 }
 
 // BookFile is a file found on disk by a library scan. BookID is nil-like (0)
-// when the scanner could not match it to a library book. For multi-file
-// audiobooks, Path is the book's directory and Size the total of its audio
-// files.
+// when the scanner could not match it to a library book.
 type BookFile struct {
 	ID           int64  `json:"id"`
 	RootFolderID int64  `json:"rootFolderId"`
@@ -27,15 +25,6 @@ type BookFile struct {
 	Format       string `json:"format"`
 	ModifiedAt   string `json:"modifiedAt"`
 	AddedAt      string `json:"addedAt"`
-	// Tracks lists the audio files inside a multi-file audiobook unit (whose
-	// Path is the book folder). Not persisted — the API fills it on demand.
-	Tracks []Track `json:"tracks,omitempty"`
-}
-
-// Track is one audio file inside a multi-file audiobook unit.
-type Track struct {
-	Name string `json:"name"` // path relative to the book folder
-	Size int64  `json:"size"`
 }
 
 func (s *Store) ListRootFolders() ([]RootFolder, error) {
@@ -268,8 +257,7 @@ func (s *Store) ListVolumeRefs() ([]VolumeRef, error) {
 	return refs, rows.Err()
 }
 
-// FilePathsForBook returns the on-disk paths of a book's files (for
-// multi-file audiobooks the path is the book's directory). Used by the
+// FilePathsForBook returns the on-disk paths of a book's files. Used by the
 // delete-files option before the rows go away.
 func (s *Store) FilePathsForBook(bookID int64) ([]string, error) {
 	return s.filePaths(`SELECT path FROM book_files WHERE book_id = ?`, bookID)

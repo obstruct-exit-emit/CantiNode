@@ -1,5 +1,5 @@
-// Package opf renders OPF 2.0 metadata sidecars — the format Calibre and
-// Audiobookshelf read (metadata.opf / <book>.opf next to the files).
+// Package opf renders OPF 2.0 metadata sidecars — the format Calibre reads
+// (<book>.opf next to the file).
 package opf
 
 import (

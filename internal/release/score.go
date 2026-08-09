@@ -155,13 +155,12 @@ type Preferences struct {
 	// MinFormatScore, when > 0, rejects formats scoring at or below it —
 	// used by upgrade searches so only genuinely better formats approve.
 	MinFormatScore int
-	// RejectAbridged drops releases that state they are abridged
-	// (audiobook profiles default to true).
+	// RejectAbridged drops releases that state they are abridged.
 	RejectAbridged bool
 	// AllowUnknownFormat accepts releases whose name states no format instead
 	// of rejecting them — comic scene names routinely omit it (the real
-	// format is read from the files at import). Ebooks/audiobooks keep
-	// requiring a recognized format.
+	// format is read from the files at import). Ebooks/music keep requiring
+	// a recognized format.
 	AllowUnknownFormat bool
 }
 
@@ -175,15 +174,14 @@ const unknownFormatScore = 30
 func PreferencesFor(store *library.Store, mediaType string) Preferences {
 	if p, err := store.DefaultProfile(mediaType); err == nil {
 		prefs := PreferencesFromProfile(*p)
-		prefs.RejectAbridged = mediaType == "audiobook"
 		prefs.AllowUnknownFormat = formatOptional(mediaType)
 		return prefs
 	}
 	switch mediaType {
-	case "audiobook":
-		return DefaultAudiobookPreferences()
 	case "comic":
 		return DefaultComicPreferences()
+	case "music":
+		return DefaultMusicPreferences()
 	}
 	return DefaultEbookPreferences()
 }
@@ -196,10 +194,9 @@ func isImageMedia(mediaType string) bool {
 
 // formatOptional reports media types whose release names routinely omit the
 // file format, so a format-less name shouldn't be rejected — image media
-// (cbz/cbr) plus audiobooks (bitrate/narrator instead of m4b/mp3). The importer
-// verifies the real format from the downloaded files.
+// (cbz/cbr). The importer verifies the real format from the downloaded files.
 func formatOptional(mediaType string) bool {
-	return isImageMedia(mediaType) || mediaType == "audiobook"
+	return isImageMedia(mediaType)
 }
 
 // DefaultComicPreferences prefers lossless archives; scan sizes run from a
@@ -214,19 +211,14 @@ func DefaultComicPreferences() Preferences {
 	}
 }
 
-// DefaultAudiobookPreferences prefers single-file m4b (Audiobookshelf's
-// favorite), then space-efficient formats; abridged versions are rejected.
-// Format is optional: audiobook release names routinely carry the bitrate or
-// narrator instead of m4b/mp3 (the importer reads the real format from files).
-func DefaultAudiobookPreferences() Preferences {
+// DefaultMusicPreferences prefers lossless FLAC, then space-efficient lossy
+// formats; sizes span a single short track up to a large lossless
+// multi-disc discography pack.
+func DefaultMusicPreferences() Preferences {
 	return Preferences{
-		FormatScores:       map[string]int{"m4b": 100, "m4a": 85, "opus": 75, "mp3": 70, "flac": 55},
-		RetailBonus:        10,
-		Language:           "english",
-		MinSize:            5 << 20, // 5 MiB — shorter than a short story
-		MaxSize:            4 << 30, // 4 GiB — beyond even long unabridged epics
-		RejectAbridged:     true,
-		AllowUnknownFormat: true,
+		FormatScores: map[string]int{"flac": 100, "wav": 90, "mp3": 70, "m4a": 65, "opus": 60},
+		MinSize:      1 << 20, // 1 MiB — shorter than any real track
+		MaxSize:      4 << 30, // 4 GiB — a large lossless multi-disc album/discography
 	}
 }
 

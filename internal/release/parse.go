@@ -36,10 +36,10 @@ type Parsed struct {
 var mediaFormats = map[string]bool{
 	// ebook
 	"epub": true, "mobi": true, "azw3": true, "pdf": true,
-	// audiobook
-	"m4b": true, "m4a": true, "mp3": true, "flac": true, "opus": true,
 	// comic
 	"cbz": true, "cbr": true,
+	// music
+	"m4a": true, "mp3": true, "flac": true, "opus": true, "wav": true,
 }
 
 // languages maps release-title tokens to a normalized language name.

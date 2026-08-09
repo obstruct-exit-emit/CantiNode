@@ -13,19 +13,19 @@ import { PosterGridSkeleton } from "../components/Skeleton";
 import UnmatchedCard from "../components/UnmatchedCard";
 import WantedCard from "../components/WantedCard";
 
-// One format library's area (Ebooks or Audiobooks) — a *arr-style poster
-// grid of authors; clicking one opens their full detail page. Only books
-// that are members of THIS library count here.
+// The Ebooks library — a *arr-style poster grid of authors; clicking one
+// opens their full detail page. Only books that are members of the ebook
+// library count here.
 export default function BooksLibraryView({
   library,
   onError,
   onOpenAuthor,
 }: {
-  library: "ebook" | "audiobook";
+  library: "ebook";
   onError: (message: string) => void;
   onOpenAuthor: (id: number) => void;
 }) {
-  const label = library === "ebook" ? "Ebooks" : "Audiobooks";
+  const label = "Ebooks";
   const [authors, setAuthors] = useState<Author[]>([]);
   const [libraryBooks, setLibraryBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
@@ -224,7 +224,7 @@ export default function BooksLibraryView({
         {authors.length === 0 ? (
           <div className="empty-state">
             <span className="empty-icon" aria-hidden="true">
-              {library === "ebook" ? "📖" : "🎧"}
+              📖
             </span>
             <h3>Your {label.toLowerCase()} library is empty</h3>
             <p className="muted">
@@ -303,7 +303,7 @@ function AddPanel({
   onAdded,
   onError,
 }: {
-  library: "ebook" | "audiobook";
+  library: "ebook";
   onAdded: () => void;
   onError: (message: string) => void;
 }) {

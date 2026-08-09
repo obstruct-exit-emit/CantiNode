@@ -164,18 +164,21 @@ func (c *Config) SeriesSelection() map[string]string {
 
 // NamingSettings holds the file-organization templates (per media type as
 // later phases land; ebooks first). Rendered per path segment by the naming
-// package.
+// package. Music has its own template shape ({Artist}/{Album}/{Title}, not
+// {Author Name}/{Book Title}) and is rendered by internal/musicscanner's
+// own FormatPath, not internal/naming — MusicFile is stored here anyway so
+// it lives alongside the other per-media-type templates in Settings.
 type NamingSettings struct {
 	EbookFolder string `yaml:"ebook_folder" json:"ebookFolder"`
 	EbookFile   string `yaml:"ebook_file" json:"ebookFile"`
-	// Audiobooks use Audiobookshelf's Author/Book-folder layout: the "file"
-	// template names the per-book folder (and the audio file inside, for
-	// single-file books).
-	AudiobookFolder string `yaml:"audiobook_folder" json:"audiobookFolder"`
-	AudiobookFile   string `yaml:"audiobook_file" json:"audiobookFile"`
 	// Comics use Kavita/Komga's Series/File layout.
 	ComicFolder string `yaml:"comic_folder" json:"comicFolder"`
 	ComicFile   string `yaml:"comic_file" json:"comicFile"`
+	// MusicFile is a single template (not folder+file) since
+	// internal/musicscanner.FormatPath renders one path — folder
+	// separators included — from artist/album/track in one placeholder
+	// pass, same as {Artist}/{Album}/{TrackNumber} - {Title}.{Ext}.
+	MusicFile string `yaml:"music_file" json:"musicFile"`
 }
 
 func defaultNaming() NamingSettings {
@@ -183,12 +186,11 @@ func defaultNaming() NamingSettings {
 		// Each ebook lives in its own folder (Calibre/Readarr convention) so
 		// its sidecars travel with it; the filename stays informative on its
 		// own — author, series, title, year.
-		EbookFolder:     "{Author Name}/{Book Title} ({Release Year})",
-		EbookFile:       "{Author Name} - {Series Title} {Series Position} - {Book Title} ({Release Year})",
-		AudiobookFolder: "{Author Name}",
-		AudiobookFile:   "{Series Title} {Series Position} - {Book Title} ({Release Year})",
-		ComicFolder:     "{Series Title}",
-		ComicFile:       "{Series Title} #{Series Position 00} ({Release Year})",
+		EbookFolder: "{Author Name}/{Book Title} ({Release Year})",
+		EbookFile:   "{Author Name} - {Series Title} {Series Position} - {Book Title} ({Release Year})",
+		ComicFolder: "{Series Title}",
+		ComicFile:   "{Series Title} #{Series Position 00} ({Release Year})",
+		MusicFile:   "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}",
 	}
 }
 
@@ -362,6 +364,47 @@ func (t TimingSettings) ImportInterval() time.Duration {
 	return time.Minute
 }
 
+// MusicSettings tunes internal/musicscanner's MusicBrainz matching —
+// ported from CantiNode's own original (pre-LibriNode-fork) Config fields.
+// Prowlarr/qBittorrent/SABnzbd fields from that original are deliberately
+// not carried over: acquisition rides LibriNode's existing indexer/
+// download-client pipeline instead of a second one.
+type MusicSettings struct {
+	// OrganizeOnMatch, if true, has the scanner move/rename a file
+	// immediately once it's matched. Defaults to false: a first scan of an
+	// existing library can match hundreds of files at once, and moving
+	// files on disk is much harder to casually undo than a database row —
+	// safer to require an explicit Organize (per-artist or per-file)
+	// through the API once the user has seen what a scan would do.
+	OrganizeOnMatch bool `yaml:"organize_on_match" json:"organizeOnMatch"`
+	// MinMatchConfidence is the minimum score (0-1) internal/musicscanner's
+	// fuzzy MusicBrainz search must reach to auto-accept a match; anything
+	// below is left unmatched for manual review instead of guessing. Has
+	// no effect on a direct MBID match (from the file's own tags) or a
+	// whole-folder release match, both always accepted regardless.
+	MinMatchConfidence float64 `yaml:"min_match_confidence" json:"minMatchConfidence"`
+	// MusicBrainzContactEmail is included in the User-Agent LibriNode sends
+	// MusicBrainz, as required by its API usage policy
+	// (https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting) so MB can
+	// reach an operator whose instance is misbehaving instead of just
+	// blocking it outright. Optional, but a well-formed User-Agent without
+	// real contact info is still what most API consumers get flagged for.
+	MusicBrainzContactEmail string `yaml:"musicbrainz_contact_email" json:"musicbrainzContactEmail"`
+	// AudioDBAPIKey configures internal/audiodb's artist bio/image lookup.
+	// Optional — an empty value (the default) falls back to TheAudioDB's
+	// own public shared test key rather than "not configured", since a
+	// missing bio/photo is a minor cosmetic gap, not a broken feature the
+	// way an unconfigured indexer/download client would be.
+	AudioDBAPIKey string `yaml:"audiodb_api_key" json:"audioDbApiKey"`
+}
+
+func defaultMusic() MusicSettings {
+	return MusicSettings{
+		OrganizeOnMatch:    false,
+		MinMatchConfidence: 0.75,
+	}
+}
+
 type Config struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
@@ -371,6 +414,7 @@ type Config struct {
 	Auth     AuthSettings     `yaml:"auth,omitempty"`
 	Metadata MetadataSettings `yaml:"metadata"`
 	Naming   NamingSettings   `yaml:"naming"`
+	Music    MusicSettings    `yaml:"music,omitempty"`
 	// No omitempty: Import defaults to all-on, so an all-off choice must be
 	// written explicitly rather than dropped and re-defaulted on load.
 	Import  ImportSettings `yaml:"import"`
@@ -397,6 +441,7 @@ func defaults() *Config {
 			Providers: map[string]metadata.Settings{},
 		},
 		Naming: defaultNaming(),
+		Music:  defaultMusic(),
 		// Completed Download Handling is fully automatic by default: import
 		// whole packs, remove the download from its client, and delete the
 		// source files once imported.
@@ -548,10 +593,9 @@ func (ns *NamingSettings) FillDefaults() {
 	}
 	fill(&ns.EbookFolder, def.EbookFolder)
 	fill(&ns.EbookFile, def.EbookFile)
-	fill(&ns.AudiobookFolder, def.AudiobookFolder)
-	fill(&ns.AudiobookFile, def.AudiobookFile)
 	fill(&ns.ComicFolder, def.ComicFolder)
 	fill(&ns.ComicFile, def.ComicFile)
+	fill(&ns.MusicFile, def.MusicFile)
 }
 
 // SetNaming replaces the naming templates and persists the config. Empty
@@ -582,6 +626,29 @@ func (c *Config) ImportSettings() ImportSettings {
 func (c *Config) SetImport(is ImportSettings) error {
 	c.mu.Lock()
 	c.Import = is
+	c.mu.Unlock()
+	return c.save()
+}
+
+// MusicSettings returns the current music-scanning options. A config
+// persisted before this field existed reads back a zero MinMatchConfidence,
+// which would reject every fuzzy match outright — defaulted here rather
+// than in Load, so it self-heals even for a config.yaml hand-edited back to
+// 0 between restarts.
+func (c *Config) MusicSettings() MusicSettings {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	m := c.Music
+	if m.MinMatchConfidence <= 0 {
+		m.MinMatchConfidence = defaultMusic().MinMatchConfidence
+	}
+	return m
+}
+
+// SetMusic replaces the music-scanning options and persists the config.
+func (c *Config) SetMusic(m MusicSettings) error {
+	c.mu.Lock()
+	c.Music = m
 	c.mu.Unlock()
 	return c.save()
 }

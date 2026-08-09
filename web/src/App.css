@@ -434,11 +434,6 @@ button.toggle.on:hover:not(:disabled) {
   font-size: 0.95rem;
 }
 
-/* Track list of a multi-file audiobook unit, tucked under its folder row. */
-.track-list {
-  margin: 0.15rem 0 0.25rem 1.4rem;
-}
-
 .track-list > summary {
   cursor: pointer;
   font-size: 0.85rem;

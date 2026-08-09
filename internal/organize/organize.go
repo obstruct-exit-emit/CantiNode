@@ -166,8 +166,7 @@ func (s *Service) Apply(moves []Move) (applied []Move, skips []string, err error
 }
 
 // targetPath renders the template-defined location for one file, per media
-// type. For multi-file audiobooks (the record's path is the book folder) the
-// target is the folder itself.
+// type.
 func (s *Service) targetPath(f *library.BookFile, rootByID map[int64]string) (string, string, error) {
 	root, ok := rootByID[f.RootFolderID]
 	if !ok {
@@ -185,14 +184,6 @@ func (s *Service) targetPath(f *library.BookFile, rootByID map[int64]string) (st
 
 	var target string
 	switch f.MediaType {
-	case "audiobook":
-		bookDir := naming.Format(ns.AudiobookFile, data)
-		dir := filepath.Join(root, naming.FormatPath(ns.AudiobookFolder, data), bookDir)
-		if info, err := os.Stat(f.Path); err == nil && info.IsDir() {
-			target = dir // the folder is the unit; tracks keep their names
-		} else {
-			target = filepath.Join(dir, bookDir+"."+f.Format)
-		}
 	case "comic":
 		target = filepath.Join(root, naming.FormatPath(ns.ComicFolder, data),
 			naming.Format(ns.ComicFile, data)+"."+f.Format)
@@ -229,9 +220,8 @@ func (s *Service) tokenData(book *library.Book) (naming.TokenData, error) {
 	return data, nil
 }
 
-// Placement says where an imported item belongs. For ebooks, Dir/FileName
-// point at the single file; for audiobooks, Dir is the per-book folder
-// (Audiobookshelf layout) and FileName names single-file books inside it.
+// Placement says where an imported item belongs: Dir/FileName point at the
+// single file.
 type Placement struct {
 	RootFolderID int64
 	Dir          string
@@ -256,10 +246,6 @@ func (s *Service) PlaceFile(book *library.Book, format, mediaType string) (*Plac
 		ns := s.cfg.NamingSettings()
 		p := &Placement{RootFolderID: root.ID}
 		switch mediaType {
-		case "audiobook":
-			bookDir := naming.Format(ns.AudiobookFile, data)
-			p.Dir = filepath.Join(root.Path, naming.FormatPath(ns.AudiobookFolder, data), bookDir)
-			p.FileName = bookDir + "." + format
 		case "comic":
 			p.Dir = filepath.Join(root.Path, naming.FormatPath(ns.ComicFolder, data))
 			p.FileName = naming.Format(ns.ComicFile, data) + "." + format

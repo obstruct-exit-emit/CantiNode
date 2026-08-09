@@ -8,7 +8,7 @@ import (
 )
 
 // ebookExtensions are the ebook file types the scanner recognizes (per the
-// README's format list); audio and comic extensions follow below.
+// README's format list); comic extensions follow below.
 var ebookExtensions = map[string]bool{
 	".epub": true,
 	".mobi": true,
@@ -20,21 +20,6 @@ var ebookExtensions = map[string]bool{
 // LibriNode handles (used by the scanner and the download importer).
 func IsEbookPath(name string) bool {
 	return ebookExtensions[strings.ToLower(filepath.Ext(name))]
-}
-
-// audioExtensions are the audiobook file types (m4a covers m4b-style
-// containers that ship misnamed).
-var audioExtensions = map[string]bool{
-	".m4b":  true,
-	".m4a":  true,
-	".mp3":  true,
-	".flac": true,
-	".opus": true,
-}
-
-// IsAudioPath reports whether a filename is an audiobook audio file.
-func IsAudioPath(name string) bool {
-	return audioExtensions[strings.ToLower(filepath.Ext(name))]
 }
 
 // comicExtensions are the archive types comic roots scan for.
@@ -51,17 +36,6 @@ func IsComicPath(name string) bool {
 }
 
 var volumeMarker = regexp.MustCompile(`(?i)(?:\bv|\bvol\.?\s*|\bvolume\s+|#)(\d{1,4}(?:\.\d+)?)`)
-
-// discFolder matches disc-style subdivisions of a multi-file audiobook folder
-// (CD1, Disc 02, Part 3, Vol. 1) — the one kind of subfolder a book folder may
-// contain (Audiobookshelf convention).
-var discFolder = regexp.MustCompile(`(?i)^(cd|disc|disk|part|vol(?:ume)?)[ ._-]*\d+$`)
-
-// IsDiscFolder reports whether a directory name is a disc-style subdivision of
-// an audiobook folder.
-func IsDiscFolder(name string) bool {
-	return discFolder.MatchString(name)
-}
 
 // unwantedExtensions are file types a book/media download must never contain:
 // executables and installers mark a release as spam or malware masquerading as

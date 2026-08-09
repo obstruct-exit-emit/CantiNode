@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,9 +62,6 @@ func (s *Service) Scan(ctx context.Context, mediaTypes ...string) (*Result, erro
 		case "ebook":
 			result.Roots++
 			scanErr = s.scanRoot(ctx, root, index, result)
-		case "audiobook":
-			result.Roots++
-			scanErr = s.scanAudiobookRoot(ctx, root, index, result)
 		case "comic":
 			result.Roots++
 			scanErr = s.scanComicRoot(ctx, root, index, result)
@@ -101,7 +97,7 @@ func walkEntryErr(rootPath, path string, d fs.DirEntry, err error, result *Resul
 
 // bookFileDeleter is satisfied by both *library.Store and
 // *library.BookFileBatch — pruneMissing runs inside the walk's batch
-// transaction (ebook/audiobook/comic all use one).
+// transaction (ebook/comic both use one).
 type bookFileDeleter interface {
 	DeleteBookFile(id int64) error
 }
@@ -214,166 +210,6 @@ func (s *Service) scanRoot(ctx context.Context, root library.RootFolder, index *
 		}
 	}
 	return batch.Commit()
-}
-
-// scanAudiobookRoot walks an audiobook root where the unit is either a
-// single audio file (Author/Title.m4b) or a directory whose direct children
-// include audio files (Author/Title/*.mp3 — recorded once, as the
-// directory, with the summed size).
-func (s *Service) scanAudiobookRoot(ctx context.Context, root library.RootFolder, index *matchIndex, result *Result) error {
-	known, err := s.store.BookFilePathsUnderRoot(root.ID)
-	if err != nil {
-		return err
-	}
-	seen := map[string]bool{}
-	walkIncomplete := false
-
-	// One transaction for the whole walk (see scanRoot).
-	batch, err := s.store.BeginBookFileBatch()
-	if err != nil {
-		return err
-	}
-	defer batch.Rollback()
-
-	record := func(path string, size int64, format string, modified time.Time) error {
-		rel, err := filepath.Rel(root.Path, path)
-		if err != nil {
-			return err
-		}
-		bookID := index.match(ParsePath(rel), "audiobook")
-		file := &library.BookFile{
-			RootFolderID: root.ID,
-			BookID:       bookID,
-			MediaType:    "audiobook",
-			Path:         path,
-			Size:         size,
-			Format:       format,
-			ModifiedAt:   modified.UTC().Format(time.RFC3339),
-		}
-		if err := batch.UpsertBookFile(file); err != nil {
-			return err
-		}
-		seen[path] = true
-		result.Scanned++
-		if file.BookID > 0 { // effective match after upsert (see scanRoot)
-			result.Matched++
-		} else {
-			result.Unmatched++
-		}
-		return nil
-	}
-
-	err = filepath.WalkDir(root.Path, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return walkEntryErr(root.Path, path, d, err, result, &walkIncomplete)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !d.IsDir() {
-			// Loose audio file (not inside a claimed book directory).
-			if !IsAudioPath(path) {
-				return nil
-			}
-			info, err := d.Info()
-			if err != nil {
-				return nil
-			}
-			return record(path, info.Size(), strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."), info.ModTime())
-		}
-		if strings.HasPrefix(d.Name(), ".") && path != root.Path {
-			return filepath.SkipDir
-		}
-		if path == root.Path {
-			return nil
-		}
-		// Audiobook roots follow the Author/Book convention (Audiobookshelf
-		// style): first-level dirs are authors, never book units — loose
-		// audio files there (Author/Title.m4b) are single-file units. Deeper
-		// leaf dirs (files only) with audio children are one audiobook each;
-		// dirs that still contain subdirectories are navigation levels.
-		rel, err := filepath.Rel(root.Path, path)
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(filepath.ToSlash(rel), "/") {
-			return nil // author level
-		}
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			return err
-		}
-		hasAudio := false
-		hasSubdir := false
-		allDisc := true
-		for _, e := range entries {
-			if e.IsDir() {
-				hasSubdir = true
-				if !IsDiscFolder(e.Name()) {
-					allDisc = false
-				}
-			} else if IsAudioPath(e.Name()) {
-				hasAudio = true
-			}
-		}
-		// A book unit is a leaf dir with audio, or a dir whose subdirs are all
-		// disc-style (CD1/CD2 …) with audio somewhere inside — a multi-disc
-		// book, not a navigation level.
-		if hasSubdir && allDisc {
-			if size, format, modified := audiobookDirInfo(path); size > 0 {
-				if err := record(path, size, format, modified); err != nil {
-					return err
-				}
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !hasAudio || hasSubdir {
-			return nil
-		}
-		size, format, modified := audiobookDirInfo(path)
-		if err := record(path, size, format, modified); err != nil {
-			return err
-		}
-		return filepath.SkipDir
-	})
-	if err != nil {
-		return err
-	}
-
-	if !walkIncomplete {
-		if err := s.pruneMissing(batch, known, seen, result); err != nil {
-			return err
-		}
-	}
-	return batch.Commit()
-}
-
-// audiobookDirInfo sums a book directory's audio content: total size, the
-// format of its largest audio file, and the newest modification time.
-func audiobookDirInfo(dir string) (int64, string, time.Time) {
-	var total, largest int64
-	var format string
-	var modified time.Time
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !IsAudioPath(p) {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		total += info.Size()
-		if info.Size() >= largest {
-			largest = info.Size()
-			format = strings.TrimPrefix(strings.ToLower(filepath.Ext(p)), ".")
-		}
-		if info.ModTime().After(modified) {
-			modified = info.ModTime()
-		}
-		return nil
-	})
-	return total, format, modified
 }
 
 // scanComicRoot walks a comic root where each archive file is one issue:
@@ -531,19 +367,18 @@ type matchIndex struct {
 	byTitle       map[string]map[int64]bool      // title key → set of book ids
 	byIdentifier  map[string]int64               // ISBN-13 or ASIN → book id
 	volumes       map[string]map[float64]int64   // mediaType/series key → number → book id
-	// membership: prose book id → format-library bits (1 ebook, 2 audiobook).
-	// Auto-matching respects it: a book that belongs to SOME format library
-	// but not the file's format is never silently attached — the file lands
-	// in Unmatched with a confident suggestion, and the one-click import is
-	// the consent that enrolls the other format. A book in no format library
-	// yet (a bibliography stub) matches freely — the first owned file decides
-	// its first home.
+	// membership: prose book id → in the ebook library (memberEbook bit).
+	// Auto-matching respects it: a book with library membership at all but
+	// not enrolled in ebooks is never silently attached — the file lands in
+	// Unmatched with a confident suggestion, and the one-click import is the
+	// consent that enrolls it. A book in no format library yet (a
+	// bibliography stub) matches freely — the first owned file decides its
+	// first home.
 	membership map[int64]uint8
 }
 
 const (
-	memberEbook     uint8 = 1
-	memberAudiobook uint8 = 2
+	memberEbook uint8 = 1
 )
 
 // allowedFor reports whether a prose file of the given format may auto-match
@@ -553,11 +388,8 @@ func (idx *matchIndex) allowedFor(bookID int64, mediaType string) bool {
 	if m == 0 {
 		return true
 	}
-	switch mediaType {
-	case "ebook":
+	if mediaType == "ebook" {
 		return m&memberEbook != 0
-	case "audiobook":
-		return m&memberAudiobook != 0
 	}
 	return true
 }
@@ -654,14 +486,11 @@ func (s *Service) buildIndex() (*matchIndex, error) {
 		return nil, err
 	}
 	for _, b := range books {
-		inLib := b.InEbookLibrary || b.InAudiobookLibrary || b.Monitored
+		inLib := b.InEbookLibrary || b.Monitored
 		if b.MediaType == "book" {
 			var m uint8
 			if b.InEbookLibrary {
 				m |= memberEbook
-			}
-			if b.InAudiobookLibrary {
-				m |= memberAudiobook
 			}
 			if m != 0 {
 				idx.membership[b.ID] = m
@@ -692,8 +521,7 @@ func (s *Service) buildIndex() (*matchIndex, error) {
 func (idx *matchIndex) match(p ParsedFile, mediaType string) int64 {
 	// Identifier tier: an ISBN/ASIN match is proof this file IS this book, so
 	// it wins outright — ahead of, and independent of, any title guessing.
-	// Format-enrollment consent still applies (allowedFor): a matching ebook
-	// for an audiobook-only book still routes to Unmatched, as today.
+	// Format-enrollment consent still applies (allowedFor).
 	for _, ident := range []string{p.ISBN, p.ASIN} {
 		if ident == "" {
 			continue

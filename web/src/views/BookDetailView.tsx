@@ -8,22 +8,18 @@ import { formatBytes } from "../format";
 import { useUi } from "../ui";
 
 // Full-page book detail, mirroring the author page: header with cover art,
-// about text, and per-format status/actions, then releases, files, and
-// edition info as their own cards. The back button returns to the author.
+// about text, and status/actions, then releases, files, and edition info as
+// their own cards. The back button returns to the author.
 export default function BookDetailView({
   id,
   library,
   onError,
   onBack,
-  onSwitchLibrary,
 }: {
   id: number;
-  library: "ebook" | "audiobook";
+  library: "ebook";
   onError: (message: string) => void;
   onBack: () => void;
-  // Navigate to this same book in the other format library (the cross-format
-  // badge links there when the book is already in it).
-  onSwitchLibrary?: (library: "ebook" | "audiobook") => void;
 }) {
   const { confirmDlg } = useUi();
   const [book, setBook] = useState<Book | null>(null);
@@ -31,7 +27,6 @@ export default function BookDetailView({
   const [showReleases, setShowReleases] = useState(false);
   const [searching, setSearching] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [addingOther, setAddingOther] = useState(false);
   const [grabNotice, setGrabNotice] = useState("");
   const [fileBusy, setFileBusy] = useState(false);
   const [fileNotice, setFileNotice] = useState("");
@@ -48,8 +43,8 @@ export default function BookDetailView({
 
   useEffect(reload, [reload]);
 
-  // Live download status for this book+format (shared, server-cached queue
-  // poll). When an active download disappears — imported, failed, removed —
+  // Live download status for this book (shared, server-cached queue poll).
+  // When an active download disappears — imported, failed, removed —
   // refresh the book so the badge flips to owned or back to wanted.
   const { refresh, activeFor } = useQueue();
   const dl = activeFor(id, library);
@@ -61,20 +56,17 @@ export default function BookDetailView({
 
   if (!book) return <DetailSkeleton />;
 
-  const owned = library === "ebook" ? book.hasEbookFile : book.hasAudiobookFile;
-  const monitored = library === "ebook" ? book.ebookMonitored : book.audiobookMonitored;
-  const otherLibrary = library === "ebook" ? "audiobook" : "ebook";
-  const inOther = library === "ebook" ? book.inAudiobookLibrary : book.inEbookLibrary;
-  const ownedOther = library === "ebook" ? book.hasAudiobookFile : book.hasEbookFile;
+  const owned = book.hasEbookFile;
+  const monitored = book.ebookMonitored;
   const files = (book.files ?? []).filter((f) => f.mediaType === library);
 
-  const setMembership = (lib: string, member: boolean, mon: boolean, deleteFiles = false) => {
+  const setMembership = (member: boolean, mon: boolean, deleteFiles = false) => {
     api
-      .setBookLibrary(book.id, lib, member, mon, deleteFiles)
+      .setBookLibrary(book.id, library, member, mon, deleteFiles)
       .then(() => {
-        // Leaving this library means the book no longer belongs on this
+        // Leaving the library means the book no longer belongs on this
         // page — return to the author.
-        if (lib === library && !member) {
+        if (!member) {
           onBack();
         } else {
           reload();
@@ -146,8 +138,8 @@ export default function BookDetailView({
           <div className="settings-actions">
             <button
               className={monitored ? "toggle on" : "toggle"}
-              title="Whether this format is searched for automatically"
-              onClick={() => setMembership(library, true, !monitored)}
+              title="Whether this book is searched for automatically"
+              onClick={() => setMembership(true, !monitored)}
             >
               {monitored ? "monitored" : "unmonitored"}
             </button>
@@ -163,7 +155,7 @@ export default function BookDetailView({
             </button>
             <button
               className="danger"
-              title={`Remove from the ${library} library (the other library is untouched)`}
+              title="Remove from the Ebooks library"
               onClick={() => setConfirmRemove(!confirmRemove)}
             >
               Remove from library
@@ -171,58 +163,13 @@ export default function BookDetailView({
             {grabNotice && (
               <span className={grabNotice.startsWith("✗") ? "notice bad" : "notice ok"}>{grabNotice}</span>
             )}
-            {inOther ? (
-              <button
-                className={`cross-format owned-link ${ownedOther ? "owned yes" : "owned no"}`}
-                title={`Open this book in the ${otherLibrary === "ebook" ? "Ebooks" : "Audiobooks"} library${ownedOther ? " (owned there)" : " (not owned there yet)"}`}
-                onClick={() => onSwitchLibrary?.(otherLibrary)}
-              >
-                {otherLibrary === "audiobook" ? "🎧" : "📖"}{" "}
-                {otherLibrary} {ownedOther ? "owned" : "in library"} →
-              </button>
-            ) : addingOther ? (
-              // A real three-way choice — monitor, just add, or back out —
-              // instead of a yes/no dialog pretending to be one.
-              <span className="row-actions cross-format">
-                <button
-                  onClick={() => {
-                    setAddingOther(false);
-                    setMembership(otherLibrary, true, true);
-                  }}
-                  title="Add and search for it automatically"
-                >
-                  Add + monitor
-                </button>
-                <button
-                  className="toggle"
-                  onClick={() => {
-                    setAddingOther(false);
-                    setMembership(otherLibrary, true, false);
-                  }}
-                  title="Add without monitoring — track it, don't search for it"
-                >
-                  Just add
-                </button>
-                <button className="toggle" onClick={() => setAddingOther(false)} title="Cancel">
-                  ✕
-                </button>
-              </span>
-            ) : (
-              <button
-                className="toggle cross-format"
-                title={`This book isn't in the ${otherLibrary} library yet`}
-                onClick={() => setAddingOther(true)}
-              >
-                + Add to {otherLibrary === "ebook" ? "Ebooks" : "Audiobooks"}
-              </button>
-            )}
           </div>
           {confirmRemove && (
             <RemovePanel
-              message={`Remove "${book.title}" from the ${library === "ebook" ? "Ebooks" : "Audiobooks"} library? The other library is untouched.`}
-              checkboxLabel={`Also delete its ${library} file(s) from disk`}
+              message={`Remove "${book.title}" from the Ebooks library?`}
+              checkboxLabel="Also delete its file(s) from disk"
               busy={searching}
-              onConfirm={(deleteFiles) => setMembership(library, false, false, deleteFiles)}
+              onConfirm={(deleteFiles) => setMembership(false, false, deleteFiles)}
               onCancel={() => setConfirmRemove(false)}
             />
           )}
@@ -249,9 +196,7 @@ export default function BookDetailView({
             {files.map((f) => (
               <li key={f.id}>
                 <div className="row">
-                  <span className="file-path">
-                    {f.tracks?.length ? "📁" : "📄"} {f.path}
-                  </span>
+                  <span className="file-path">📄 {f.path}</span>
                   <span className="row-actions">
                     <span className="muted">
                       {f.format} · {formatBytes(f.size)}
@@ -318,23 +263,6 @@ export default function BookDetailView({
                     </button>
                   </span>
                 </div>
-                {(f.tracks?.length ?? 0) > 0 && (
-                  <details className="track-list">
-                    <summary className="muted">
-                      {f.tracks!.length} file{f.tracks!.length === 1 ? "" : "s"}
-                    </summary>
-                    <ul className="rows nested">
-                      {f.tracks!.map((t) => (
-                        <li key={t.name}>
-                          <div className="row">
-                            <span className="file-path">🎵 {t.name}</span>
-                            <span className="muted">{formatBytes(t.size)}</span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
               </li>
             ))}
           </ul>

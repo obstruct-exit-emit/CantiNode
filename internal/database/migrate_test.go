@@ -107,9 +107,9 @@ func seedThroughV009(t *testing.T, path string) {
 	exec(`INSERT INTO authors (id, foreign_id, name, sort_name, monitored) VALUES (1, 'hc-a1', 'Test Author', 'Author, Test', 1)`)
 	exec(`INSERT INTO books (id, author_id, foreign_id, title, sort_title, media_type, monitored) VALUES (1, 1, 'hc-b1', 'A Prose Book', 'prose book a', 'book', 1)`)
 	exec(`INSERT INTO books (id, author_id, foreign_id, title, sort_title, media_type, monitored) VALUES (2, 1, 'hc-b2', 'Comic Vol 1', 'comic vol 1', 'comic', 1)`)
-	// An owned audiobook file for the prose book — the 012 backfill should read
-	// this and flip the book (and, via 013, the author) into the audiobook library.
-	exec(`INSERT INTO book_files (root_folder_id, book_id, path, media_type, format) VALUES (1, 1, '/lib/ebooks/a.m4b', 'audiobook', 'm4b')`)
+	// An owned ebook file for the prose book — the 012 backfill should read
+	// this and flip the book into the ebook library.
+	exec(`INSERT INTO book_files (root_folder_id, book_id, path, media_type, format) VALUES (1, 1, '/lib/ebooks/a.epub', 'ebook', 'epub')`)
 }
 
 // TestMigrationChainPreservesOldData is the real upgrade drill: seed an
@@ -165,19 +165,15 @@ func TestMigrationChainPreservesOldData(t *testing.T) {
 	}
 
 	// 012 backfill on the prose book: implicitly in the ebook library and
-	// monitored there; and — because it owns an audiobook file — in the
-	// audiobook library.
-	var inEbook, ebookMon, inAudio int
+	// monitored there.
+	var inEbook, ebookMon int
 	if err := db.QueryRow(
-		`SELECT in_ebook_library, ebook_monitored, in_audiobook_library FROM books WHERE id = 1`,
-	).Scan(&inEbook, &ebookMon, &inAudio); err != nil {
+		`SELECT in_ebook_library, ebook_monitored FROM books WHERE id = 1`,
+	).Scan(&inEbook, &ebookMon); err != nil {
 		t.Fatalf("book 1 membership: %v", err)
 	}
 	if inEbook != 1 || ebookMon != 1 {
 		t.Errorf("prose book ebook membership = (in=%d mon=%d), want (1,1)", inEbook, ebookMon)
-	}
-	if inAudio != 1 {
-		t.Errorf("prose book with an owned audiobook file: in_audiobook_library = %d, want 1", inAudio)
 	}
 
 	// The comic volume is not a prose 'book', so the 012 backfill must leave it
@@ -190,15 +186,15 @@ func TestMigrationChainPreservesOldData(t *testing.T) {
 		t.Errorf("comic volume in_ebook_library = %d, want 0", comicInEbook)
 	}
 
-	// 013 backfill: the author inherits both memberships from the prose book.
-	var authorEbook, authorAudio int
+	// 013 backfill: the author inherits its membership from the prose book.
+	var authorEbook int
 	if err := db.QueryRow(
-		`SELECT in_ebook_library, in_audiobook_library FROM authors WHERE id = 1`,
-	).Scan(&authorEbook, &authorAudio); err != nil {
+		`SELECT in_ebook_library FROM authors WHERE id = 1`,
+	).Scan(&authorEbook); err != nil {
 		t.Fatalf("author membership: %v", err)
 	}
-	if authorEbook != 1 || authorAudio != 1 {
-		t.Errorf("author membership = (ebook=%d audio=%d), want (1,1)", authorEbook, authorAudio)
+	if authorEbook != 1 {
+		t.Errorf("author membership = (ebook=%d), want 1", authorEbook)
 	}
 
 	// 015 added provider_override with an empty default.

@@ -16,7 +16,7 @@ type LibraryStatus struct {
 }
 
 // MediaTypes in display order.
-var MediaTypes = []string{"ebook", "audiobook", "comic"}
+var MediaTypes = []string{"ebook", "comic"}
 
 // itemsWhere returns the SQL predicate selecting a library's *visible*
 // items. Membership alone decides visibility: any book enrolled in a format
@@ -24,11 +24,8 @@ var MediaTypes = []string{"ebook", "audiobook", "comic"}
 // automatic grabbing/upgrading (see wantedWhere) — it never hides a book.
 // The Missing section is the complement: bibliography books NOT yet enrolled.
 func itemsWhere(mediaType string) string {
-	switch mediaType {
-	case "ebook":
+	if mediaType == "ebook" {
 		return `books.media_type = 'book' AND books.in_ebook_library = 1`
-	case "audiobook":
-		return `books.media_type = 'book' AND books.in_audiobook_library = 1`
 	}
 	return `books.media_type = '` + mediaType + `'`
 }
@@ -39,11 +36,8 @@ func wantedWhere(mediaType string) string {
 	fileClause := func(mt string) string {
 		return `NOT EXISTS (SELECT 1 FROM book_files f WHERE f.book_id = books.id AND f.media_type = '` + mt + `')`
 	}
-	switch mediaType {
-	case "ebook":
+	if mediaType == "ebook" {
 		return itemsWhere("ebook") + ` AND books.ebook_monitored = 1 AND ` + fileClause("ebook")
-	case "audiobook":
-		return itemsWhere("audiobook") + ` AND books.audiobook_monitored = 1 AND ` + fileClause("audiobook")
 	}
 	return itemsWhere(mediaType) + ` AND books.monitored = 1 AND ` + fileClause(mediaType)
 }
@@ -263,8 +257,8 @@ func scanBookWithSeries(rows *sql.Rows) (*Book, error) {
 	var sp float64
 	if err := rows.Scan(&b.ID, &b.AuthorID, &b.Source, &b.MediaType, &b.ForeignID, &b.Title, &b.SortTitle,
 		&b.Description, &b.ReleaseDate, &b.Rating, &b.CoverURL, &b.Monitored,
-		&b.InEbookLibrary, &b.EbookMonitored, &b.InAudiobookLibrary, &b.AudiobookMonitored,
-		&b.HasFile, &b.HasEbookFile, &b.HasAudiobookFile,
+		&b.InEbookLibrary, &b.EbookMonitored,
+		&b.HasFile, &b.HasEbookFile,
 		&b.AddedAt, &b.UpdatedAt, &st, &sp); err != nil {
 		return nil, err
 	}
@@ -320,7 +314,7 @@ func (s *Store) ListAuthorsInLibrary(mediaType string) ([]Author, error) {
 		var a Author
 		if err := rows.Scan(&a.ID, &a.Source, &a.ForeignID, &a.Name, &a.SortName,
 			&a.Description, &a.ImageURL, &a.Monitored,
-			&a.InEbookLibrary, &a.InAudiobookLibrary, &a.ProviderOverride, &a.AddedAt, &a.UpdatedAt,
+			&a.InEbookLibrary, &a.ProviderOverride, &a.AddedAt, &a.UpdatedAt,
 			&a.BookCount, &a.OwnedCount); err != nil {
 			return nil, err
 		}
@@ -331,8 +325,5 @@ func (s *Store) ListAuthorsInLibrary(mediaType string) ([]Author, error) {
 
 // authorMemberCol maps a format library to the authors membership column.
 func authorMemberCol(mediaType string) string {
-	if mediaType == "audiobook" {
-		return "in_audiobook_library"
-	}
 	return "in_ebook_library"
 }

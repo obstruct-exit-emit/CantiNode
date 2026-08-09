@@ -94,8 +94,21 @@ export default function SettingsView({
   const reloadLibraries = useCallback(() => {
     api
       .libraries()
-      .then((ls) => setActiveTypes(ls.filter((l) => l.active).map((l) => l.mediaType)))
-      .catch(() => setActiveTypes([]));
+      .then((ls) => ls.filter((l) => l.active).map((l) => l.mediaType))
+      .catch(() => [] as string[])
+      .then((types) =>
+        // Music isn't part of the ebook/comic library-status system (it's a
+        // separate domain — see internal/musiclibrary); it gates the same
+        // way once a music root folder exists.
+        api
+          .listRootFolders()
+          .then((folders) =>
+            setActiveTypes(
+              folders.some((f) => f.mediaType === "music") ? [...types, "music"] : types,
+            ),
+          )
+          .catch(() => setActiveTypes(types)),
+      );
   }, []);
   useEffect(reloadLibraries, [reloadLibraries]);
 
@@ -1162,8 +1175,8 @@ function ImportOptions({ onError }: { onError: (message: string) => void }) {
 // chips editor (anything else can still be typed).
 const knownFormats: Record<string, string[]> = {
   ebook: ["epub", "azw3", "mobi", "pdf", "txt"],
-  audiobook: ["m4b", "m4a", "mp3", "flac", "opus", "ogg"],
   comic: ["cbz", "cbr", "pdf"],
+  music: ["flac", "mp3", "m4a", "opus", "wav"],
 };
 
 // FormatChips: the quality profile's format list as ordered chips —
@@ -1265,8 +1278,8 @@ function QualityProfilesCard({
   const profileTypes = activeTypes.length > 0 ? activeTypes : ["ebook"];
   const defaultFormats: Record<string, string[]> = {
     ebook: ["epub", "azw3", "mobi"],
-    audiobook: ["m4b", "m4a", "mp3"],
     comic: ["cbz", "cbr"],
+    music: ["flac", "mp3", "m4a"],
   };
   const [profiles, setProfiles] = useState<QualityProfile[]>([]);
   const [name, setName] = useState("");
@@ -1807,7 +1820,7 @@ function IndexersCard({
           <label>
             Audio categories
             <input
-              title="3030 = Audio/Audiobook"
+              title="3010 = Audio/MP3, 3040 = Audio/Lossless"
               value={draft.audioCategories}
               onChange={(e) => set({ audioCategories: e.target.value })}
             />
@@ -1931,23 +1944,28 @@ function NamingCard({
             </p>
           </Section>
         )}
-        {show("audiobook") && (
-          <Section title="Audiobooks">
-            {field("Folder template", "audiobookFolder")}
-            {field(
-              "Book-folder template",
-              "audiobookFile",
-              "Names the per-book folder (Audiobookshelf layout); multi-file books keep their track names inside it",
-            )}
-            <p className="muted field-note">
-              Example: <code>{settings.audiobookExample}</code>
-            </p>
-          </Section>
-        )}
         {show("comic") && (
           <Section title="Comics">
             {field("Folder template", "comicFolder")}
             {field("File template", "comicFile")}
+          </Section>
+        )}
+        {show("music") && (
+          <Section title="Music">
+            {field(
+              "File template",
+              "musicFile",
+              "Renders one full path (folders included) from a matched track's artist/album/title — separate token set from ebooks/comics: {Artist} {Album} {Year} {TrackNumber} {DiscNumber} {Title} {Ext}",
+            )}
+            <p className="muted field-note">
+              Tokens: <code>{"{Artist}"}</code> <code>{"{Album}"}</code>{" "}
+              <code>{"{Year}"}</code> <code>{"{TrackNumber}"}</code>{" "}
+              <code>{"{DiscNumber}"}</code> <code>{"{Title}"}</code>{" "}
+              <code>{"{Ext}"}</code>. "/" separators create subfolders.
+            </p>
+            <p className="muted field-note">
+              Example: <code>{settings.musicExample}</code>
+            </p>
           </Section>
         )}
         <div className="settings-actions">
@@ -2228,7 +2246,7 @@ function MetadataCard({
         </div>
 
         <div className="settings-section">
-          <h3>Ebooks &amp; Audiobooks</h3>
+          <h3>Ebooks</h3>
           <label>
             Book provider
             <select
@@ -2419,7 +2437,7 @@ function MetadataCard({
   );
 }
 
-const mediaTypes = ["ebook", "audiobook", "comic"] as const;
+const mediaTypes = ["ebook", "comic", "music"] as const;
 
 function RootFoldersCard({
   onError,

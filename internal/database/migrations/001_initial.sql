@@ -1,9 +1,9 @@
 -- LibriNode initial schema.
--- Media types are fixed strings: 'ebook', 'audiobook', 'comic'.
+-- Media types are fixed strings: 'ebook', 'audiobook', 'comic', 'music'.
 
 CREATE TABLE root_folders (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    media_type  TEXT    NOT NULL CHECK (media_type IN ('ebook', 'audiobook', 'comic')),
+    media_type  TEXT    NOT NULL CHECK (media_type IN ('ebook', 'audiobook', 'comic', 'music')),
     path        TEXT    NOT NULL UNIQUE,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );

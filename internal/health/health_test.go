@@ -30,7 +30,7 @@ func TestCheckFindsIssues(t *testing.T) {
 	if err := os.MkdirAll(gone, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []struct{ mt, path string }{{"ebook", ok}, {"audiobook", gone}} {
+	for _, f := range []struct{ mt, path string }{{"ebook", ok}, {"comic", gone}} {
 		if _, err := db.Exec(`INSERT INTO root_folders (media_type, path) VALUES (?, ?)`, f.mt, f.path); err != nil {
 			t.Fatal(err)
 		}

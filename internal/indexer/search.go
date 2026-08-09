@@ -11,11 +11,11 @@ import (
 )
 
 // Failure backoff: an indexer that keeps erroring rests instead of being
-// hammered every sweep. The first restAfter consecutive failures are tolerated
-// (a scraped source like AudioBook Bay bounces intermittently on a shared/VPN
-// IP but recovers on the next try — one blip shouldn't hide it for minutes);
-// past that, rest doubles per failure (2m, 4m, 8m, …) capped at 20m. One
-// success clears it. In-memory — a restart forgives.
+// hammered every sweep. The first restAfter consecutive failures are
+// tolerated (a scraped native source can bounce intermittently on a
+// shared/VPN IP but recover on the next try — one blip shouldn't hide it
+// for minutes); past that, rest doubles per failure (2m, 4m, 8m, …) capped
+// at 20m. One success clears it. In-memory — a restart forgives.
 //
 // The rest is deliberately short: a big wanted search can briefly overrun an
 // indexer's (or Prowlarr's) rate limit, and those indexers recover within
@@ -75,7 +75,7 @@ func (s *Service) Test(ctx context.Context, ind *Indexer) error {
 // ResolveGrabURL turns a release's download URL into the real downloadable one
 // at grab time. Most URLs (magnets, direct links, Newznab guids) pass straight
 // through; a native source that defers resolution (implements Resolver) and
-// owns the URL's host gets to rewrite it — e.g. AudioBook Bay turning its
+// owns the URL's host gets to rewrite it — e.g. a scraped source turning its
 // release-page URL into an assembled magnet. Best-effort: any failure to look
 // up an owner returns the URL unchanged so a grab is never blocked on this.
 func (s *Service) ResolveGrabURL(ctx context.Context, downloadURL string) (string, error) {
@@ -168,10 +168,10 @@ func (s *Service) recordResult(id int64, err error) {
 // fail are reported in errs without sinking the whole search, and repeat
 // offenders rest with exponential backoff instead of being retried.
 //
-// nativeQuery is the query handed to native scraped sources (AudioBook Bay,
-// Library Genesis) instead of query: those match a title as a contiguous
-// phrase, so an author-prefixed keyword (query) finds nothing — the caller
-// passes the bare book/series title here. Empty falls back to query.
+// nativeQuery is the query handed to native scraped sources instead of
+// query: those match a title as a contiguous phrase, so an author-prefixed
+// keyword (query) finds nothing — the caller passes the bare book/series
+// title here. Empty falls back to query.
 func (s *Service) SearchAll(ctx context.Context, query, nativeQuery, mediaType string) (releases []Release, errs []string, err error) {
 	if nativeQuery == "" {
 		nativeQuery = query

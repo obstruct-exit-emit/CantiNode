@@ -29,9 +29,9 @@ type QualityProfile struct {
 
 // formatsByMediaType lists the grabbable formats per media type.
 var formatsByMediaType = map[string][]string{
-	"ebook":     {"epub", "azw3", "mobi", "pdf"},
-	"audiobook": {"m4b", "m4a", "mp3", "flac", "opus"},
-	"comic":     {"cbz", "cbr", "pdf"},
+	"ebook": {"epub", "azw3", "mobi", "pdf"},
+	"comic": {"cbz", "cbr", "pdf"},
+	"music": {"flac", "mp3", "m4a", "opus", "wav"},
 }
 
 // ValidateProfile normalizes and checks a profile definition in place.

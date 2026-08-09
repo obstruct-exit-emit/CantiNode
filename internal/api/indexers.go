@@ -294,9 +294,9 @@ func (s *server) handleSearchReleases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch mediaType {
-	case "ebook", "audiobook", "comic":
+	case "ebook", "comic", "music":
 	default:
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, or comic")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook, comic, or music")
 		return
 	}
 

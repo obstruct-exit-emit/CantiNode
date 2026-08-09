@@ -171,48 +171,6 @@ func TestSearchBookNoApprovedCandidates(t *testing.T) {
 	}
 }
 
-func TestSearchWantedAudiobook(t *testing.T) {
-	// Indexer serves an m4b for Mort; Mort has a monitored audiobook edition
-	// and already owns the ebook, so only the audiobook should be searched.
-	f := fixture(t, `<rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel>
-	  <item><title>Terry Pratchett - Mort Unabridged M4B</title><guid>a1</guid>
-	    <link>https://idx/get/mort.m4b.nzb</link><newznab:attr name="size" value="209715200"/></item>
-	</channel></rss>`)
-
-	// Mort owns its ebook already.
-	if err := f.store.UpsertBookFile(&library.BookFile{
-		RootFolderID: 1, BookID: f.book.ID, MediaType: "ebook", Path: "/x/mort.epub", Format: "epub",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// Opt in via audiobook library membership (Plex-style explicit model).
-	if err := f.store.SetBookLibrary(f.book.ID, "audiobook", true, true); err != nil {
-		t.Fatal(err)
-	}
-
-	outcomes, err := f.svc.SearchWanted(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(outcomes) != 1 {
-		t.Fatalf("outcomes = %+v", outcomes)
-	}
-	o := outcomes[0]
-	if !o.Grabbed || o.MediaType != "audiobook" || o.Release != "Terry Pratchett - Mort Unabridged M4B" {
-		t.Fatalf("outcome = %+v", o)
-	}
-	grabs, _ := f.grabs.ListGrabs(download.GrabStatusGrabbed)
-	if len(grabs) != 1 || grabs[0].MediaType != "audiobook" {
-		t.Fatalf("grabs = %+v", grabs)
-	}
-
-	// Without audiobook membership (Sourcery), nothing else runs.
-	for _, x := range outcomes {
-		if x.BookID == f.owned.ID {
-			t.Error("book without audiobook membership was searched")
-		}
-	}
-}
 
 func TestBlocklistedReleaseIsSkipped(t *testing.T) {
 	f := fixture(t, goodSearchXML)

@@ -45,8 +45,6 @@ func mediaFor(mediaType, name string) bool {
 	switch mediaType {
 	case "ebook":
 		return scanner.IsEbookPath(name)
-	case "audiobook":
-		return scanner.IsAudioPath(name)
 	case "comic":
 		return scanner.IsComicPath(name)
 	}

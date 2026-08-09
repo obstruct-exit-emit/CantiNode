@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,7 +18,6 @@ import (
 	"github.com/librinode/librinode/internal/comiccover"
 	"github.com/librinode/librinode/internal/library"
 	"github.com/librinode/librinode/internal/metadata"
-	"github.com/librinode/librinode/internal/scanner"
 )
 
 const metadataTimeout = 60 * time.Second
@@ -120,7 +118,7 @@ func (s *server) handleListAuthors(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if lib := r.URL.Query().Get("library"); lib != "" {
 		if _, ok := formatLibrary(lib); !ok {
-			writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+			writeError(w, http.StatusBadRequest, "library must be ebook")
 			return
 		}
 		authors, err = s.store.ListAuthorsInLibrary(lib)
@@ -154,7 +152,7 @@ func (s *server) handleAddAuthor(w http.ResponseWriter, r *http.Request) {
 	}
 	lib, ok := formatLibrary(req.Library)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+		writeError(w, http.StatusBadRequest, "library must be ebook")
 		return
 	}
 
@@ -196,7 +194,7 @@ func (s *server) handleAuthorLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	lib, ok := formatLibrary(req.Library)
 	if !ok || req.Library == "" {
-		writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+		writeError(w, http.StatusBadRequest, "library must be ebook")
 		return
 	}
 	if req.Member {
@@ -240,7 +238,7 @@ func (s *server) handleAuthorLibrary(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	if !author.InEbookLibrary && !author.InAudiobookLibrary {
+	if !author.InEbookLibrary {
 		if err := s.store.DeleteAuthor(id); err != nil {
 			writeStoreError(w, err)
 			return
@@ -256,8 +254,6 @@ func formatLibrary(v string) (string, bool) {
 	switch v {
 	case "", "ebook":
 		return "ebook", true
-	case "audiobook":
-		return "audiobook", true
 	}
 	return "", false
 }
@@ -287,15 +283,14 @@ func (s *server) handleRefreshLibrary(w http.ResponseWriter, r *http.Request) {
 	// Count what the refresh will cover so the response can say so.
 	count := 0
 	switch req.MediaType {
-	case "ebook", "audiobook":
+	case "ebook":
 		authors, err := s.store.ListAuthors()
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
 		for i := range authors {
-			if (req.MediaType == "ebook" && authors[i].InEbookLibrary) ||
-				(req.MediaType == "audiobook" && authors[i].InAudiobookLibrary) {
+			if authors[i].InEbookLibrary {
 				count++
 			}
 		}
@@ -318,7 +313,7 @@ func (s *server) handleRefreshLibrary(w http.ResponseWriter, r *http.Request) {
 			count += len(seriesList)
 		}
 	default:
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, comic, or all")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook, comic, or all")
 		return
 	}
 	if count == 0 {
@@ -469,10 +464,10 @@ func (s *server) handleDeleteAuthor(w http.ResponseWriter, r *http.Request) {
 // --- Books ---
 
 func (s *server) handleListBooks(w http.ResponseWriter, r *http.Request) {
-	// ?library=ebook|audiobook scopes to that format's member books, filtered
-	// server-side (the Ebooks/Audiobooks page's manual-match fallback list —
-	// no reason to ship every book of every media type for that). Mutually
-	// exclusive with ?authorId=; authorId wins if both are somehow given.
+	// ?library=ebook scopes to that format's member books, filtered
+	// server-side (the Ebooks page's manual-match fallback list — no reason
+	// to ship every book of every media type for that). Mutually exclusive
+	// with ?authorId=; authorId wins if both are somehow given.
 	var authorID int64
 	if v := r.URL.Query().Get("authorId"); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
@@ -494,8 +489,8 @@ func (s *server) handleListBooks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if lib := r.URL.Query().Get("library"); lib != "" {
-		if lib != "ebook" && lib != "audiobook" {
-			writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+		if lib != "ebook" {
+			writeError(w, http.StatusBadRequest, "library must be ebook")
 			return
 		}
 		books, err := s.store.ListBooksInLibrary(lib)
@@ -533,7 +528,7 @@ func (s *server) handleAddBook(w http.ResponseWriter, r *http.Request) {
 	}
 	lib, ok := formatLibrary(req.Library)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+		writeError(w, http.StatusBadRequest, "library must be ebook")
 		return
 	}
 
@@ -607,7 +602,7 @@ func (s *server) handleBookLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	lib, ok := formatLibrary(req.Library)
 	if !ok || req.Library == "" {
-		writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+		writeError(w, http.StatusBadRequest, "library must be ebook")
 		return
 	}
 	deleteFiles := req.DeleteFiles && !req.Member
@@ -669,7 +664,7 @@ func (s *server) handleAuthorSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	lib, ok := formatLibrary(r.URL.Query().Get("library"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+		writeError(w, http.StatusBadRequest, "library must be ebook")
 		return
 	}
 	books, err := s.store.ListBooks(id)
@@ -679,9 +674,6 @@ func (s *server) handleAuthorSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wanted := func(b *library.Book) bool {
-		if lib == "audiobook" {
-			return b.InAudiobookLibrary && b.AudiobookMonitored && !b.HasAudiobookFile
-		}
 		return b.InEbookLibrary && b.EbookMonitored && !b.HasEbookFile
 	}
 	outcomes := []any{}
@@ -732,7 +724,7 @@ func (s *server) handleAuthorMissing(w http.ResponseWriter, r *http.Request) {
 	}
 	lib, ok := formatLibrary(r.URL.Query().Get("library"))
 	if !ok {
-		writeError(w, http.StatusBadRequest, "library must be ebook or audiobook")
+		writeError(w, http.StatusBadRequest, "library must be ebook")
 		return
 	}
 	books, err := s.store.MissingForAuthor(id, lib)
@@ -1052,44 +1044,7 @@ func (s *server) writeBookDetail(w http.ResponseWriter, status int, id int64) {
 		writeStoreError(w, err)
 		return
 	}
-	fillAudioTracks(book.Files)
 	writeJSON(w, status, book)
-}
-
-// fillAudioTracks lists the tracks of multi-file audiobook units (records
-// whose path is the book folder) so the UI can show every file, not just the
-// folder. Best-effort: an unreadable folder simply carries no track list.
-func fillAudioTracks(files []library.BookFile) {
-	for i := range files {
-		f := &files[i]
-		if f.MediaType != "audiobook" {
-			continue
-		}
-		info, err := os.Stat(f.Path)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		var tracks []library.Track
-		_ = filepath.WalkDir(f.Path, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !scanner.IsAudioPath(p) {
-				return nil
-			}
-			rel, err := filepath.Rel(f.Path, p)
-			if err != nil {
-				rel = filepath.Base(p)
-			}
-			var size int64
-			if fi, err := d.Info(); err == nil {
-				size = fi.Size()
-			}
-			tracks = append(tracks, library.Track{Name: filepath.ToSlash(rel), Size: size})
-			return nil
-		})
-		slices.SortFunc(tracks, func(a, b library.Track) int {
-			return strings.Compare(a.Name, b.Name)
-		})
-		f.Tracks = tracks
-	}
 }
 
 func (s *server) handleMonitorBook(w http.ResponseWriter, r *http.Request) {

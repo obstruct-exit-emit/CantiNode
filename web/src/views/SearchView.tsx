@@ -1,35 +1,39 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, proxiedImage, type Author, type Book, type Series } from "../api";
+import { api, proxiedImage, type Author, type Book, type MusicArtist, type Series } from "../api";
 import { libraryLabels } from "../App";
 import { RowsSkeleton } from "../components/Skeleton";
 
-// Global search: one query across every library — authors, prose books, and
-// series — matched client-side against the library lists. This finds what
-// you HAVE (and track); adding new content stays per-library where the
-// right metadata provider is known.
+// Global search: one query across every library — authors, prose books,
+// series, and music artists — matched client-side against the library
+// lists. This finds what you HAVE (and track); adding new content stays
+// per-library where the right metadata provider is known.
 export default function SearchView({
   query,
   onError,
   onOpenAuthor,
   onOpenBook,
   onOpenSeries,
+  onOpenArtist,
 }: {
   query: string;
   onError: (message: string) => void;
-  onOpenAuthor: (id: number, library: "ebook" | "audiobook") => void;
-  onOpenBook: (book: Book, library: "ebook" | "audiobook") => void;
+  onOpenAuthor: (id: number, library: "ebook") => void;
+  onOpenBook: (book: Book, library: "ebook") => void;
   onOpenSeries: (id: number, mediaType: string) => void;
+  onOpenArtist: (id: number) => void;
 }) {
   const [authors, setAuthors] = useState<Author[] | null>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [series, setSeries] = useState<Series[]>([]);
+  const [artists, setArtists] = useState<MusicArtist[]>([]);
 
   useEffect(() => {
-    Promise.all([api.listAuthors(), api.listBooks(), api.listSeries()])
-      .then(([a, b, s]) => {
+    Promise.all([api.listAuthors(), api.listBooks(), api.listSeries(), api.listMusicArtists()])
+      .then(([a, b, s, ar]) => {
         setAuthors(a);
         setBooks(b);
         setSeries(s);
+        setArtists(ar);
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   }, [onError]);
@@ -45,8 +49,9 @@ export default function SearchView({
         .slice(0, 24)
         .map((b) => ({ book: b, authorName: byId.get(b.authorId) ?? "" })),
       series: series.filter((s) => s.title.toLowerCase().includes(q)).slice(0, 24),
+      artists: artists.filter((ar) => ar.name.toLowerCase().includes(q)).slice(0, 24),
     };
-  }, [authors, books, series, q]);
+  }, [authors, books, series, artists, q]);
 
   if (!authors) return <RowsSkeleton rows={5} />;
   if (!hits) {
@@ -58,11 +63,7 @@ export default function SearchView({
     );
   }
 
-  const total = hits.authors.length + hits.books.length + hits.series.length;
-  const authorLibrary = (a: Author): "ebook" | "audiobook" =>
-    a.inEbookLibrary || !a.inAudiobookLibrary ? "ebook" : "audiobook";
-  const bookLibrary = (b: Book): "ebook" | "audiobook" =>
-    b.inEbookLibrary || !b.inAudiobookLibrary ? "ebook" : "audiobook";
+  const total = hits.authors.length + hits.books.length + hits.series.length + hits.artists.length;
 
   return (
     <>
@@ -87,7 +88,7 @@ export default function SearchView({
               <button
                 key={a.id}
                 className="poster-card"
-                onClick={() => onOpenAuthor(a.id, authorLibrary(a))}
+                onClick={() => onOpenAuthor(a.id, "ebook")}
               >
                 {a.imageUrl ? (
                   <img className="poster" src={proxiedImage(a.imageUrl)} alt="" loading="lazy" />
@@ -95,14 +96,7 @@ export default function SearchView({
                   <div className="poster fallback">{a.name.charAt(0)}</div>
                 )}
                 <span className="poster-title">{a.name}</span>
-                <span className="poster-sub">
-                  {[
-                    a.inEbookLibrary ? "Ebooks" : "",
-                    a.inAudiobookLibrary ? "Audiobooks" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "author"}
-                </span>
+                <span className="poster-sub">{a.inEbookLibrary ? "Ebooks" : "author"}</span>
               </button>
             ))}
           </div>
@@ -117,7 +111,7 @@ export default function SearchView({
               <button
                 key={b.id}
                 className="poster-card"
-                onClick={() => onOpenBook(b, bookLibrary(b))}
+                onClick={() => onOpenBook(b, "ebook")}
               >
                 {b.coverUrl ? (
                   <img className="poster" src={proxiedImage(b.coverUrl)} alt="" loading="lazy" />
@@ -152,6 +146,25 @@ export default function SearchView({
                 )}
                 <span className="poster-title">{s.title}</span>
                 <span className="poster-sub">{libraryLabels[s.mediaType] ?? s.mediaType}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {hits.artists.length > 0 && (
+        <section className="card">
+          <h2>Music Artists ({hits.artists.length})</h2>
+          <div className="poster-grid">
+            {hits.artists.map((a) => (
+              <button key={a.id} className="poster-card" onClick={() => onOpenArtist(a.id)}>
+                {a.imageUrl ? (
+                  <img className="poster" src={proxiedImage(a.imageUrl)} alt="" loading="lazy" />
+                ) : (
+                  <div className="poster fallback">{a.name.charAt(0)}</div>
+                )}
+                <span className="poster-title">{a.name}</span>
+                <span className="poster-sub">{a.isMonitored ? "monitored" : "artist"}</span>
               </button>
             ))}
           </div>

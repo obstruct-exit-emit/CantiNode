@@ -22,7 +22,7 @@ func TestNativeRegistryAndDispatch(t *testing.T) {
 		Name:        "faketorrent",
 		DisplayName: "Fake Torrent",
 		Protocol:    ProtocolTorrent,
-		MediaTypes:  []string{"audiobook"},
+		MediaTypes:  []string{"music"},
 		New:         func(_ *Indexer, _ *http.Client) Searcher { return fake },
 	})
 
@@ -45,9 +45,9 @@ func TestNativeRegistryAndDispatch(t *testing.T) {
 	svc := &Service{client: NewClient()}
 
 	// Dispatches to the native searcher for a served media type.
-	got, err := svc.searchOne(context.Background(), ind, "q", "q", "audiobook")
+	got, err := svc.searchOne(context.Background(), ind, "q", "q", "music")
 	if err != nil || len(got) != 1 || got[0].Title != "A Result" {
-		t.Fatalf("searchOne(audiobook) = %+v, %v", got, err)
+		t.Fatalf("searchOne(music) = %+v, %v", got, err)
 	}
 	// A media type it doesn't serve yields nothing, not an error.
 	got, err = svc.searchOne(context.Background(), ind, "q", "q", "ebook")

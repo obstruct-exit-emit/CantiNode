@@ -277,8 +277,9 @@ type GrabResult struct {
 // Grab sends a release to the best enabled client for its protocol
 // (lowest priority number wins).
 func (s *Service) Grab(ctx context.Context, protocol, url, title string) (*GrabResult, error) {
-	// Resolve lazily-deferred URLs (e.g. an AudioBook Bay release page →
-	// assembled magnet) at the moment of grab, for exactly this release.
+	// Resolve lazily-deferred URLs (e.g. a scraped native source's release
+	// page → assembled magnet) at the moment of grab, for exactly this
+	// release.
 	if s.urlResolver != nil {
 		resolved, err := s.urlResolver(ctx, url)
 		if err != nil {

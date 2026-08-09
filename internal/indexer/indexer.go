@@ -28,7 +28,8 @@ type Indexer struct {
 	BaseURL    string `json:"baseUrl"`
 	APIKey     string `json:"apiKey"`
 	Categories string `json:"categories"` // comma-separated Newznab category ids (book searches)
-	// AudioCategories are used for audiobook searches (3030 = Audio/Audiobook).
+	// AudioCategories are used for music searches (3010 = Audio/MP3, 3040 =
+	// Audio/Lossless).
 	AudioCategories string `json:"audioCategories"`
 	// ComicCategories are used for comic searches (7030 = Books/Comics).
 	ComicCategories string `json:"comicCategories"`
@@ -52,7 +53,7 @@ func (i *Indexer) Protocol() string {
 // CategoriesFor picks the category list for a media type's searches.
 func (i *Indexer) CategoriesFor(mediaType string) string {
 	switch mediaType {
-	case "audiobook":
+	case "music":
 		return i.AudioCategories
 	case "comic":
 		return i.ComicCategories

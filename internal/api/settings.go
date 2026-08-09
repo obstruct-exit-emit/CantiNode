@@ -12,6 +12,8 @@ import (
 
 	"github.com/librinode/librinode/internal/config"
 	"github.com/librinode/librinode/internal/metadata"
+	"github.com/librinode/librinode/internal/musiclibrary"
+	"github.com/librinode/librinode/internal/musicscanner"
 	"github.com/librinode/librinode/internal/naming"
 )
 
@@ -176,15 +178,23 @@ var exampleTokenData = naming.TokenData{
 	ReleaseYear:    "1983",
 }
 
+// exampleMusicArtist/Album/Track render a music naming template preview
+// with a recognizable album, the musiclibrary-shaped counterpart to
+// exampleTokenData above.
+var (
+	exampleMusicArtist = musiclibrary.Artist{Name: "Boards of Canada"}
+	exampleMusicAlbum  = musiclibrary.Album{Title: "Geogaddi", ReleaseDate: "2002-02-04"}
+	exampleMusicTrack  = musiclibrary.Track{Title: "Alpha and Omega", TrackNumber: 3, DiscNumber: 1}
+)
+
 type namingSettingsResponse struct {
 	config.NamingSettings
-	Tokens           []string `json:"tokens"`
-	Example          string   `json:"example"`
-	AudiobookExample string   `json:"audiobookExample"`
+	Tokens       []string `json:"tokens"`
+	Example      string   `json:"example"`
+	MusicExample string   `json:"musicExample"`
 }
 
 func namingResponse(ns config.NamingSettings) namingSettingsResponse {
-	audiobookDir := naming.Format(ns.AudiobookFile, exampleTokenData)
 	return namingSettingsResponse{
 		NamingSettings: ns,
 		Tokens:         naming.Tokens,
@@ -192,10 +202,8 @@ func namingResponse(ns config.NamingSettings) namingSettingsResponse {
 			naming.FormatPath(ns.EbookFolder, exampleTokenData),
 			naming.Format(ns.EbookFile, exampleTokenData)+".epub",
 		)),
-		AudiobookExample: filepath.ToSlash(filepath.Join(
-			naming.FormatPath(ns.AudiobookFolder, exampleTokenData),
-			audiobookDir,
-			audiobookDir+".m4b",
+		MusicExample: filepath.ToSlash(musicscanner.FormatPath(
+			ns.MusicFile, exampleMusicArtist, exampleMusicAlbum, exampleMusicTrack, ".mp3",
 		)),
 	}
 }

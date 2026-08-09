@@ -24,7 +24,6 @@ export interface Author {
   imageUrl: string;
   monitored: boolean;
   inEbookLibrary: boolean;
-  inAudiobookLibrary: boolean;
   providerOverride: string;
   bookCount?: number;
   ownedCount: number;
@@ -46,11 +45,8 @@ export interface Book {
   monitored: boolean;
   inEbookLibrary: boolean;
   ebookMonitored: boolean;
-  inAudiobookLibrary: boolean;
-  audiobookMonitored: boolean;
   hasFile: boolean;
   hasEbookFile: boolean;
-  hasAudiobookFile: boolean;
   editions?: Edition[];
   series?: SeriesLink[];
   files?: BookFile[];
@@ -87,8 +83,6 @@ export interface BookFile {
   format: string;
   modifiedAt: string;
   addedAt: string;
-  // Multi-file audiobook units list their audio files (relative to the folder).
-  tracks?: { name: string; size: number }[];
 }
 
 export interface RootFolder {
@@ -215,7 +209,7 @@ export interface ReleaseCandidate extends Release {
     volume?: number;
     volumeEnd?: number;
     // The release declares itself a complete run ("Complete", "Collection")
-    // even without a volume range — e.g. an ebook/audiobook series bundle.
+    // even without a volume range — e.g. an ebook series bundle.
     pack?: boolean;
   };
   score: number;
@@ -341,13 +335,12 @@ export interface BlockEntry {
 export interface NamingSettings {
   ebookFolder: string;
   ebookFile: string;
-  audiobookFolder: string;
-  audiobookFile: string;
   comicFolder: string;
   comicFile: string;
+  musicFile: string;
   tokens: string[];
   example: string;
-  audiobookExample: string;
+  musicExample: string;
 }
 
 export interface RenameMove {
@@ -468,6 +461,122 @@ export interface FolderListing {
   directories: { name: string; path: string }[];
 }
 
+// --- Music: a separate domain (artists/albums/tracks, not authors/books) —
+// see internal/musiclibrary's package doc comment on the Go side. ---
+
+export interface MusicArtist {
+  id: number;
+  mbid: string;
+  name: string;
+  sortName: string;
+  isMonitored: boolean;
+  lastSyncedAt?: string;
+  bio: string;
+  imageUrl: string;
+  metadataFetchedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  ownedAlbumCount?: number;
+}
+
+export interface MusicAlbum {
+  id: number;
+  artistId: number;
+  mbid: string;
+  releaseGroupMbid: string;
+  title: string;
+  releaseDate: string;
+  primaryType: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MusicTrack {
+  id: number;
+  albumId: number;
+  mbid: string;
+  title: string;
+  trackNumber: number;
+  discNumber: number;
+  durationMs: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MusicTrackFile {
+  id: number;
+  rootFolderId: number;
+  trackId?: number;
+  path: string;
+  sizeBytes: number;
+  format: string;
+  bitrateKbps: number;
+  durationMs: number;
+  tagsJson: string;
+  matchStatus: "unmatched" | "matched" | "manual";
+  matchConfidence: number;
+  scannedAt: string;
+  organizedAt?: string;
+}
+
+export interface MusicReleaseGroup {
+  id: number;
+  artistId: number;
+  releaseGroupMbid: string;
+  title: string;
+  primaryType: string;
+  secondaryTypes: string[];
+  firstReleaseDate: string;
+}
+
+export interface WantedAlbum {
+  id: number;
+  artistId: number;
+  releaseGroupMbid: string;
+  title: string;
+  primaryType: string;
+  releaseDate: string;
+  status: "wanted" | "downloading" | "downloaded" | "ignored";
+  addedAt: string;
+}
+
+export interface MusicBrainzArtistResult {
+  id: string;
+  name: string;
+  sortName: string;
+  score: number;
+}
+
+export interface MusicBrainzRecordingResult {
+  id: string;
+  title: string;
+  length: number;
+  score: number;
+}
+
+export interface MusicScanResult {
+  filesFound: number;
+  filesMatched: number;
+  filesOrganized: number;
+  filesRemoved: number;
+  errors?: string[];
+}
+
+export interface MusicScanState {
+  running: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: MusicScanResult;
+  error?: string;
+}
+
+export interface MusicSettings {
+  organizeOnMatch: boolean;
+  minMatchConfidence: number;
+  musicbrainzContactEmail: string;
+  audioDbApiKey: string;
+}
+
 const KEY_STORAGE = "librinode-api-key";
 
 export function getApiKey(): string {
@@ -482,6 +591,12 @@ export function proxiedImage(url?: string): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("/")) return url;
   return `/api/v1/image?url=${encodeURIComponent(url)}&apikey=${encodeURIComponent(getApiKey())}`;
+}
+
+// musicAlbumCoverUrl points at the server's own Cover Art Archive proxy —
+// an <img src>, so the API key rides the query string (no header needed).
+export function musicAlbumCoverUrl(albumId: number): string {
+  return `/api/v1/music/album/${albumId}/cover?apikey=${encodeURIComponent(getApiKey())}`;
 }
 
 export function setApiKey(key: string) {
@@ -641,7 +756,7 @@ export const api = {
   // Scope with authorId (one author's books) or library (a format library's
   // member books, filtered server-side); omit both only where the whole
   // library's books are genuinely needed (e.g. global search).
-  listBooks: (authorId?: number, library?: "ebook" | "audiobook") =>
+  listBooks: (authorId?: number, library?: "ebook") =>
     request<Book[]>(
       authorId
         ? `/api/v1/book?authorId=${authorId}`
@@ -932,4 +1047,87 @@ export const api = {
       "/api/v1/cache",
       { method: "DELETE" },
     ),
+
+  // --- Music ---
+  listMusicArtists: () => request<MusicArtist[]>("/api/v1/music/artist"),
+  searchMusicArtists: (query: string) =>
+    request<MusicBrainzArtistResult[]>(
+      `/api/v1/music/artist/search?query=${encodeURIComponent(query)}`,
+    ),
+  monitorMusicArtist: (mbid: string) =>
+    request<MusicArtist>("/api/v1/music/artist", json({ mbid })),
+  getMusicArtist: (id: number) => request<MusicArtist>(`/api/v1/music/artist/${id}`),
+  unmonitorMusicArtist: (id: number) =>
+    request<void>(`/api/v1/music/artist/${id}/unmonitor`, { method: "POST" }),
+  refreshMusicArtist: (id: number) =>
+    request<void>(`/api/v1/music/artist/${id}/refresh`, { method: "POST" }),
+  listMissingMusicReleaseGroups: (id: number) =>
+    request<MusicReleaseGroup[]>(`/api/v1/music/artist/${id}/missing`),
+  removeMusicArtist: (id: number, deleteFiles = false) =>
+    request<{ deleted: boolean }>(
+      `/api/v1/music/artist/${id}${deleteFiles ? "?deleteFiles=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  listMusicAlbums: (artistId: number) =>
+    request<MusicAlbum[]>(`/api/v1/music/artist/${artistId}/albums`),
+  listMusicTracks: (albumId: number) =>
+    request<MusicTrack[]>(`/api/v1/music/album/${albumId}/tracks`),
+  listMusicTrackFiles: (trackId: number) =>
+    request<MusicTrackFile[]>(`/api/v1/music/track/${trackId}/files`),
+  listUnmatchedTrackFiles: () =>
+    request<MusicTrackFile[]>("/api/v1/music/trackfile/unmatched"),
+  searchMusicBrainzRecordings: (artist: string, album: string, title: string) =>
+    request<MusicBrainzRecordingResult[]>(
+      `/api/v1/music/musicbrainz/search?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}&title=${encodeURIComponent(title)}`,
+    ),
+  matchTrackFile: (id: number, recordingMbid: string, releaseMbid = "") =>
+    request<MusicTrackFile>(
+      `/api/v1/music/trackfile/${id}/match`,
+      json({ recordingMbid, releaseMbid }),
+    ),
+  clearTrackFileMatch: (id: number) =>
+    request<void>(`/api/v1/music/trackfile/${id}/match`, { method: "DELETE" }),
+  previewOrganizeTrackFile: (id: number) =>
+    request<{ path: string }>(`/api/v1/music/trackfile/${id}/organize/preview`),
+  organizeTrackFile: (id: number) =>
+    request<{ path: string }>(`/api/v1/music/trackfile/${id}/organize`, { method: "POST" }),
+  writeMusicTags: (id: number) =>
+    request<void>(`/api/v1/music/trackfile/${id}/write-tags`, { method: "POST" }),
+  deleteTrackFile: (id: number) =>
+    request<void>(`/api/v1/music/trackfile/${id}`, { method: "DELETE" }),
+  previewOrganizeMusicArtist: (id: number) =>
+    request<{ moves: RenameMove[] }>(`/api/v1/music/artist/${id}/organize/preview`),
+  organizeMusicArtist: (id: number) =>
+    request<{ moves: RenameMove[]; errors: string[] }>(
+      `/api/v1/music/artist/${id}/organize`,
+      { method: "POST" },
+    ),
+  triggerMusicScan: () =>
+    request<{ status: string }>("/api/v1/music/scan", { method: "POST" }),
+  musicScanStatus: () => request<MusicScanState>("/api/v1/music/scan/status"),
+  wantMusicAlbum: (artistId: number, releaseGroupMbid: string, monitor: boolean) =>
+    request<WantedAlbum>(
+      `/api/v1/music/artist/${artistId}/wanted`,
+      json({ releaseGroupMbid, monitor }),
+    ),
+  listWantedMusicAlbums: (artistId: number) =>
+    request<WantedAlbum[]>(`/api/v1/music/artist/${artistId}/wanted`),
+  ignoreWantedMusicAlbum: (id: number) =>
+    request<void>(`/api/v1/music/wanted/${id}/ignore`, { method: "POST" }),
+  searchWantedMusicAlbum: (id: number) =>
+    request<{ releases: Release[]; errors: string[] }>(`/api/v1/music/wanted/${id}/search`),
+  grabWantedMusicAlbum: (
+    id: number,
+    title: string,
+    downloadUrl: string,
+    protocol: string,
+    guid: string = "",
+  ) =>
+    request<{ client: string; id?: string }>(
+      `/api/v1/music/wanted/${id}/grab`,
+      json({ title, downloadUrl, protocol, guid }),
+    ),
+  getMusicSettings: () => request<MusicSettings>("/api/v1/settings/music"),
+  saveMusicSettings: (s: MusicSettings) =>
+    request<MusicSettings>("/api/v1/settings/music", { ...json(s), method: "PUT" }),
 };

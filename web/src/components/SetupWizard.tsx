@@ -10,7 +10,7 @@ import FolderBrowser from "./FolderBrowser";
 
 const steps = ["Account", "Library", "Metadata", "Indexer", "Downloads", "Done"] as const;
 
-const mediaTypes = ["ebook", "audiobook", "comic"] as const;
+const mediaTypes = ["ebook", "comic", "music"] as const;
 
 export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);

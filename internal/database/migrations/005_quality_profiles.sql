@@ -7,7 +7,7 @@ CREATE TABLE quality_profiles (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     name         TEXT    NOT NULL UNIQUE,
     media_type   TEXT    NOT NULL DEFAULT 'ebook'
-                 CHECK (media_type IN ('ebook', 'audiobook', 'comic')),
+                 CHECK (media_type IN ('ebook', 'audiobook', 'comic', 'music')),
     formats      TEXT    NOT NULL,
     language     TEXT    NOT NULL DEFAULT 'english',
     retail_bonus INTEGER NOT NULL DEFAULT 25,

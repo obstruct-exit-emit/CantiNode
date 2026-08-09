@@ -12,11 +12,13 @@ import SetupWizard from "./components/SetupWizard";
 import { getThemePref, setThemePref, type ThemePref } from "./theme";
 import { UiProvider, useUi } from "./ui";
 import ActivityView from "./views/ActivityView";
+import ArtistDetailView from "./views/ArtistDetailView";
 import AuthorDetailView from "./views/AuthorDetailView";
 import BookDetailView from "./views/BookDetailView";
 import BooksLibraryView from "./views/BooksLibraryView";
 import CalendarView from "./views/CalendarView";
 import HomeView from "./views/HomeView";
+import MusicLibraryView from "./views/MusicLibraryView";
 import SearchView from "./views/SearchView";
 import SeriesDetailView from "./views/SeriesDetailView";
 import SeriesLibraryView from "./views/SeriesLibraryView";
@@ -29,9 +31,10 @@ import "./App.css";
 type Page =
   | { name: "home" }
   | { name: "library"; mediaType: string }
-  | { name: "author"; id: number; library: "ebook" | "audiobook" }
-  | { name: "book"; id: number; library: "ebook" | "audiobook"; authorId: number }
+  | { name: "author"; id: number; library: "ebook" }
+  | { name: "book"; id: number; library: "ebook"; authorId: number }
   | { name: "series-detail"; id: number; mediaType: string }
+  | { name: "artist"; id: number }
   | { name: "search"; q: string }
   | { name: "calendar" }
   | { name: "activity" }
@@ -40,13 +43,11 @@ type Page =
 
 export const libraryLabels: Record<string, string> = {
   ebook: "Ebooks",
-  audiobook: "Audiobooks",
   comic: "Comics",
 };
 
 const libraryIcons: Record<string, string> = {
   ebook: "📖",
-  audiobook: "🎧",
   comic: "💥",
 };
 
@@ -66,6 +67,8 @@ function pageToHash(p: Page): string {
       return `#/book/${p.id}?lib=${p.library}&author=${p.authorId}`;
     case "series-detail":
       return `#/series/${p.id}?type=${p.mediaType}`;
+    case "artist":
+      return `#/artist/${p.id}`;
     case "search":
       return `#/search?q=${encodeURIComponent(p.q)}`;
     default:
@@ -77,7 +80,7 @@ function hashToPage(hash: string): Page {
   const [path, query] = hash.replace(/^#\/?/, "").split("?");
   const q = new URLSearchParams(query ?? "");
   const seg = path.split("/").filter(Boolean);
-  const lib = q.get("lib") === "audiobook" ? ("audiobook" as const) : ("ebook" as const);
+  const lib = "ebook" as const;
   const id = Number(seg[1]);
   switch (seg[0]) {
     case undefined:
@@ -94,6 +97,8 @@ function hashToPage(hash: string): Page {
       return id > 0
         ? { name: "series-detail", id, mediaType: q.get("type") ?? "comic" }
         : { name: "home" };
+    case "artist":
+      return id > 0 ? { name: "artist", id } : { name: "home" };
     case "search":
       return { name: "search", q: q.get("q") ?? "" };
     case "calendar":
@@ -124,6 +129,7 @@ function AppInner() {
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [connected, setConnected] = useState(false);
   const [libraries, setLibraries] = useState<LibraryStatus[]>([]);
+  const [hasMusicRoot, setHasMusicRoot] = useState(false);
   const [health, setHealth] = useState<HealthIssue[]>([]);
   const [page, setPage] = useState<Page>(() => hashToPage(location.hash));
   // The connection error keeps its dedicated card (it carries recovery UI);
@@ -151,6 +157,13 @@ function AppInner() {
       .libraries()
       .then(setLibraries)
       .catch(() => setLibraries([]));
+    // Music isn't part of the ebook/comic library-status system (it's a
+    // separate domain — see internal/musiclibrary); Plex-style, its nav
+    // entry appears once a music root folder exists.
+    api
+      .listRootFolders()
+      .then((folders) => setHasMusicRoot(folders.some((f) => f.mediaType === "music")))
+      .catch(() => setHasMusicRoot(false));
   }, []);
 
   const reloadHealth = useCallback(() => {
@@ -235,7 +248,7 @@ function AppInner() {
           <SidebarSearch onSearch={(q) => go({ name: "search", q })} />
           <nav>
             {navButton({ name: "home" }, "Home", "🏠")}
-            {active.length > 0 && <div className="nav-group">Libraries</div>}
+            {(active.length > 0 || hasMusicRoot) && <div className="nav-group">Libraries</div>}
             {active.map((l) =>
               navButton(
                 { name: "library", mediaType: l.mediaType },
@@ -243,6 +256,8 @@ function AppInner() {
                 libraryIcons[l.mediaType] ?? "📚",
               ),
             )}
+            {hasMusicRoot &&
+              navButton({ name: "library", mediaType: "music" }, "Music", "🎵")}
             <div className="nav-group">App</div>
             {navButton({ name: "calendar" }, "Calendar", "📅")}
             {navButton({ name: "activity" }, "Activity", "⬇️")}
@@ -336,8 +351,8 @@ function AppInner() {
             onOpenItem={(mediaType, it) => {
               // Prose books open their detail page; volumes/issues live as
               // rows on their series page. Without the id, the library grid.
-              if ((mediaType === "ebook" || mediaType === "audiobook") && it.authorId) {
-                go({ name: "book", id: it.bookId, library: mediaType, authorId: it.authorId });
+              if (mediaType === "ebook" && it.authorId) {
+                go({ name: "book", id: it.bookId, library: "ebook", authorId: it.authorId });
               } else if (it.seriesId) {
                 go({ name: "series-detail", id: it.seriesId, mediaType });
               } else {
@@ -347,14 +362,17 @@ function AppInner() {
           />
         )}
         {connected && page.name === "library" &&
-          (page.mediaType === "ebook" || page.mediaType === "audiobook" ? (
+          (page.mediaType === "ebook" ? (
             <BooksLibraryView
               key={page.mediaType}
-              library={page.mediaType as "ebook" | "audiobook"}
+              library="ebook"
               onError={onError}
-              onOpenAuthor={(id) =>
-                go({ name: "author", id, library: page.mediaType as "ebook" | "audiobook" })
-              }
+              onOpenAuthor={(id) => go({ name: "author", id, library: "ebook" })}
+            />
+          ) : page.mediaType === "music" ? (
+            <MusicLibraryView
+              onError={onError}
+              onOpenArtist={(id) => go({ name: "artist", id })}
             />
           ) : (
             <SeriesLibraryView
@@ -388,9 +406,6 @@ function AppInner() {
                 ? go({ name: "author", id: page.authorId, library: page.library })
                 : go({ name: "library", mediaType: page.library })
             }
-            onSwitchLibrary={(library) =>
-              go({ name: "book", id: page.id, library, authorId: page.authorId })
-            }
           />
         )}
         {connected && page.name === "series-detail" && (
@@ -399,6 +414,13 @@ function AppInner() {
             mediaType={page.mediaType}
             onError={onError}
             onBack={() => go({ name: "library", mediaType: page.mediaType })}
+          />
+        )}
+        {connected && page.name === "artist" && (
+          <ArtistDetailView
+            id={page.id}
+            onError={onError}
+            onBack={() => go({ name: "library", mediaType: "music" })}
           />
         )}
         {connected && page.name === "search" && (
@@ -411,6 +433,7 @@ function AppInner() {
               go({ name: "book", id: b.id, library, authorId: b.authorId })
             }
             onOpenSeries={(id, mediaType) => go({ name: "series-detail", id, mediaType })}
+            onOpenArtist={(id) => go({ name: "artist", id })}
           />
         )}
         {connected && page.name === "calendar" && (
@@ -420,7 +443,7 @@ function AppInner() {
               go({
                 name: "book",
                 id: it.bookId,
-                library: it.mediaType as "ebook" | "audiobook",
+                library: "ebook",
                 authorId: it.authorId ?? 0,
               })
             }

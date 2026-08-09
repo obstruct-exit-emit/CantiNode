@@ -19,7 +19,7 @@ func TestCancelGrabResolvesStuckPendingGrab(t *testing.T) {
 	store := download.NewStore(a.db)
 
 	grab := &download.GrabRecord{
-		Title: "Dune Messiah", Protocol: "torrent", MediaType: "audiobook",
+		Title: "Dune Messiah", Protocol: "torrent", MediaType: "music",
 	}
 	if err := store.AddGrab(grab); err != nil {
 		t.Fatalf("AddGrab: %v", err)

@@ -20,7 +20,7 @@ func init() {
 		Name:        "test-native",
 		DisplayName: "Test Native",
 		Protocol:    indexer.ProtocolTorrent,
-		MediaTypes:  []string{"audiobook"},
+		MediaTypes:  []string{"music"},
 		New:         func(*indexer.Indexer, *http.Client) indexer.Searcher { return testNativeSearcher{} },
 	})
 }

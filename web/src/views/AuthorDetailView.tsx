@@ -27,12 +27,12 @@ export default function AuthorDetailView({
   onOpenBook,
 }: {
   id: number;
-  library: "ebook" | "audiobook";
+  library: "ebook";
   onError: (message: string) => void;
   onBack: () => void;
   onOpenBook: (bookId: number) => void;
 }) {
-  const label = library === "ebook" ? "Ebooks" : "Audiobooks";
+  const label = "Ebooks";
   const [author, setAuthor] = useState<Author | null>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [busy, setBusy] = useState(false);
@@ -62,8 +62,7 @@ export default function AuthorDetailView({
     // Visible = enrolled in this library, monitored or not. Monitoring only
     // controls auto-grab/upgrade; it never hides a book. Everything NOT
     // enrolled lives in the Missing section below.
-    const visible = (b: Book) =>
-      library === "ebook" ? b.inEbookLibrary : b.inAudiobookLibrary;
+    const visible = (b: Book) => b.inEbookLibrary;
     Promise.all([api.getAuthor(id), api.listBooks(id)])
       .then(([a, all]) => {
         setAuthor(a);
@@ -76,9 +75,7 @@ export default function AuthorDetailView({
 
   if (!author) return <DetailSkeleton />;
 
-  const owned = books.filter((b) =>
-    library === "ebook" ? b.hasEbookFile : b.hasAudiobookFile,
-  ).length;
+  const owned = books.filter((b) => b.hasEbookFile).length;
 
   // headerAction runs one of the author-scoped buttons and reports back.
   const headerAction = (action: () => Promise<string>) => {
@@ -160,8 +157,8 @@ export default function AuthorDetailView({
   };
 
   const renderPoster = (b: Book) => {
-    const bookOwned = library === "ebook" ? b.hasEbookFile : b.hasAudiobookFile;
-    const monitored = library === "ebook" ? b.ebookMonitored : b.audiobookMonitored;
+    const bookOwned = b.hasEbookFile;
+    const monitored = b.ebookMonitored;
     return (
       <button key={b.id} className="poster-card" onClick={() => onOpenBook(b.id)}>
         {b.coverUrl ? (
@@ -182,8 +179,8 @@ export default function AuthorDetailView({
   // List view: a plain title + status row, like comic volumes/issues —
   // no covers, one line per book.
   const renderRow = (b: Book) => {
-    const bookOwned = library === "ebook" ? b.hasEbookFile : b.hasAudiobookFile;
-    const monitored = library === "ebook" ? b.ebookMonitored : b.audiobookMonitored;
+    const bookOwned = b.hasEbookFile;
+    const monitored = b.ebookMonitored;
     return (
       <li key={b.id}>
         <div className="row">
@@ -293,8 +290,8 @@ export default function AuthorDetailView({
           )}
           {confirmRemove && (
             <RemovePanel
-              message={`Remove ${author.name} from ${label}? The other library is untouched; if this was their last library, the author is deleted entirely.`}
-              checkboxLabel={`Also delete their ${library} files from disk`}
+              message={`Remove ${author.name} from ${label}? The author is deleted entirely.`}
+              checkboxLabel="Also delete their files from disk"
               busy={busy}
               onConfirm={remove}
               onCancel={() => setConfirmRemove(false)}
@@ -388,12 +385,12 @@ function MissingCard({
   onError,
 }: {
   authorId: number;
-  library: "ebook" | "audiobook";
+  library: "ebook";
   refresh: unknown; // changes whenever the parent reloaded its book list
   onMonitored: () => void;
   onError: (message: string) => void;
 }) {
-  const label = library === "ebook" ? "Ebooks" : "Audiobooks";
+  const label = "Ebooks";
   const [missing, setMissing] = useState<Book[] | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [busyID, setBusyID] = useState<number | null>(null);

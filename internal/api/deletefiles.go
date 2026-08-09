@@ -15,8 +15,8 @@ func wantsFileDeletion(r *http.Request) bool {
 // removeFilesFromDisk deletes library files at the given paths — the
 // delete-files option on author/book/series removal. Safety: only paths
 // strictly inside a configured root folder are touched. A path that is a
-// directory (multi-file audiobooks) is removed recursively, and empty parent
-// directories are pruned up to (never including) the root folder.
+// directory is removed recursively, and empty parent directories are pruned
+// up to (never including) the root folder.
 func (s *server) removeFilesFromDisk(paths []string) (deleted int, errs []string) {
 	roots, err := s.store.ListRootFolders()
 	if err != nil {

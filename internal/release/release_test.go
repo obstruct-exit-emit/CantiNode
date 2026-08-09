@@ -43,8 +43,8 @@ func TestParse(t *testing.T) {
 			Parsed{Title: "Some Linux ISO x264-GRP"},
 		},
 		{
-			"Terry Pratchett - Mort (Unabridged) M4B 64kbps read by Nigel Planer",
-			Parsed{Author: "Terry Pratchett", Title: "Mort", Formats: []string{"m4b"},
+			"Terry Pratchett - Mort (Unabridged) FLAC 64kbps read by Nigel Planer",
+			Parsed{Author: "Terry Pratchett", Title: "Mort", Formats: []string{"flac"},
 				Bitrate: 64, Narrator: "Nigel Planer"},
 		},
 		{
@@ -286,13 +286,13 @@ func TestScoreDoesNotFlagPackForDuplicateSplitEditionEntry(t *testing.T) {
 	}
 }
 
-// TestScoreAuthorFallsBackToKeywords: AudioBook Bay's series/collection posts
-// often omit the author from the title but carry it in a separate tag list
-// (Release.Keywords) instead — that must satisfy the author check just like
-// a title mention would, but a book-title mismatch must still reject even
-// when Keywords happens to contain the author.
+// TestScoreAuthorFallsBackToKeywords: some scraped native sources' series/
+// collection posts often omit the author from the title but carry it in a
+// separate tag list (Release.Keywords) instead — that must satisfy the
+// author check just like a title mention would, but a book-title mismatch
+// must still reject even when Keywords happens to contain the author.
 func TestScoreAuthorFallsBackToKeywords(t *testing.T) {
-	prefs := DefaultAudiobookPreferences()
+	prefs := DefaultComicPreferences() // AllowUnknownFormat: true — this release states none
 	book := &library.Book{Title: "Dune Messiah"}
 	author := &library.Author{Name: "Frank Herbert"}
 
@@ -356,38 +356,31 @@ func TestPreferencesFromProfile(t *testing.T) {
 	}
 }
 
-func TestScoreAudiobook(t *testing.T) {
-	prefs := DefaultAudiobookPreferences()
+func TestScoreMusic(t *testing.T) {
+	prefs := DefaultMusicPreferences()
 
-	m4b := Score(rel("Mort Unabridged M4B", indexer.ProtocolUsenet, 200<<20, -1), prefs, nil, nil, nil)
-	if !m4b.Approved {
-		t.Fatalf("m4b rejected: %v", m4b.Rejections)
+	flac := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, nil, nil, nil)
+	if !flac.Approved {
+		t.Errorf("flac should approve: %v", flac.Rejections)
 	}
-	mp3 := Score(rel("Mort MP3 64kbps", indexer.ProtocolUsenet, 200<<20, -1), prefs, nil, nil, nil)
-	if !mp3.Approved || mp3.Score >= m4b.Score {
-		t.Errorf("mp3 should approve below m4b: %+v vs %+v", mp3, m4b)
+	mp3 := Score(rel("Boards of Canada - Geogaddi MP3", indexer.ProtocolUsenet, 100<<20, -1), prefs, nil, nil, nil)
+	if !mp3.Approved {
+		t.Errorf("mp3 should approve: %v", mp3.Rejections)
 	}
-	abridged := Score(rel("Mort Abridged M4B", indexer.ProtocolUsenet, 200<<20, -1), prefs, nil, nil, nil)
-	if abridged.Approved {
-		t.Error("abridged should be rejected for audiobooks")
+	if mp3.Score >= flac.Score {
+		t.Errorf("mp3 (%d) should rank below flac (%d)", mp3.Score, flac.Score)
 	}
-	epub := Score(rel("Mort EPUB", indexer.ProtocolUsenet, 200<<20, -1), prefs, nil, nil, nil)
+	epub := Score(rel("Boards of Canada - Geogaddi EPUB", indexer.ProtocolUsenet, 400<<20, -1), prefs, nil, nil, nil)
 	if epub.Approved {
-		t.Error("ebook format should be rejected under audiobook prefs")
+		t.Error("ebook format should be rejected under music prefs")
 	}
-	// Ebook-sized files are suspicious for audio.
-	tiny := Score(rel("Mort M4B", indexer.ProtocolUsenet, 1<<20, -1), prefs, nil, nil, nil)
+	noFmt := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, nil, nil, nil)
+	if noFmt.Approved {
+		t.Error("music release names should be required to state a recognized format")
+	}
+	tiny := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 1<<10, -1), prefs, nil, nil, nil)
 	if tiny.Approved {
-		t.Error("1 MiB audiobook should be rejected")
-	}
-	// Audiobook names routinely omit the format (bitrate/narrator instead), so
-	// a format-less release must still approve — ranked below a named format.
-	noFmt := Score(rel("Ready Player One Unabridged 192k", indexer.ProtocolUsenet, 200<<20, -1), prefs, nil, nil, nil)
-	if !noFmt.Approved {
-		t.Errorf("format-less audiobook should approve: %v", noFmt.Rejections)
-	}
-	if noFmt.Score >= m4b.Score {
-		t.Errorf("format-less audiobook (%d) should rank below m4b (%d)", noFmt.Score, m4b.Score)
+		t.Error("1 KiB flac release should be rejected as suspiciously small")
 	}
 }
 

@@ -11,11 +11,14 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/librinode/librinode/internal/audiodb"
 	"github.com/librinode/librinode/internal/autosearch"
 	"github.com/librinode/librinode/internal/config"
+	"github.com/librinode/librinode/internal/coverart"
 	"github.com/librinode/librinode/internal/download"
 	"github.com/librinode/librinode/internal/health"
 	"github.com/librinode/librinode/internal/imagecache"
@@ -23,6 +26,9 @@ import (
 	"github.com/librinode/librinode/internal/indexer"
 	"github.com/librinode/librinode/internal/library"
 	"github.com/librinode/librinode/internal/metadata"
+	"github.com/librinode/librinode/internal/musicbrainz"
+	"github.com/librinode/librinode/internal/musiclibrary"
+	"github.com/librinode/librinode/internal/musicscanner"
 	"github.com/librinode/librinode/internal/organize"
 	"github.com/librinode/librinode/internal/refresh"
 	"github.com/librinode/librinode/internal/scanner"
@@ -49,6 +55,18 @@ type server struct {
 	sessions       *sessionStore
 	webFS          fs.FS // nil when no frontend build is embedded
 	version        string
+
+	// Music: a separate domain model (musiclibrary) and scan/match pipeline
+	// (musicscanner) from the prose/comic library above — see
+	// internal/musiclibrary's own package doc comment for why.
+	musicStore   *musiclibrary.Store
+	musicScanner *musicscanner.Scanner
+	mb           *musicbrainz.Client
+	audiodb      *audiodb.Client
+	coverart     *coverart.Client
+
+	musicScanMu    sync.Mutex
+	musicScanState musicScanState
 }
 
 // Background bundles the services main runs on periodic loops. NewRouter owns
@@ -71,25 +89,38 @@ func NewRouter(cfg *config.Config, db *sql.DB, providers *metadata.Manager, vers
 	org := organize.New(store, cfg)
 	downloads := download.NewService(download.NewStore(db))
 	indexers := indexer.NewService(indexer.NewStore(db))
-	// Native sources that resolve their download URL lazily (AudioBook Bay's
-	// release page → magnet) do so at grab time, for the one release grabbed.
+	// Native sources that resolve their download URL lazily (a scraped
+	// source's release page → magnet) do so at grab time, for the one
+	// release grabbed.
 	downloads.SetURLResolver(indexers.ResolveGrabURL)
+
+	musicSettings := cfg.MusicSettings()
+	musicStore := musiclibrary.NewStore(db)
+	mb := musicbrainz.NewClient(version, musicSettings.MusicBrainzContactEmail)
+	musicScanner := musicscanner.New(musicStore, mb, slog.Default(),
+		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch)
+
 	s := &server{
-		cfg:       cfg,
-		db:        db,
-		store:     store,
-		metadata:  providers,
-		refresh:   refresh.New(store, providers),
-		scanner:   scanner.New(store),
-		organize:  org,
-		indexers:  indexers,
-		downloads: downloads,
-		importer:  importer.New(store, downloads, org, cfg.ImportSettings),
-		search:    autosearch.New(store, indexers, downloads),
-		health:    health.New(store, indexers, downloads, providers),
-		images:    imagecache.New(filepath.Join(cfg.DataDir(), "covers", "remote")),
-		sessions:  newSessionStore(),
-		version:   version,
+		cfg:          cfg,
+		db:           db,
+		store:        store,
+		metadata:     providers,
+		refresh:      refresh.New(store, providers),
+		scanner:      scanner.New(store),
+		organize:     org,
+		indexers:     indexers,
+		downloads:    downloads,
+		importer:     importer.New(store, downloads, org, cfg.ImportSettings),
+		search:       autosearch.New(store, indexers, downloads),
+		health:       health.New(store, indexers, downloads, providers),
+		images:       imagecache.New(filepath.Join(cfg.DataDir(), "covers", "remote")),
+		sessions:     newSessionStore(),
+		version:      version,
+		musicStore:   musicStore,
+		musicScanner: musicScanner,
+		mb:           mb,
+		audiodb:      audiodb.NewClient(musicSettings.AudioDBAPIKey),
+		coverart:     coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "LibriNode/"+version),
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist
@@ -188,12 +219,49 @@ func NewRouter(cfg *config.Config, db *sql.DB, providers *metadata.Manager, vers
 	mux.HandleFunc("POST /api/v1/bookfile/{id}/replace", s.auth(s.handleReplaceBookFile))
 	mux.HandleFunc("DELETE /api/v1/bookfile/{id}", s.auth(s.handleDeleteBookFile))
 
+	// Music: a separate domain (artists/albums/tracks, not authors/books) —
+	// see internal/musiclibrary's package doc comment.
+	mux.HandleFunc("GET /api/v1/music/artist", s.auth(s.handleListMusicArtists))
+	mux.HandleFunc("GET /api/v1/music/artist/search", s.auth(s.handleSearchMusicArtists))
+	mux.HandleFunc("POST /api/v1/music/artist", s.auth(s.handleMonitorMusicArtist))
+	mux.HandleFunc("GET /api/v1/music/artist/{id}", s.auth(s.handleGetMusicArtist))
+	mux.HandleFunc("POST /api/v1/music/artist/{id}/unmonitor", s.auth(s.handleUnmonitorMusicArtist))
+	mux.HandleFunc("POST /api/v1/music/artist/{id}/refresh", s.auth(s.handleRefreshMusicArtist))
+	mux.HandleFunc("GET /api/v1/music/artist/{id}/missing", s.auth(s.handleListMissingMusicReleaseGroups))
+	mux.HandleFunc("GET /api/v1/music/artist/{id}/albums", s.auth(s.handleListMusicAlbumsByArtist))
+	mux.HandleFunc("GET /api/v1/music/artist/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicArtist))
+	mux.HandleFunc("POST /api/v1/music/artist/{id}/organize", s.auth(s.handleOrganizeMusicArtist))
+	mux.HandleFunc("POST /api/v1/music/artist/{id}/wanted", s.auth(s.handleWantMusicAlbum))
+	mux.HandleFunc("GET /api/v1/music/artist/{id}/wanted", s.auth(s.handleListWantedMusicAlbums))
+	mux.HandleFunc("DELETE /api/v1/music/artist/{id}", s.auth(s.handleRemoveMusicArtist))
+	mux.HandleFunc("GET /api/v1/music/album/{id}/tracks", s.auth(s.handleListMusicTracksByAlbum))
+	// Not requireAdmin/plain auth header only: an <img src> can't attach a
+	// header, so covers ride the API key via ?apikey= — handled by s.auth
+	// already accepting the query form (see apiKeyMatches).
+	mux.HandleFunc("GET /api/v1/music/album/{id}/cover", s.auth(s.handleMusicAlbumCover))
+	mux.HandleFunc("GET /api/v1/music/track/{id}/files", s.auth(s.handleListMusicTrackFilesByTrack))
+	mux.HandleFunc("GET /api/v1/music/trackfile/unmatched", s.auth(s.handleListUnmatchedTrackFiles))
+	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/match", s.auth(s.handleManualMatchTrackFile))
+	mux.HandleFunc("DELETE /api/v1/music/trackfile/{id}/match", s.auth(s.handleClearTrackFileMatch))
+	mux.HandleFunc("GET /api/v1/music/trackfile/{id}/organize/preview", s.auth(s.handlePreviewOrganizeTrackFile))
+	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/organize", s.auth(s.handleOrganizeTrackFile))
+	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/write-tags", s.auth(s.handleWriteMusicTags))
+	mux.HandleFunc("DELETE /api/v1/music/trackfile/{id}", s.auth(s.handleDeleteTrackFile))
+	mux.HandleFunc("GET /api/v1/music/musicbrainz/search", s.auth(s.handleSearchMusicBrainzRecordings))
+	mux.HandleFunc("POST /api/v1/music/scan", s.auth(s.handleTriggerMusicScan))
+	mux.HandleFunc("GET /api/v1/music/scan/status", s.auth(s.handleMusicScanStatus))
+	mux.HandleFunc("POST /api/v1/music/wanted/{id}/ignore", s.auth(s.handleIgnoreWantedMusicAlbum))
+	mux.HandleFunc("GET /api/v1/music/wanted/{id}/search", s.auth(s.handleSearchWantedMusicAlbum))
+	mux.HandleFunc("POST /api/v1/music/wanted/{id}/grab", s.auth(s.handleGrabWantedMusicAlbum))
+
 	mux.HandleFunc("GET /api/v1/settings/metadata", s.requireAdmin(s.handleGetMetadataSettings))
 	mux.HandleFunc("PUT /api/v1/settings/metadata", s.requireAdmin(s.handlePutMetadataSettings))
 	mux.HandleFunc("POST /api/v1/settings/metadata/test", s.requireAdmin(s.handleTestMetadataProvider))
 	mux.HandleFunc("DELETE /api/v1/settings/metadata/cache", s.requireAdmin(s.handleClearMetadataCache))
 	mux.HandleFunc("GET /api/v1/settings/naming", s.requireAdmin(s.handleGetNamingSettings))
 	mux.HandleFunc("PUT /api/v1/settings/naming", s.requireAdmin(s.handlePutNamingSettings))
+	mux.HandleFunc("GET /api/v1/settings/music", s.requireAdmin(s.handleGetMusicSettings))
+	mux.HandleFunc("PUT /api/v1/settings/music", s.requireAdmin(s.handlePutMusicSettings))
 	mux.HandleFunc("GET /api/v1/settings/import", s.requireAdmin(s.handleGetImportSettings))
 	mux.HandleFunc("PUT /api/v1/settings/import", s.requireAdmin(s.handlePutImportSettings))
 	mux.HandleFunc("GET /api/v1/settings/timings", s.requireAdmin(s.handleGetTimingSettings))

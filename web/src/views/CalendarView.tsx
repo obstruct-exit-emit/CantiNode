@@ -5,7 +5,6 @@ import { RowsSkeleton } from "../components/Skeleton";
 
 const typeIcons: Record<string, string> = {
   ebook: "📖",
-  audiobook: "🎧",
   comic: "💥",
 };
 
@@ -62,7 +61,7 @@ export default function CalendarView({
   const open = (item: CalendarItem) => {
     // Prose books have an author page behind them; everything else lives on
     // its series page. Items missing both ids stay unclickable.
-    if (item.mediaType === "ebook" || item.mediaType === "audiobook") {
+    if (item.mediaType === "ebook") {
       if (item.authorId) onOpenBook(item);
     } else if (item.seriesId) {
       onOpenSeries(item);
@@ -70,9 +69,7 @@ export default function CalendarView({
   };
 
   const clickable = (item: CalendarItem) =>
-    item.mediaType === "ebook" || item.mediaType === "audiobook"
-      ? !!item.authorId
-      : !!item.seriesId;
+    item.mediaType === "ebook" ? !!item.authorId : !!item.seriesId;
 
   const section = (title: string, list: string[]) =>
     list.length > 0 && (

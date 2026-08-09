@@ -33,8 +33,8 @@ export default function HomeView({
         <h2>Welcome to LibriNode</h2>
         <p className="muted">
           No libraries yet. Set one up under <strong>Settings → Root
-          Folders</strong> — add a folder for ebooks, audiobooks, or
-          comics, and its library appears here.
+          Folders</strong> — add a folder for ebooks, comics, or music,
+          and its library appears here.
         </p>
       </section>
     );

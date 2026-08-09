@@ -139,7 +139,7 @@ func (s *Service) syncAuthorWith(ctx context.Context, p metadata.Provider, forei
 		}
 		if existing, err := s.store.ListBooks(author.ID); err == nil {
 			for _, b := range existing {
-				if fresh[b.ForeignID] || b.InEbookLibrary || b.InAudiobookLibrary || b.HasFile {
+				if fresh[b.ForeignID] || b.InEbookLibrary || b.HasFile {
 					continue
 				}
 				if err := s.store.DeleteBook(b.ID); err != nil {
@@ -412,16 +412,16 @@ func (s *Service) persistBook(p metadata.Provider, remote *metadata.Book, author
 // RefreshAll re-syncs every author and comic series in the library.
 // Individual failures are logged and skipped so one dead provider record
 // can't stall the rest.
-// RefreshLibrary re-syncs one library's records from their providers: a
-// format library's member authors (ebook/audiobook) or a series library's
-// series (comic) — the library-wide twin of the per-author/per-series
-// Refresh buttons, honoring per-record provider overrides the same way.
-// Individual failures are logged and skipped; the count of successfully
-// refreshed records is returned.
+// RefreshLibrary re-syncs one library's records from their providers: the
+// ebook library's member authors or a series library's series (comic) —
+// the library-wide twin of the per-author/per-series Refresh buttons,
+// honoring per-record provider overrides the same way. Individual failures
+// are logged and skipped; the count of successfully refreshed records is
+// returned.
 func (s *Service) RefreshLibrary(ctx context.Context, mediaType string) (int, error) {
 	done := 0
 	switch mediaType {
-	case "ebook", "audiobook":
+	case "ebook":
 		authors, err := s.store.ListAuthors()
 		if err != nil {
 			return 0, err
@@ -429,10 +429,7 @@ func (s *Service) RefreshLibrary(ctx context.Context, mediaType string) (int, er
 		var unreachable unreachableStreak
 		for i := range authors {
 			a := &authors[i]
-			if mediaType == "ebook" && !a.InEbookLibrary {
-				continue
-			}
-			if mediaType == "audiobook" && !a.InAudiobookLibrary {
+			if !a.InEbookLibrary {
 				continue
 			}
 			if ctx.Err() != nil {

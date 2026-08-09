@@ -89,10 +89,9 @@ func writeFile(t *testing.T, path string) {
 	}
 }
 
-// TestPlanNonEbookTypes: the rename engine covers every media type — comic
-// files move to Series templates, multi-file audiobooks move as folders (and
-// carry their sidecars), single-file audiobooks land in per-book folders.
-func TestPlanNonEbookTypes(t *testing.T) {
+// TestPlanComicType: the rename engine covers comics too — files move to
+// Series templates, not just the ebook Author/Title layout.
+func TestPlanComicType(t *testing.T) {
 	f := fixture(t)
 
 	// Comic volume linked to a series.
@@ -122,23 +121,6 @@ func TestPlanNonEbookTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Multi-file audiobook: the record's path is the book folder.
-	abRoot := t.TempDir()
-	res, err = f.db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('audiobook', ?)`, abRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	abRootID, _ := res.LastInsertId()
-	abDir := filepath.Join(abRoot, "incoming", "mort audio")
-	writeFile(t, filepath.Join(abDir, "01.mp3"))
-	writeFile(t, filepath.Join(abDir, "metadata.opf"))
-	if err := f.store.UpsertBookFile(&library.BookFile{
-		RootFolderID: abRootID, BookID: f.mort.ID, MediaType: "audiobook",
-		Path: abDir, Format: "mp3",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
 	moves, skips, err := f.svc.Plan(0)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
@@ -154,23 +136,12 @@ func TestPlanNonEbookTypes(t *testing.T) {
 	if got := targets[filepath.Join(comicRoot, "dump", "twd001.cbz")]; got != wantComic {
 		t.Errorf("comic target = %q, want %q", got, wantComic)
 	}
-	wantAB := filepath.Join(abRoot, "Terry Pratchett", "Mort")
-	if got := targets[abDir]; got != wantAB {
-		t.Errorf("audiobook folder target = %q, want %q", got, wantAB)
-	}
 
 	if _, _, err := f.svc.Apply(moves); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	// The folder moved with its tracks and sidecar intact.
-	for _, p := range []string{
-		filepath.Join(wantAB, "01.mp3"),
-		filepath.Join(wantAB, "metadata.opf"),
-		wantComic,
-	} {
-		if _, err := os.Stat(p); err != nil {
-			t.Errorf("after apply, missing %s", p)
-		}
+	if _, err := os.Stat(wantComic); err != nil {
+		t.Errorf("after apply, missing %s", wantComic)
 	}
 }
 

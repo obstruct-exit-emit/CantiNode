@@ -101,7 +101,7 @@ func (s *server) unmatchedOptions(mediaType string) ([]unmatchedOption, error) {
 	}
 }
 
-// proseOptions matches ebook/audiobook files against their author-folder's
+// proseOptions matches ebook files against their author-folder's
 // bibliography.
 func (s *server) proseOptions(mediaType string, files []relFile) ([]unmatchedOption, error) {
 	authors, err := s.store.ListAuthors()
@@ -169,9 +169,6 @@ func (s *server) proseOptions(mediaType string, files []relFile) ([]unmatchedOpt
 				continue // volumes/issues import through their series
 			}
 			owned := b.HasEbookFile
-			if mediaType == "audiobook" {
-				owned = b.HasAudiobookFile
-			}
 			// This book's longest matching key and its coverage.
 			hit := 0
 			cov := 0.0
@@ -436,7 +433,7 @@ func (t *matchTally) confidence() int {
 // media type.
 func importableMediaType(mediaType string) bool {
 	switch mediaType {
-	case "ebook", "audiobook", "comic":
+	case "ebook", "comic":
 		return true
 	}
 	return false
@@ -447,7 +444,7 @@ func importableMediaType(mediaType string) bool {
 func (s *server) handleUnmatchedOptions(w http.ResponseWriter, r *http.Request) {
 	mediaType := r.URL.Query().Get("mediaType")
 	if !importableMediaType(mediaType) {
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, or comic")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook or comic")
 		return
 	}
 	options, err := s.unmatchedOptions(mediaType)
@@ -466,7 +463,7 @@ func (s *server) handleImportMatched(w http.ResponseWriter, r *http.Request) {
 		MediaType string `json:"mediaType"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !importableMediaType(req.MediaType) {
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, or comic")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook or comic")
 		return
 	}
 	options, err := s.unmatchedOptions(req.MediaType)

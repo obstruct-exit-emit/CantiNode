@@ -90,7 +90,7 @@ func (s *server) planRename(bookID, authorID, seriesID int64, mediaType string) 
 // renameMediaType validates the optional ?mediaType= library scope.
 func renameMediaType(v string) (string, bool) {
 	switch v {
-	case "", "ebook", "audiobook", "comic":
+	case "", "ebook", "comic":
 		return v, true
 	}
 	return "", false
@@ -213,8 +213,7 @@ func (s *server) adoptFile(fileID, bookID int64) ([]string, error) {
 	if err := s.store.SetBookFileBook(fileID, bookID); err != nil {
 		return nil, err
 	}
-	if book.MediaType == "book" &&
-		(file.MediaType == "ebook" || file.MediaType == "audiobook") {
+	if book.MediaType == "book" && file.MediaType == "ebook" {
 		if err := s.store.SetBookLibrary(bookID, file.MediaType, true, true); err != nil {
 			return nil, err
 		}

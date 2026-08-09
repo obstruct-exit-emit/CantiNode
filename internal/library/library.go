@@ -6,10 +6,9 @@ package library
 // Edition formats. "physical" editions are tracked for completeness but are
 // never grabbed.
 const (
-	FormatEbook     = "ebook"
-	FormatAudiobook = "audiobook"
-	FormatPhysical  = "physical"
-	FormatUnknown   = "unknown"
+	FormatEbook    = "ebook"
+	FormatPhysical = "physical"
+	FormatUnknown  = "unknown"
 )
 
 type Author struct {
@@ -21,10 +20,9 @@ type Author struct {
 	Description string `json:"description"`
 	ImageURL    string `json:"imageUrl"`
 	Monitored   bool   `json:"monitored"`
-	// Per-format library membership: the author was added to (or owns files
-	// in) that library — independent of how many books are visible there.
-	InEbookLibrary     bool `json:"inEbookLibrary"`
-	InAudiobookLibrary bool `json:"inAudiobookLibrary"`
+	// InEbookLibrary: the author was added to (or owns files in) the ebook
+	// library — independent of how many books are visible there.
+	InEbookLibrary bool `json:"inEbookLibrary"`
 	// ProviderOverride pins this author to a metadata provider, beating the
 	// global Settings → Metadata selection ("" = follow settings).
 	ProviderOverride string `json:"providerOverride"`
@@ -41,8 +39,8 @@ type Book struct {
 	ID       int64  `json:"id"`
 	AuthorID int64  `json:"authorId"`
 	Source   string `json:"metadataSource"`
-	// MediaType is "book" for prose (owned as ebook/audiobook), or "comic"
-	// for a series issue.
+	// MediaType is "book" for prose (owned as ebook), or "comic" for a
+	// series issue.
 	MediaType   string  `json:"mediaType"`
 	ForeignID   string  `json:"foreignBookId"`
 	Title       string  `json:"title"`
@@ -52,18 +50,15 @@ type Book struct {
 	Rating      float64 `json:"rating"`
 	CoverURL    string  `json:"coverUrl"`
 	Monitored   bool    `json:"monitored"`
-	// Per-format library membership (prose books only): a book shows in
-	// the Ebooks/Audiobooks library only when owned or deliberately added
-	// there; each membership has its own monitored flag.
-	InEbookLibrary     bool `json:"inEbookLibrary"`
-	EbookMonitored     bool `json:"ebookMonitored"`
-	InAudiobookLibrary bool `json:"inAudiobookLibrary"`
-	AudiobookMonitored bool `json:"audiobookMonitored"`
-	HasFile            bool `json:"hasFile"` // any media type
-	HasEbookFile       bool   `json:"hasEbookFile"`
-	HasAudiobookFile   bool   `json:"hasAudiobookFile"`
-	AddedAt            string `json:"addedAt"`
-	UpdatedAt    string `json:"updatedAt"`
+	// Ebook library membership (prose books only): a book shows in the
+	// Ebooks library only when owned or deliberately added there; the
+	// membership has its own monitored flag.
+	InEbookLibrary bool   `json:"inEbookLibrary"`
+	EbookMonitored bool   `json:"ebookMonitored"`
+	HasFile        bool   `json:"hasFile"` // any media type
+	HasEbookFile   bool   `json:"hasEbookFile"`
+	AddedAt        string `json:"addedAt"`
+	UpdatedAt      string `json:"updatedAt"`
 	// Populated on detail endpoints.
 	Editions []Edition    `json:"editions,omitempty"`
 	Series   []SeriesLink `json:"series,omitempty"`

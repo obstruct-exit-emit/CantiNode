@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-var mediaTypes = []string{"ebook", "audiobook", "comic"}
+var mediaTypes = []string{"ebook", "comic", "music"}
 
 type rootFolder struct {
 	ID         int64  `json:"id"`
@@ -63,7 +63,7 @@ func (s *server) handleAddRootFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !slices.Contains(mediaTypes, req.MediaType) {
-		writeError(w, http.StatusBadRequest, "mediaType must be one of: ebook, audiobook, comic")
+		writeError(w, http.StatusBadRequest, "mediaType must be one of: ebook, comic, music")
 		return
 	}
 	if req.Path == "" {

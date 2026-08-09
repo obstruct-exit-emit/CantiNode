@@ -1976,9 +1976,9 @@ func TestNamingSaveKeepsOtherTemplates(t *testing.T) {
 	// A partial save (only ebook fields, like an older client) must not wipe
 	// the other media types' templates.
 	var ns struct {
-		EbookFolder     string `json:"ebookFolder"`
-		ComicFile       string `json:"comicFile"`
-		AudiobookFolder string `json:"audiobookFolder"`
+		EbookFolder string `json:"ebookFolder"`
+		ComicFile   string `json:"comicFile"`
+		MusicFile   string `json:"musicFile"`
 	}
 	a.want(a.call("PUT", "/api/v1/settings/naming", map[string]string{
 		"ebookFolder": "{Author SortName}",
@@ -1987,12 +1987,12 @@ func TestNamingSaveKeepsOtherTemplates(t *testing.T) {
 	if ns.EbookFolder != "{Author SortName}" {
 		t.Errorf("ebook folder not saved: %+v", ns)
 	}
-	if ns.ComicFile == "" || ns.AudiobookFolder == "" {
+	if ns.ComicFile == "" || ns.MusicFile == "" {
 		t.Fatalf("partial naming save wiped other templates: %+v", ns)
 	}
 }
 
-func TestLibrariesHomeAndCrossAdd(t *testing.T) {
+func TestLibrariesHomeAndRemoval(t *testing.T) {
 	a := newTestAPI(t, fakeProvider{})
 
 	// Fresh install: nothing active, Home empty.
@@ -2009,7 +2009,7 @@ func TestLibrariesHomeAndCrossAdd(t *testing.T) {
 	// Plex-style.
 	var book library.Book
 	a.want(a.call("POST", "/api/v1/book", map[string]string{"foreignBookId": "1"}, &book), http.StatusCreated)
-	if !book.InEbookLibrary || !book.EbookMonitored || book.InAudiobookLibrary {
+	if !book.InEbookLibrary || !book.EbookMonitored {
 		t.Fatalf("membership after add = %+v", book)
 	}
 	a.want(a.call("GET", "/api/v1/libraries", nil, &libs), http.StatusOK)
@@ -2041,18 +2041,11 @@ func TestLibrariesHomeAndCrossAdd(t *testing.T) {
 		t.Fatalf("home = %+v", home)
 	}
 
-	// Cross-add to Audiobooks with monitoring: the scoped author list sees it.
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/book/%d/library", book.ID),
-		map[string]any{"library": "audiobook", "member": true, "monitored": true}, &book), http.StatusOK)
-	if !book.InAudiobookLibrary || !book.AudiobookMonitored {
-		t.Fatalf("cross-add failed: %+v", book)
-	}
 	var authors []library.Author
-	a.want(a.call("GET", "/api/v1/author?library=audiobook", nil, &authors), http.StatusOK)
+	a.want(a.call("GET", "/api/v1/author?library=ebook", nil, &authors), http.StatusOK)
 	if len(authors) != 1 {
-		t.Fatalf("audiobook authors = %+v", authors)
+		t.Fatalf("ebook authors = %+v", authors)
 	}
-
 	authorID := authors[0].ID
 
 	// Remove the book from Ebooks: the book leaves the grid, but the AUTHOR
@@ -2068,26 +2061,10 @@ func TestLibrariesHomeAndCrossAdd(t *testing.T) {
 		t.Fatalf("ebook authors after book removal = %+v, want the author with 0 books", authors)
 	}
 
-	// Removing the AUTHOR from Ebooks clears that library only.
+	// Removing the AUTHOR from Ebooks (its only library) deletes the author
+	// (and books) outright.
 	a.want(a.call("PUT", fmt.Sprintf("/api/v1/author/%d/library", authorID),
 		map[string]any{"library": "ebook", "member": false}, nil), http.StatusOK)
-	a.want(a.call("GET", "/api/v1/author?library=ebook", nil, &authors), http.StatusOK)
-	if len(authors) != 0 {
-		t.Fatalf("ebook authors after author removal = %+v", authors)
-	}
-	a.want(a.call("GET", "/api/v1/author?library=audiobook", nil, &authors), http.StatusOK)
-	if len(authors) != 1 {
-		t.Fatalf("audiobook authors must be untouched, got %+v", authors)
-	}
-	// The book's audiobook membership survived the ebook-side removal.
-	a.want(a.call("GET", fmt.Sprintf("/api/v1/book/%d", book.ID), nil, &book), http.StatusOK)
-	if !book.InAudiobookLibrary || !book.AudiobookMonitored || book.InEbookLibrary {
-		t.Fatalf("book membership after ebook author removal = %+v", book)
-	}
-
-	// Removing from the last library deletes the author (and books) outright.
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/author/%d/library", authorID),
-		map[string]any{"library": "audiobook", "member": false}, nil), http.StatusOK)
 	a.want(a.call("GET", fmt.Sprintf("/api/v1/author/%d", authorID), nil, nil), http.StatusNotFound)
 }
 
