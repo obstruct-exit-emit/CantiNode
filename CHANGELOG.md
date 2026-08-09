@@ -617,6 +617,14 @@ in progress. Highlights from the hardening period, newest first:
   versions via ldflags.
 
 ### Removed
+- **Manga and magazines are gone as media types**, along with the
+  colorized/monochrome per-variant root-folder system manga alone used.
+  Comics remains as the one series-first library. Also removed: the
+  **AudioBook Bay** and **Library Genesis** native indexers (scraped
+  sources, off-by-default and user-enabled) — Prowlarr/Newznab/Torznab
+  indexing is unaffected. Touches the DB schema (migrations trimmed to
+  match), the scanner/organizer/release-scoring/importer pipeline, the
+  REST API, and the web UI.
 - **Docker and Windows support are on hold for now.** Both worked and shipped
   (a Dockerfile + compose file + published GHCR images; a Windows zip with a
   Task Scheduler install/uninstall script) but are pulled back mid-hardening
@@ -627,7 +635,7 @@ in progress. Highlights from the hardening period, newest first:
   work back up, not redesigning it — see the roadmap's Future section.
 
 Earlier work (Phases 0–5) is chronicled in the README's roadmap section:
-libraries for ebooks/audiobooks/manga/comics/magazines, Hardcover/AniList/
-ComicVine metadata, Prowlarr sync, quality profiles and upgrades, Completed
-Download Handling with multi-book pack imports, per-library UI, health checks,
-authentication, backups, packaging, and the docs site.
+libraries for ebooks/audiobooks/comics, Hardcover/ComicVine metadata,
+Prowlarr sync, quality profiles and upgrades, Completed Download Handling
+with multi-book pack imports, per-library UI, health checks, authentication,
+backups, packaging, and the docs site.

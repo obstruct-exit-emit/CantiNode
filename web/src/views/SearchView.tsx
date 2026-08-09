@@ -4,9 +4,9 @@ import { libraryLabels } from "../App";
 import { RowsSkeleton } from "../components/Skeleton";
 
 // Global search: one query across every library — authors, prose books, and
-// series/magazines — matched client-side against the library lists. This
-// finds what you HAVE (and track); adding new content stays per-library
-// where the right metadata provider is known.
+// series — matched client-side against the library lists. This finds what
+// you HAVE (and track); adding new content stays per-library where the
+// right metadata provider is known.
 export default function SearchView({
   query,
   onError,
@@ -137,7 +137,7 @@ export default function SearchView({
 
       {hits.series.length > 0 && (
         <section className="card">
-          <h2>Series & magazines ({hits.series.length})</h2>
+          <h2>Series ({hits.series.length})</h2>
           <div className="poster-grid">
             {hits.series.map((s) => (
               <button

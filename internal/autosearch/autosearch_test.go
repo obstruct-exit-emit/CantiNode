@@ -214,58 +214,6 @@ func TestSearchWantedAudiobook(t *testing.T) {
 	}
 }
 
-func TestSearchWantedMagazine(t *testing.T) {
-	// Two issues on the indexer; one already in the library.
-	f := fixture(t, `<rss xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/"><channel>
-	  <item><title>The Economist - 2026-07-04 PDF</title><guid>m1</guid>
-	    <link>https://idx/get/eco-0704.nzb</link><newznab:attr name="size" value="52428800"/></item>
-	  <item><title>The Economist - 2026-06-27 PDF</title><guid>m2</guid>
-	    <link>https://idx/get/eco-0627.nzb</link><newznab:attr name="size" value="52428800"/></item>
-	  <item><title>The Economist - 2026-07-04 EPUB</title><guid>m3</guid>
-	    <link>https://idx/get/eco-0704-epub.nzb</link><newznab:attr name="size" value="52428800"/></item>
-	</channel></rss>`)
-
-	// Give the ebook fixtures files so only the magazine is wanted.
-	for _, b := range []*library.Book{f.book} {
-		if err := f.store.UpsertBookFile(&library.BookFile{
-			RootFolderID: 1, BookID: b.ID, MediaType: "ebook", Path: "/x/" + b.Title + ".epub", Format: "epub",
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	mag := &library.Series{Source: "manual", ForeignID: "magazine:economist",
-		Title: "The Economist", MediaType: "magazine", Monitored: true, MonitorNew: true}
-	if err := f.store.UpsertSeries(mag); err != nil {
-		t.Fatal(err)
-	}
-	// 2026-06-27 is already owned.
-	if _, err := f.store.CreateMagazineIssue(mag, "2026-06-27", false); err != nil {
-		t.Fatal(err)
-	}
-
-	// Magazines are organize-only for now: even with grabbable issues on the
-	// indexer and a monitored magazine, the sweep must not search, grab, or
-	// materialize anything for it.
-	outcomes, err := f.svc.SearchWanted(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, o := range outcomes {
-		if o.MediaType == "magazine" {
-			t.Fatalf("magazine swept despite acquisition being disabled: %+v", o)
-		}
-	}
-	if len(f.sabAdd) != 0 {
-		t.Errorf("sab adds = %v, want none", f.sabAdd)
-	}
-	// Only the pre-existing issue remains; nothing was materialized.
-	volumes, _ := f.store.ListVolumes(mag.ID)
-	if len(volumes) != 1 {
-		t.Fatalf("volumes = %+v, want just the owned issue", volumes)
-	}
-}
-
 func TestBlocklistedReleaseIsSkipped(t *testing.T) {
 	f := fixture(t, goodSearchXML)
 

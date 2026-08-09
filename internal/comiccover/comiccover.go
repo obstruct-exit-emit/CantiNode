@@ -1,7 +1,7 @@
 // Package comiccover extracts the cover image (first page) from a comic
 // archive — CBZ (zip) or CBR (rar, read via the pure-Go rardecode) — so the
-// UI can show a real cover for owned manga/comic volumes instead of relying
-// on provider metadata.
+// UI can show a real cover for owned comic volumes instead of relying on
+// provider metadata.
 package comiccover
 
 import (

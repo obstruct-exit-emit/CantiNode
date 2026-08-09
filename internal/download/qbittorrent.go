@@ -145,9 +145,7 @@ func (q *qbittorrent) Add(ctx context.Context, dlURL, title string) (string, err
 	return q.addURLs(ctx, dlURL, title)
 }
 
-// magnetHashRe extracts a magnet URI's v1 ("btih") or v2 ("btmh") info hash —
-// the same hex form AudioBookBay's own indexer already builds magnets from
-// and extracts them with (see audiobookbay.go's magnetHashRe).
+// magnetHashRe extracts a magnet URI's v1 ("btih") or v2 ("btmh") info hash.
 var magnetHashRe = regexp.MustCompile(`(?i)xt=urn:bt[im]h:([0-9a-f]{40,64})`)
 
 // magnetHash returns a magnet URI's info hash, lowercased to match how

@@ -26,19 +26,15 @@ type unmatchedCandidate struct {
 }
 
 // unmatchedOption is an unmatched file plus everything the import flow needs.
-// Prose files carry author fields and book candidates; manga/comic files carry
-// series fields, the parsed volume number, and volume candidates; magazine
-// files carry series fields and the parsed issue identifier (issues are
-// materialized on import, so a confident magazine match may have no Suggested
-// book yet).
+// Prose files carry author fields and book candidates; comic files carry
+// series fields, the parsed volume number, and volume candidates.
 type unmatchedOption struct {
 	File       library.BookFile     `json:"file"`
 	AuthorName string               `json:"authorName,omitempty"`
 	AuthorID   int64                `json:"authorId,omitempty"`
 	SeriesName string               `json:"seriesName,omitempty"`
 	SeriesID   int64                `json:"seriesId,omitempty"`
-	Volume     float64              `json:"volume,omitempty"`    // manga/comic: parsed volume number
-	Issue      string               `json:"issue,omitempty"`     // magazine: parsed issue identifier
+	Volume     float64              `json:"volume,omitempty"`    // comic: parsed volume number
 	Suggested  int64                `json:"suggested,omitempty"` // candidate id; confident when Confident
 	Confident  bool                 `json:"confident"`
 	Confidence int                  `json:"confidence"` // 0–100, how sure the suggestion is
@@ -98,10 +94,8 @@ func (s *server) unmatchedOptions(mediaType string) ([]unmatchedOption, error) {
 	}
 
 	switch mediaType {
-	case "manga", "comic":
+	case "comic":
 		return s.volumeOptions(mediaType, mine)
-	case "magazine":
-		return s.magazineOptions(mine)
 	default:
 		return s.proseOptions(mediaType, mine)
 	}
@@ -264,10 +258,9 @@ func (s *server) proseOptions(mediaType string, files []relFile) ([]unmatchedOpt
 	return out, nil
 }
 
-// volumeOptions matches manga/comic archives against library series: the
-// series comes from the folder (or filename prefix), the volume from the
-// number in the name. Ownership is variant-aware for manga — a colorized file
-// only duplicates the volume's colorized copy.
+// volumeOptions matches comic archives against library series: the series
+// comes from the folder (or filename prefix), the volume from the number in
+// the name.
 func (s *server) volumeOptions(mediaType string, files []relFile) ([]unmatchedOption, error) {
 	seriesList, err := s.store.ListSeries(mediaType)
 	if err != nil {
@@ -299,16 +292,6 @@ func (s *server) volumeOptions(mediaType string, files []relFile) ([]unmatchedOp
 		cache[id] = d
 		return d, nil
 	}
-	ownedFor := func(v *library.Book, variant string) bool {
-		if mediaType == "manga" {
-			if variant == "color" {
-				return v.HasColorFile
-			}
-			return v.HasMonoFile
-		}
-		return v.HasFile
-	}
-
 	out := []unmatchedOption{}
 	for i := range files {
 		f := files[i].file
@@ -350,7 +333,7 @@ func (s *server) volumeOptions(mediaType string, files []relFile) ([]unmatchedOp
 		var match *library.Book
 		for j := range data.volumes {
 			v := &data.volumes[j]
-			if !ownedFor(v, f.Variant) {
+			if !v.HasFile {
 				cand := unmatchedCandidate{ID: v.ID, Title: v.Title}
 				if len(v.ReleaseDate) >= 4 {
 					cand.Year = v.ReleaseDate[:4]
@@ -366,8 +349,8 @@ func (s *server) volumeOptions(mediaType string, files []relFile) ([]unmatchedOp
 			// No volume number in the name — manual pick only.
 		case match == nil:
 			opt.Confidence = 30 // series matched, but no such volume position
-		case ownedFor(match, f.Variant):
-			// The volume (this variant, for manga) is already owned: duplicate.
+		case match.HasFile:
+			// The volume is already owned: duplicate.
 			conf := 85
 			if exactSeries {
 				conf = 95
@@ -376,9 +359,6 @@ func (s *server) volumeOptions(mediaType string, files []relFile) ([]unmatchedOp
 				for k := range bookFiles {
 					bf := &bookFiles[k]
 					if bf.MediaType != mediaType {
-						continue
-					}
-					if mediaType == "manga" && bf.Variant != f.Variant {
 						continue
 					}
 					info := &duplicateInfo{BookID: match.ID, Title: match.Title,
@@ -399,78 +379,6 @@ func (s *server) volumeOptions(mediaType string, files []relFile) ([]unmatchedOp
 				opt.Confidence = 95
 			}
 		}
-		out = append(out, opt)
-	}
-	return out, nil
-}
-
-// magazineOptions matches magazine files against magazine series by title and
-// issue identifier (date or number). Import materializes the issue, so a
-// confident option may carry no Suggested book yet — series + issue is enough.
-func (s *server) magazineOptions(files []relFile) ([]unmatchedOption, error) {
-	mags, err := s.store.ListSeries("magazine")
-	if err != nil {
-		return nil, err
-	}
-	byNorm := map[string]*library.Series{}
-	for i := range mags {
-		byNorm[scanner.Normalize(mags[i].Title)] = &mags[i]
-	}
-
-	out := []unmatchedOption{}
-	for i := range files {
-		f := files[i].file
-		title, identifier := scanner.MagazineGuess(files[i].rel)
-		opt := unmatchedOption{File: f, SeriesName: title, Issue: identifier,
-			Candidates: []unmatchedCandidate{}}
-
-		sr := byNorm[scanner.Normalize(title)]
-		exact := sr != nil
-		if sr == nil {
-			normTitle := scanner.Normalize(title)
-			var only *library.Series
-			hits := 0
-			for j := range mags {
-				st := scanner.Normalize(mags[j].Title)
-				if st != "" && normTitle != "" &&
-					(strings.Contains(normTitle, st) || strings.Contains(st, normTitle)) {
-					hits++
-					only = &mags[j]
-				}
-			}
-			if hits == 1 {
-				sr = only
-			}
-		}
-		if sr == nil {
-			out = append(out, opt) // magazine unknown — UI offers adding it by name
-			continue
-		}
-		opt.SeriesID = sr.ID
-		opt.SeriesName = sr.Title
-		if identifier == "" {
-			out = append(out, opt) // no date/number in the name — dismiss or rename
-			continue
-		}
-		conf := 80
-		if exact {
-			conf = 95
-		}
-		if existing, err := s.store.GetBookByForeignID(sr.Source, sr.ForeignID+":"+identifier); err == nil {
-			if existing.HasFile {
-				// Issue already owned: duplicate.
-				if bookFiles, err := s.store.ListBookFiles(existing.ID); err == nil && len(bookFiles) > 0 {
-					opt.Duplicate = &duplicateInfo{BookID: existing.ID, Title: existing.Title,
-						File: bookFiles[0], Confidence: conf}
-				}
-				opt.Confidence = conf
-				out = append(out, opt)
-				continue
-			}
-			opt.Suggested = existing.ID // issue exists, unowned — plain adopt
-		}
-		opt.Confident = true
-		opt.Confidence = conf
 		out = append(out, opt)
 	}
 	return out, nil
@@ -525,11 +433,10 @@ func (t *matchTally) confidence() int {
 }
 
 // importableMediaType reports whether the existing-file import flow serves a
-// media type — all five libraries (magazines too: importing an on-disk issue
-// is organizational, not acquisition).
+// media type.
 func importableMediaType(mediaType string) bool {
 	switch mediaType {
-	case "ebook", "audiobook", "manga", "comic", "magazine":
+	case "ebook", "audiobook", "comic":
 		return true
 	}
 	return false
@@ -540,7 +447,7 @@ func importableMediaType(mediaType string) bool {
 func (s *server) handleUnmatchedOptions(w http.ResponseWriter, r *http.Request) {
 	mediaType := r.URL.Query().Get("mediaType")
 	if !importableMediaType(mediaType) {
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, manga, comic, or magazine")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, or comic")
 		return
 	}
 	options, err := s.unmatchedOptions(mediaType)
@@ -551,27 +458,6 @@ func (s *server) handleUnmatchedOptions(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, options)
 }
 
-// importTarget resolves the book a confident option imports into. Magazine
-// issues that don't exist yet are materialized here (unmonitored — the file
-// in hand IS the issue).
-func (s *server) importTarget(opt *unmatchedOption) (int64, error) {
-	if opt.Suggested > 0 {
-		return opt.Suggested, nil
-	}
-	if opt.File.MediaType == "magazine" && opt.SeriesID > 0 && opt.Issue != "" {
-		series, err := s.store.GetSeries(opt.SeriesID)
-		if err != nil {
-			return 0, err
-		}
-		book, err := s.store.CreateMagazineIssue(series, opt.Issue, false)
-		if err != nil {
-			return 0, err
-		}
-		return book.ID, nil
-	}
-	return 0, nil
-}
-
 // handleImportMatched imports every confident match in one go:
 // POST /api/v1/bookfile/import-matched {"mediaType":"…"}. Files without a
 // confident match are left for per-file review.
@@ -580,7 +466,7 @@ func (s *server) handleImportMatched(w http.ResponseWriter, r *http.Request) {
 		MediaType string `json:"mediaType"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !importableMediaType(req.MediaType) {
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, manga, comic, or magazine")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, or comic")
 		return
 	}
 	options, err := s.unmatchedOptions(req.MediaType)
@@ -598,11 +484,8 @@ func (s *server) handleImportMatched(w http.ResponseWriter, r *http.Request) {
 			review++
 			continue
 		}
-		bookID, err := s.importTarget(opt)
-		if err != nil || bookID == 0 {
-			if err != nil {
-				messages = append(messages, filepath.Base(opt.File.Path)+": "+err.Error())
-			}
+		bookID := opt.Suggested
+		if bookID == 0 {
 			review++
 			continue
 		}

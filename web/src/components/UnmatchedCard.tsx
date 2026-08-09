@@ -14,10 +14,9 @@ import { useUi } from "../ui";
 // files a scan found but couldn't confidently place, each with the library's
 // best suggestion (and its confidence), duplicate resolution, one-click
 // import, an import-all for the confident ones, and a way to add the missing
-// author/series/magazine when the file's owner isn't in the library yet.
-// Prose libraries match against the author's bibliography; manga/comics
-// against the series' volumes (variant-aware); magazines materialize the
-// parsed issue on import.
+// author/series when the file's owner isn't in the library yet. Prose
+// libraries match against the author's bibliography; comics against the
+// series' volumes.
 export default function UnmatchedCard({
   mediaType,
   books,
@@ -72,11 +71,7 @@ export default function UnmatchedCard({
 
   const confidentCount = options.filter((o) => o.confident).length;
   const kindHint =
-    mediaType === "manga" || mediaType === "comic"
-      ? "pick from the series' volumes"
-      : mediaType === "magazine"
-        ? "add the magazine so its issues can match"
-        : "pick from the author's books";
+    mediaType === "comic" ? "pick from the series' volumes" : "pick from the author's books";
 
   return (
     <section className="card unmatched-files">
@@ -132,8 +127,7 @@ function UnmatchedRow({
 }) {
   const { confirmDlg } = useUi();
   const { file, candidates, duplicate } = option;
-  const isVolume = mediaType === "manga" || mediaType === "comic";
-  const isMagazine = mediaType === "magazine";
+  const isVolume = mediaType === "comic";
   const suggested = candidates.find((c) => c.id === option.suggested);
   const [bookID, setBookID] = useState(option.suggested ?? 0);
   const [busy, setBusy] = useState(false);
@@ -165,26 +159,18 @@ function UnmatchedRow({
       .finally(() => setBusy(false));
   };
 
-  // The confident import: an existing book/volume, or a magazine issue that
-  // is materialized on the spot.
+  // The confident import: an existing book/volume.
   const importSuggested = () => {
     if (option.suggested) {
       run(() => api.matchFile(file.id, option.suggested!));
-    } else if (isMagazine && option.seriesId && option.issue) {
-      run(() => api.materializeIssue(file.id, option.seriesId!, option.issue!));
     }
   };
 
-  // The file's author/series/magazine isn't in the library: offer to add it.
+  // The file's author/series isn't in the library: offer to add it.
   const findOwner = () => {
     if (authorResults || seriesResults) {
       setAuthorResults(null);
       setSeriesResults(null);
-      return;
-    }
-    if (isMagazine) {
-      // Magazines are added by name — no provider search needed.
-      run(() => api.addMagazine(option.seriesName ?? ""));
       return;
     }
     setFinding(true);
@@ -287,15 +273,11 @@ function UnmatchedRow({
   }
 
   // What the confident suggestion reads as.
-  const suggestionLabel = isMagazine
-    ? option.seriesName && option.issue
-      ? `${option.seriesName} — ${option.issue}`
-      : ""
-    : suggested
-      ? `${suggested.title}${suggested.year ? ` (${suggested.year})` : ""}`
-      : "";
-  const ownerName = isVolume || isMagazine ? option.seriesName : option.authorName;
-  const ownerKnown = isVolume || isMagazine ? !!option.seriesId : !!option.authorId;
+  const suggestionLabel = suggested
+    ? `${suggested.title}${suggested.year ? ` (${suggested.year})` : ""}`
+    : "";
+  const ownerName = isVolume ? option.seriesName : option.authorName;
+  const ownerKnown = isVolume ? !!option.seriesId : !!option.authorId;
 
   return (
     <li>
@@ -329,20 +311,11 @@ function UnmatchedRow({
                 <button
                   className="toggle"
                   disabled={busy || finding}
-                  title={
-                    isMagazine
-                      ? `"${ownerName}" isn't in the library — add it as a magazine`
-                      : `"${ownerName}" isn't in the library — search the provider and add it`
-                  }
+                  title={`"${ownerName}" isn't in the library — search the provider and add it`}
                   onClick={findOwner}
                 >
                   {finding ? "Searching…" : `+ Add ${ownerName}`}
                 </button>
-              )}
-              {isMagazine && ownerKnown && !option.issue && (
-                <span className="muted" title="Rename the file with a date (2026-05-01) or issue number so it can match">
-                  no issue date/number in the filename
-                </span>
               )}
               {candidates.length > 0 && (
                 <>
@@ -366,7 +339,7 @@ function UnmatchedRow({
                   </button>
                 </>
               )}
-              {candidates.length === 0 && !isVolume && !isMagazine && books.length > 0 && (
+              {candidates.length === 0 && !isVolume && books.length > 0 && (
                 <>
                   <select value={bookID} onChange={(e) => setBookID(Number(e.target.value))}>
                     <option value={0}>Match to book…</option>

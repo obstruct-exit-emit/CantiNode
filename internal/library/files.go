@@ -6,27 +6,22 @@ import (
 )
 
 // RootFolder mirrors the root_folders table (managed by the rootfolder API);
-// the scanner needs them to know where to look. Variant is "color"/"mono"
-// for manga roots (the colorized/monochrome split) and "" for everything
-// else — files scanned from a root inherit it.
+// the scanner needs them to know where to look.
 type RootFolder struct {
 	ID        int64  `json:"id"`
 	MediaType string `json:"mediaType"`
 	Path      string `json:"path"`
-	Variant   string `json:"variant,omitempty"`
 }
 
 // BookFile is a file found on disk by a library scan. BookID is nil-like (0)
 // when the scanner could not match it to a library book. For multi-file
 // audiobooks, Path is the book's directory and Size the total of its audio
-// files. Variant carries the manga colorized/monochrome distinction (""
-// for non-manga files).
+// files.
 type BookFile struct {
 	ID           int64  `json:"id"`
 	RootFolderID int64  `json:"rootFolderId"`
 	BookID       int64  `json:"bookId,omitempty"`
 	MediaType    string `json:"mediaType"`
-	Variant      string `json:"variant,omitempty"`
 	Path         string `json:"path"`
 	Size         int64  `json:"size"`
 	Format       string `json:"format"`
@@ -44,7 +39,7 @@ type Track struct {
 }
 
 func (s *Store) ListRootFolders() ([]RootFolder, error) {
-	rows, err := s.db.Query(`SELECT id, media_type, path, variant FROM root_folders ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id, media_type, path FROM root_folders ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +48,7 @@ func (s *Store) ListRootFolders() ([]RootFolder, error) {
 	folders := []RootFolder{}
 	for rows.Next() {
 		var f RootFolder
-		if err := rows.Scan(&f.ID, &f.MediaType, &f.Path, &f.Variant); err != nil {
+		if err := rows.Scan(&f.ID, &f.MediaType, &f.Path); err != nil {
 			return nil, err
 		}
 		folders = append(folders, f)
@@ -77,18 +72,17 @@ func upsertBookFile(db execer, f *BookFile) error {
 	// never clears an existing match — manual imports stay imported. Explicit
 	// unmatching goes through SetBookFileBook.
 	err := db.QueryRow(`
-		INSERT INTO book_files (root_folder_id, book_id, media_type, variant, path, size, format, modified_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO book_files (root_folder_id, book_id, media_type, path, size, format, modified_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (path) DO UPDATE SET
 			root_folder_id = excluded.root_folder_id,
 			book_id = COALESCE(excluded.book_id, book_files.book_id),
 			media_type = excluded.media_type,
-			variant = excluded.variant,
 			size = excluded.size,
 			format = excluded.format,
 			modified_at = excluded.modified_at
 		RETURNING id, COALESCE(book_id, 0)`,
-		f.RootFolderID, bookID, f.MediaType, f.Variant, f.Path, f.Size, f.Format, f.ModifiedAt,
+		f.RootFolderID, bookID, f.MediaType, f.Path, f.Size, f.Format, f.ModifiedAt,
 	).Scan(&f.ID, &f.BookID)
 	if err != nil {
 		return err
@@ -128,11 +122,11 @@ func (b *BookFileBatch) Commit() error                    { return b.tx.Commit()
 // Rollback aborts the batch. Harmless to call after a successful Commit.
 func (b *BookFileBatch) Rollback() { _ = b.tx.Rollback() }
 
-const bookFileCols = `id, root_folder_id, COALESCE(book_id, 0), media_type, variant, path, size, format, modified_at, added_at`
+const bookFileCols = `id, root_folder_id, COALESCE(book_id, 0), media_type, path, size, format, modified_at, added_at`
 
 func scanBookFile(row interface{ Scan(...any) error }) (*BookFile, error) {
 	var f BookFile
-	err := row.Scan(&f.ID, &f.RootFolderID, &f.BookID, &f.MediaType, &f.Variant, &f.Path, &f.Size, &f.Format, &f.ModifiedAt, &f.AddedAt)
+	err := row.Scan(&f.ID, &f.RootFolderID, &f.BookID, &f.MediaType, &f.Path, &f.Size, &f.Format, &f.ModifiedAt, &f.AddedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -242,7 +236,7 @@ func (s *Store) BookFilePathsUnderRoot(rootFolderID int64) (map[string]int64, er
 	return paths, rows.Err()
 }
 
-// VolumeRef locates one manga volume / comic issue for scan matching.
+// VolumeRef locates one comic issue for scan matching.
 type VolumeRef struct {
 	BookID      int64
 	Position    float64
@@ -250,7 +244,7 @@ type VolumeRef struct {
 	MediaType   string
 }
 
-// ListVolumeRefs returns every manga/comic volume with its series title and
+// ListVolumeRefs returns every comic issue with its series title and
 // number — the scanner's matching index for comic-style roots.
 func (s *Store) ListVolumeRefs() ([]VolumeRef, error) {
 	rows, err := s.db.Query(`

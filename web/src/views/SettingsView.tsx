@@ -1163,9 +1163,7 @@ function ImportOptions({ onError }: { onError: (message: string) => void }) {
 const knownFormats: Record<string, string[]> = {
   ebook: ["epub", "azw3", "mobi", "pdf", "txt"],
   audiobook: ["m4b", "m4a", "mp3", "flac", "opus", "ogg"],
-  manga: ["cbz", "cbr", "epub", "pdf"],
   comic: ["cbz", "cbr", "pdf"],
-  magazine: ["pdf", "epub", "cbz"],
 };
 
 // FormatChips: the quality profile's format list as ordered chips —
@@ -1268,9 +1266,7 @@ function QualityProfilesCard({
   const defaultFormats: Record<string, string[]> = {
     ebook: ["epub", "azw3", "mobi"],
     audiobook: ["m4b", "m4a", "mp3"],
-    manga: ["cbz", "cbr"],
     comic: ["cbz", "cbr"],
-    magazine: ["pdf", "epub"],
   };
   const [profiles, setProfiles] = useState<QualityProfile[]>([]);
   const [name, setName] = useState("");
@@ -1488,7 +1484,6 @@ const emptyIndexer: Omit<Indexer, "id" | "addedAt"> = {
   categories: "7000,7020",
   audioCategories: "3030",
   comicCategories: "7030",
-  magazineCategories: "7010",
   enabled: true,
   priority: 25,
 };
@@ -1820,17 +1815,9 @@ function IndexersCard({
           <label>
             Comic categories
             <input
-              title="7030 = Books/Comics (manga and comics)"
+              title="7030 = Books/Comics"
               value={draft.comicCategories}
               onChange={(e) => set({ comicCategories: e.target.value })}
-            />
-          </label>
-          <label>
-            Magazine categories
-            <input
-              title="7010 = Books/Mags"
-              value={draft.magazineCategories}
-              onChange={(e) => set({ magazineCategories: e.target.value })}
             />
           </label>
         </Disclosure>
@@ -1957,22 +1944,10 @@ function NamingCard({
             </p>
           </Section>
         )}
-        {show("manga") && (
-          <Section title="Manga">
-            {field("Folder template", "mangaFolder")}
-            {field("File template", "mangaFile")}
-          </Section>
-        )}
         {show("comic") && (
           <Section title="Comics">
             {field("Folder template", "comicFolder")}
             {field("File template", "comicFile")}
-          </Section>
-        )}
-        {show("magazine") && (
-          <Section title="Magazines">
-            {field("Folder template", "magazineFolder")}
-            {field("File template", "magazineFile")}
           </Section>
         )}
         <div className="settings-actions">
@@ -2012,9 +1987,7 @@ function MetadataCard({
   const [fallbacks, setFallbacks] = useState<string[]>([]);
   const [providers, setProviders] = useState<Record<string, ProviderSettings>>({});
   const [showToken, setShowToken] = useState(false);
-  const [mangaProvider, setMangaProvider] = useState("");
   const [comicProvider, setComicProvider] = useState("");
-  const [mangaCoverSource, setMangaCoverSource] = useState("provider");
   const [comicCoverSource, setComicCoverSource] = useState("provider");
   const [language, setLanguage] = useState("english");
   const [country, setCountry] = useState("united states");
@@ -2051,9 +2024,7 @@ function MetadataCard({
         setActive(s.active);
         setFallbacks(s.fallbacks ?? []);
         setProviders(s.providers);
-        setMangaProvider(s.mangaProvider);
         setComicProvider(s.comicProvider);
-        setMangaCoverSource(s.mangaCoverSource);
         setComicCoverSource(s.comicCoverSource);
         setLanguage(s.language);
         setCountry(s.country);
@@ -2090,9 +2061,7 @@ function MetadataCard({
     api
       .saveMetadataSettings(active, providers, {
         fallbacks: fallbacks.filter((f) => f !== active),
-        mangaProvider,
         comicProvider,
-        mangaCoverSource,
         comicCoverSource,
         language,
         country,
@@ -2104,9 +2073,7 @@ function MetadataCard({
         setActive(s.active);
         setFallbacks(s.fallbacks ?? []);
         setProviders(s.providers);
-        setMangaProvider(s.mangaProvider);
         setComicProvider(s.comicProvider);
-        setMangaCoverSource(s.mangaCoverSource);
         setComicCoverSource(s.comicCoverSource);
         setLanguage(s.language);
         setCountry(s.country);
@@ -2324,42 +2291,6 @@ function MetadataCard({
         </div>
 
         <div className="settings-section">
-          <h3>Manga</h3>
-          <label>
-            Manga provider
-            <select
-              value={mangaProvider || settings.mangaProviders[0] || "anilist"}
-              onChange={(e) => {
-                setMangaProvider(e.target.value);
-                setNotice("");
-              }}
-            >
-              {settings.mangaProviders.map((name) => (
-                <option key={name} value={name}>
-                  {name[0].toUpperCase() + name.slice(1)}
-                  {name === "anilist" ? " (no key)" : ""}
-                  {name === "hardcover" ? " (uses your Hardcover token)" : ""}
-                </option>
-              ))}
-              <option value="none">None (disabled)</option>
-            </select>
-          </label>
-          <label>
-            Volume covers
-            <select
-              value={mangaCoverSource}
-              onChange={(e) => {
-                setMangaCoverSource(e.target.value);
-                setNotice("");
-              }}
-            >
-              <option value="provider">Use the provider's cover art</option>
-              <option value="file">Extract from the owned file (first page)</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="settings-section">
           <h3>Comics</h3>
           <label>
             Comic provider
@@ -2417,7 +2348,7 @@ function MetadataCard({
           appear as they complete. Clearing a cache below just empties it;
           it rebuilds on demand. <strong>Provider art</strong> (author portraits,
           cover images) and <strong>extracted covers</strong> (the first page of
-          your owned manga/comic archives) re-fetch as you browse;{" "}
+          your owned comic archives) re-fetch as you browse;{" "}
           <strong>descriptions</strong> return on the next refresh.
         </p>
         <div className="settings-actions">
@@ -2488,7 +2419,7 @@ function MetadataCard({
   );
 }
 
-const mediaTypes = ["ebook", "audiobook", "manga", "comic", "magazine"] as const;
+const mediaTypes = ["ebook", "audiobook", "comic"] as const;
 
 function RootFoldersCard({
   onError,
@@ -2500,7 +2431,6 @@ function RootFoldersCard({
   const { confirmDlg } = useUi();
   const [folders, setFolders] = useState<RootFolder[]>([]);
   const [mediaType, setMediaType] = useState<string>("ebook");
-  const [variant, setVariant] = useState<string>("mono");
   const [path, setPath] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2522,7 +2452,7 @@ function RootFoldersCard({
     setBusy(true);
     setNotice("");
     api
-      .addRootFolder(mediaType, trimmed, mediaType === "manga" ? variant : undefined)
+      .addRootFolder(mediaType, trimmed)
       .then(() => {
         setPath("");
         reload();
@@ -2533,9 +2463,6 @@ function RootFoldersCard({
       )
       .finally(() => setBusy(false));
   };
-
-  const variantLabel = (v?: string) =>
-    v === "color" ? "colorized" : v === "mono" ? "monochrome" : "";
 
   const remove = async (f: RootFolder) => {
     const ok = await confirmDlg({
@@ -2561,9 +2488,6 @@ function RootFoldersCard({
         Where your libraries live on disk. The scanner walks these to match
         files you already own; note the path must exist on the machine running
         LibriNode (in WSL, Windows drives are under <code>/mnt/c/…</code>).
-        Manga stays one library, but you add a <strong>separate root per
-        variant</strong> — colorized and monochrome — so each volume can own
-        one, the other, or both.
       </p>
 
       {folders.length > 0 && (
@@ -2576,10 +2500,7 @@ function RootFoldersCard({
                   {!f.accessible && <span className="notice bad"> (not accessible)</span>}
                 </span>
                 <span className="row-actions">
-                  <span className="muted">
-                    {f.mediaType}
-                    {f.variant && ` · ${variantLabel(f.variant)}`}
-                  </span>
+                  <span className="muted">{f.mediaType}</span>
                   <button className="danger" onClick={() => remove(f)}>
                     remove
                   </button>
@@ -2599,12 +2520,6 @@ function RootFoldersCard({
             </option>
           ))}
         </select>
-        {mediaType === "manga" && (
-          <select value={variant} onChange={(e) => setVariant(e.target.value)}>
-            <option value="mono">monochrome</option>
-            <option value="color">colorized</option>
-          </select>
-        )}
         <input
           placeholder="/data/ebooks or /mnt/c/Users/…/Ebooks"
           value={path}

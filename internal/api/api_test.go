@@ -395,7 +395,7 @@ func TestSearch(t *testing.T) {
 	}
 
 	a.want(a.call("GET", "/api/v1/search?type=book", nil, nil), http.StatusBadRequest)
-	a.want(a.call("GET", "/api/v1/search?term=x&type=magazine", nil, nil), http.StatusBadRequest)
+	a.want(a.call("GET", "/api/v1/search?term=x&type=bogus", nil, nil), http.StatusBadRequest)
 }
 
 func TestSearchWithoutProvider(t *testing.T) {
@@ -458,7 +458,7 @@ func TestMetadataSettingsHotSwap(t *testing.T) {
 	a.want(a.call("GET", "/api/v1/search?term=magic", nil, nil), http.StatusServiceUnavailable)
 }
 
-// TestSeriesProviderNone: "none" disables a media type's provider — manga
+// TestSeriesProviderNone: "none" disables a media type's provider — comic
 // search goes unavailable AND refreshes fetch nothing (libraries always
 // honor the settings). The per-series provider override is the explicit
 // escape hatch: once set, refresh uses that provider even under "none".
@@ -467,26 +467,26 @@ func TestSeriesProviderNone(t *testing.T) {
 	volumes := 2
 	// Registered (not just injected) so the settings PUT's ConfigureSeries
 	// rebuild keeps the provider available by name.
-	metadata.RegisterSeries("fakemanga", func(metadata.Settings) (metadata.SeriesProvider, error) {
+	metadata.RegisterSeries("fakecomic", func(metadata.Settings) (metadata.SeriesProvider, error) {
 		return fakeSeriesProvider{volumes: &volumes}, nil
 	})
 	a.mgr.SetSeries(fakeSeriesProvider{volumes: &volumes})
 
 	var series library.Series
 	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "500"}, &series), http.StatusCreated)
+		map[string]any{"mediaType": "comic", "foreignSeriesId": "500"}, &series), http.StatusCreated)
 
-	// Disable the manga provider via settings ("none" must validate).
+	// Disable the comic provider via settings ("none" must validate).
 	var settings struct {
-		MangaProvider string `json:"mangaProvider"`
+		ComicProvider string `json:"comicProvider"`
 	}
 	a.want(a.call("PUT", "/api/v1/settings/metadata", map[string]any{
-		"active": "", "providers": map[string]any{}, "mangaProvider": "none",
+		"active": "", "providers": map[string]any{}, "comicProvider": "none",
 	}, &settings), http.StatusOK)
-	if settings.MangaProvider != "none" {
-		t.Fatalf("mangaProvider = %q, want none", settings.MangaProvider)
+	if settings.ComicProvider != "none" {
+		t.Fatalf("comicProvider = %q, want none", settings.ComicProvider)
 	}
-	a.want(a.call("GET", "/api/v1/search?term=berserk&type=manga", nil, nil), http.StatusServiceUnavailable)
+	a.want(a.call("GET", "/api/v1/search?term=berserk&type=comic", nil, nil), http.StatusServiceUnavailable)
 
 	// A refresh under provider=none fetches NOTHING — the volume count must
 	// not change even though the provider now reports more volumes.
@@ -499,9 +499,9 @@ func TestSeriesProviderNone(t *testing.T) {
 
 	// The per-series provider override beats the global "none".
 	a.want(a.call("PUT", fmt.Sprintf("/api/v1/series/%d/provider", series.ID),
-		map[string]string{"provider": "fakemanga"}, &refreshed), http.StatusOK)
-	if refreshed.ProviderOverride != "fakemanga" {
-		t.Fatalf("providerOverride = %q, want fakemanga", refreshed.ProviderOverride)
+		map[string]string{"provider": "fakecomic"}, &refreshed), http.StatusOK)
+	if refreshed.ProviderOverride != "fakecomic" {
+		t.Fatalf("providerOverride = %q, want fakecomic", refreshed.ProviderOverride)
 	}
 	a.want(a.call("POST", fmt.Sprintf("/api/v1/series/%d/refresh", series.ID), nil, &refreshed), http.StatusOK)
 	if len(refreshed.Volumes) != 3 {
@@ -518,13 +518,13 @@ func TestSeriesProviderNone(t *testing.T) {
 	}
 }
 
-// fakeSeriesProvider serves one manga series whose volume count can grow.
+// fakeSeriesProvider serves one comic series whose volume count can grow.
 type fakeSeriesProvider struct {
 	volumes *int
 }
 
-func (fakeSeriesProvider) Name() string      { return "fakemanga" }
-func (fakeSeriesProvider) MediaType() string { return "manga" }
+func (fakeSeriesProvider) Name() string      { return "fakecomic" }
+func (fakeSeriesProvider) MediaType() string { return "comic" }
 
 func (p fakeSeriesProvider) SearchSeries(context.Context, string) ([]metadata.SeriesResult, error) {
 	return []metadata.SeriesResult{{ForeignID: "500", Title: "Berserk", AuthorName: "Kentarou Miura", IssueCount: *p.volumes}}, nil
@@ -546,12 +546,6 @@ func (p fakeSeriesProvider) GetSeries(_ context.Context, id string) (*metadata.S
 	return result, nil
 }
 
-// fakeComicProvider is fakeSeriesProvider serving the comic media type.
-type fakeComicProvider struct{ fakeSeriesProvider }
-
-func (fakeComicProvider) Name() string      { return "fakecomic" }
-func (fakeComicProvider) MediaType() string { return "comic" }
-
 func TestSeriesFlow(t *testing.T) {
 	a := newTestAPI(t, nil)
 	volumes := 3
@@ -559,38 +553,32 @@ func TestSeriesFlow(t *testing.T) {
 
 	// Search via the shared search endpoint.
 	var results []metadata.SeriesResult
-	a.want(a.call("GET", "/api/v1/search?term=berserk&type=manga", nil, &results), http.StatusOK)
+	a.want(a.call("GET", "/api/v1/search?term=berserk&type=comic", nil, &results), http.StatusOK)
 	if len(results) != 1 || results[0].ForeignID != "500" {
 		t.Fatalf("search = %+v", results)
 	}
-	// Comic search has no provider configured.
-	a.want(a.call("GET", "/api/v1/search?term=x&type=comic", nil, nil), http.StatusServiceUnavailable)
 
 	// Add the series with explicit monitoring (the default pulls metadata
-	// only): volumes become monitored manga books.
+	// only): volumes become monitored comic books.
 	var series library.Series
 	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "500", "monitored": true, "monitorNew": true}, &series), http.StatusCreated)
-	if series.Title != "Berserk" || !series.Monitored || !series.MonitorNew || series.MediaType != "manga" {
+		map[string]any{"mediaType": "comic", "foreignSeriesId": "500", "monitored": true, "monitorNew": true}, &series), http.StatusCreated)
+	if series.Title != "Berserk" || !series.Monitored || !series.MonitorNew || series.MediaType != "comic" {
 		t.Fatalf("series = %+v", series)
 	}
 	if len(series.Volumes) != 3 {
 		t.Fatalf("volumes = %+v", series.Volumes)
 	}
 	v1 := series.Volumes[0]
-	if v1.Title != "Berserk Vol. 1" || v1.MediaType != "manga" || !v1.Monitored {
+	if v1.Title != "Berserk #1" || v1.MediaType != "comic" || !v1.Monitored {
 		t.Fatalf("volume 1 = %+v", v1)
 	}
 
 	// List filters by media type.
 	var list []library.Series
-	a.want(a.call("GET", "/api/v1/series?mediaType=manga", nil, &list), http.StatusOK)
+	a.want(a.call("GET", "/api/v1/series?mediaType=comic", nil, &list), http.StatusOK)
 	if len(list) != 1 {
 		t.Fatalf("list = %+v", list)
-	}
-	a.want(a.call("GET", "/api/v1/series?mediaType=comic", nil, &list), http.StatusOK)
-	if len(list) != 0 {
-		t.Fatalf("comic list = %+v", list)
 	}
 
 	// Refresh discovers a new volume; monitor_new makes it monitored.
@@ -620,126 +608,16 @@ func TestSeriesFlow(t *testing.T) {
 	}
 
 	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "999"}, nil), http.StatusNotFound)
+		map[string]any{"mediaType": "comic", "foreignSeriesId": "999"}, nil), http.StatusNotFound)
 }
 
-// TestMangaVolumeLibrary: a manga volume is in the library when monitored or
-// owned; PUT /book/{id}/library with library=manga removes it (unmonitor,
-// moving it to the series' Missing section) or adds it back (monitor). A
-// volume's own monitor toggle works the same way.
-func TestMangaVolumeLibrary(t *testing.T) {
-	a := newTestAPI(t, nil)
-	volumes := 3
-	a.mgr.SetSeries(fakeSeriesProvider{volumes: &volumes})
-
-	var series library.Series
-	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "500"}, &series), http.StatusCreated)
-	if len(series.Volumes) != 3 {
-		t.Fatalf("volumes = %d, want 3", len(series.Volumes))
-	}
-	v1 := series.Volumes[0].ID
-
-	// Like adding an author, adding a series pulls metadata only: every
-	// volume starts unmonitored — the whole series begins in Missing.
-	if series.Volumes[0].Monitored {
-		t.Fatal("freshly added volume must NOT be monitored (metadata only)")
-	}
-
-	// Monitor volume 1 from Missing (member=true adds it to the library).
-	var book library.Book
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/book/%d/library", v1),
-		map[string]any{"library": "manga", "member": true}, &book), http.StatusOK)
-	if !book.Monitored {
-		t.Fatalf("monitored volume from Missing = %+v", book)
-	}
-
-	// Remove it again: it unmonitors (unowned → back to Missing).
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/book/%d/library", v1),
-		map[string]any{"library": "manga", "member": false}, &book), http.StatusOK)
-	if book.Monitored {
-		t.Fatalf("removed volume still monitored: %+v", book)
-	}
-
-	// The per-volume monitor toggle flips the same flag.
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/book/%d/monitor", v1),
-		map[string]bool{"monitored": true}, nil), http.StatusOK)
-	a.want(a.call("GET", fmt.Sprintf("/api/v1/book/%d", v1), nil, &book), http.StatusOK)
-	if !book.Monitored {
-		t.Fatalf("volume not monitored after monitor toggle: %+v", book)
-	}
-}
-
-// TestMangaVolumeRemoveOwned: removing an OWNED volume forgets its file
-// records so it's no longer owned (it moves to Missing), even without
-// deleting the file from disk — the previous behavior left it showing as
-// owned.
-func TestMangaVolumeRemoveOwned(t *testing.T) {
-	a := newTestAPI(t, nil)
-	volumes := 3
-	a.mgr.SetSeries(fakeSeriesProvider{volumes: &volumes})
-
-	var series library.Series
-	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "500"}, &series), http.StatusCreated)
-	v1 := series.Volumes[0].ID
-
-	// A monochrome manga root with volume 1 on disk.
-	root := t.TempDir()
-	cbz := filepath.Join(root, "Berserk", "Berserk v01.cbz")
-	if err := os.MkdirAll(filepath.Dir(cbz), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(cbz, []byte("pages"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a.want(a.call("POST", "/api/v1/rootfolder",
-		map[string]string{"mediaType": "manga", "variant": "mono", "path": root}, nil), http.StatusCreated)
-	a.want(a.call("POST", "/api/v1/library/scan", nil, nil), http.StatusOK)
-
-	var book library.Book
-	a.want(a.call("GET", fmt.Sprintf("/api/v1/book/%d", v1), nil, &book), http.StatusOK)
-	if !book.HasFile || !book.HasMonoFile {
-		t.Fatalf("volume 1 not owned after scan: %+v", book)
-	}
-
-	// Remove from library WITHOUT deleting files: it must stop being owned
-	// (records forgotten) and unmonitor — but the file stays on disk.
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/book/%d/library", v1),
-		map[string]any{"library": "manga", "member": false}, &book), http.StatusOK)
-	if book.HasFile || book.HasMonoFile || book.Monitored {
-		t.Fatalf("removed volume still owned/monitored: %+v", book)
-	}
-	if _, err := os.Stat(cbz); err != nil {
-		t.Fatalf("file should remain on disk when delete-files is off: %v", err)
-	}
-
-	// A scan re-finds the on-disk file (owned again) — like any other library.
-	a.want(a.call("POST", "/api/v1/library/scan", nil, nil), http.StatusOK)
-	a.want(a.call("GET", fmt.Sprintf("/api/v1/book/%d", v1), nil, &book), http.StatusOK)
-	if !book.HasFile {
-		t.Fatal("scan should re-find the on-disk file")
-	}
-
-	// Now remove WITH delete-files: the file leaves disk too.
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/book/%d/library", v1),
-		map[string]any{"library": "manga", "member": false, "deleteFiles": true}, &book), http.StatusOK)
-	if book.HasFile {
-		t.Fatalf("volume still owned after delete-files removal: %+v", book)
-	}
-	if _, err := os.Stat(cbz); !os.IsNotExist(err) {
-		t.Fatalf("file should be deleted from disk: %v", err)
-	}
-}
-
-// TestComicIssueLibrary: comic issues get the same library flow as manga
-// volumes — PUT /book/{id}/library with library=comic unmonitors an issue and
-// forgets its file records (it drops to the series' Missing section, the file
-// stays on disk), and member=true monitors it back.
+// TestComicIssueLibrary: PUT /book/{id}/library with library=comic unmonitors
+// an issue and forgets its file records (it drops to the series' Missing
+// section, the file stays on disk), and member=true monitors it back.
 func TestComicIssueLibrary(t *testing.T) {
 	a := newTestAPI(t, nil)
 	issues := 3
-	a.mgr.SetSeries(fakeComicProvider{fakeSeriesProvider{volumes: &issues}})
+	a.mgr.SetSeries(fakeSeriesProvider{volumes: &issues})
 
 	var series library.Series
 	a.want(a.call("POST", "/api/v1/series",
@@ -788,6 +666,23 @@ func TestComicIssueLibrary(t *testing.T) {
 	if !book.Monitored {
 		t.Fatalf("re-added issue not monitored: %+v", book)
 	}
+
+	// A scan re-finds the on-disk file (owned again) — like any other library.
+	a.want(a.call("POST", "/api/v1/library/scan", nil, nil), http.StatusOK)
+	a.want(a.call("GET", fmt.Sprintf("/api/v1/book/%d", v1), nil, &book), http.StatusOK)
+	if !book.HasFile {
+		t.Fatal("scan should re-find the on-disk file")
+	}
+
+	// Now remove WITH delete-files: the file leaves disk too.
+	a.want(a.call("PUT", fmt.Sprintf("/api/v1/book/%d/library", v1),
+		map[string]any{"library": "comic", "member": false, "deleteFiles": true}, &book), http.StatusOK)
+	if book.HasFile {
+		t.Fatalf("volume still owned after delete-files removal: %+v", book)
+	}
+	if _, err := os.Stat(cbz); !os.IsNotExist(err) {
+		t.Fatalf("file should be deleted from disk: %v", err)
+	}
 }
 
 // TestSeriesSearchWanted: the series page's Search wanted sweeps only that
@@ -799,7 +694,7 @@ func TestSeriesSearchWanted(t *testing.T) {
 
 	var series library.Series
 	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "500", "monitored": true}, &series), http.StatusCreated)
+		map[string]any{"mediaType": "comic", "foreignSeriesId": "500", "monitored": true}, &series), http.StatusCreated)
 
 	// Added with explicit monitoring: all 3 volumes are monitored and unowned
 	// → all wanted. No indexers are configured, so nothing is grabbed, but
@@ -870,24 +765,24 @@ func TestBookCoverCache(t *testing.T) {
 
 	var series library.Series
 	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "500"}, &series), http.StatusCreated)
+		map[string]any{"mediaType": "comic", "foreignSeriesId": "500"}, &series), http.StatusCreated)
 	v1 := series.Volumes[0].ID
 
 	root := t.TempDir()
 	cbz := filepath.Join(root, "Berserk", "Berserk v01.cbz")
 	writeCBZWithCover(t, cbz, jpegBytes("COVER-A"))
 	a.want(a.call("POST", "/api/v1/rootfolder",
-		map[string]string{"mediaType": "manga", "variant": "mono", "path": root}, nil), http.StatusCreated)
+		map[string]string{"mediaType": "comic", "path": root}, nil), http.StatusCreated)
 	a.want(a.call("POST", "/api/v1/library/scan", nil, nil), http.StatusOK)
 
 	cover := fmt.Sprintf("/api/v1/book/%d/cover", v1)
 
-	// Manga defaults to the provider's cover art: extraction 404s until the
+	// Comics default to the provider's cover art: extraction 404s until the
 	// library is switched to file covers.
 	resp, _ := a.rawGet(cover)
 	a.want(resp, http.StatusNotFound)
 	a.want(a.call("PUT", "/api/v1/settings/metadata",
-		map[string]any{"mangaCoverSource": "file"}, nil), http.StatusOK)
+		map[string]any{"comicCoverSource": "file"}, nil), http.StatusOK)
 
 	// First fetch extracts the cover and caches it.
 	resp, body := a.rawGet(cover)
@@ -1277,26 +1172,23 @@ func TestDuplicateUnmatchedFile(t *testing.T) {
 }
 
 // TestExistingFileImportSeries: the existing-file import flow for the
-// series-first libraries. Manga: a "Series vNN" file confidently matches its
-// series' volume and bulk-imports; unknown series are left for review with the
-// parsed name offered. Magazine: once the magazine exists, a dated file is a
-// confident match and the manual import materializes the issue (organize-only
-// magazines still import files already on disk).
+// series-first (comic) library. A "Series vNN" file confidently matches its
+// series' volume and bulk-imports; unknown series are left for review with
+// the parsed name offered.
 func TestExistingFileImportSeries(t *testing.T) {
 	a := newTestAPI(t, nil)
 	volumes := 3
 	a.mgr.SetSeries(fakeSeriesProvider{volumes: &volumes})
 
-	// --- Manga ---
 	// The scan auto-matches exact "Series vNN" layouts on its own; the options
 	// flow covers what it can't — here a scene-style folder ("Berserk (Dark
 	// Horse)") that only fuzzy-matches the series.
-	mangaRoot := t.TempDir()
+	comicRoot := t.TempDir()
 	for _, rel := range []string{
 		filepath.Join("Berserk (Dark Horse)", "Berserk v02.cbz"),
 		filepath.Join("Mystery Series", "Mystery v01.cbz"),
 	} {
-		path := filepath.Join(mangaRoot, rel)
+		path := filepath.Join(comicRoot, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -1305,10 +1197,10 @@ func TestExistingFileImportSeries(t *testing.T) {
 		}
 	}
 	a.want(a.call("POST", "/api/v1/rootfolder",
-		map[string]string{"mediaType": "manga", "path": mangaRoot}, nil), http.StatusCreated)
+		map[string]string{"mediaType": "comic", "path": comicRoot}, nil), http.StatusCreated)
 	var series library.Series
 	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "manga", "foreignSeriesId": "500"}, &series), http.StatusCreated)
+		map[string]any{"mediaType": "comic", "foreignSeriesId": "500"}, &series), http.StatusCreated)
 	a.want(a.call("POST", "/api/v1/library/scan", nil, nil), http.StatusOK)
 
 	type option struct {
@@ -1316,15 +1208,14 @@ func TestExistingFileImportSeries(t *testing.T) {
 		SeriesName string           `json:"seriesName"`
 		SeriesID   int64            `json:"seriesId"`
 		Volume     float64          `json:"volume"`
-		Issue      string           `json:"issue"`
 		Suggested  int64            `json:"suggested"`
 		Confident  bool             `json:"confident"`
 		Confidence int              `json:"confidence"`
 	}
 	var options []option
-	a.want(a.call("GET", "/api/v1/bookfile/unmatched/options?mediaType=manga", nil, &options), http.StatusOK)
+	a.want(a.call("GET", "/api/v1/bookfile/unmatched/options?mediaType=comic", nil, &options), http.StatusOK)
 	if len(options) != 2 {
-		t.Fatalf("manga options = %d, want 2", len(options))
+		t.Fatalf("comic options = %d, want 2", len(options))
 	}
 	for _, o := range options {
 		base := filepath.Base(o.File.Path)
@@ -1345,9 +1236,9 @@ func TestExistingFileImportSeries(t *testing.T) {
 		NeedsReview int `json:"needsReview"`
 	}
 	a.want(a.call("POST", "/api/v1/bookfile/import-matched",
-		map[string]string{"mediaType": "manga"}, &bulk), http.StatusOK)
+		map[string]string{"mediaType": "comic"}, &bulk), http.StatusOK)
 	if bulk.Imported != 1 || bulk.NeedsReview != 1 {
-		t.Fatalf("manga bulk = %+v", bulk)
+		t.Fatalf("comic bulk = %+v", bulk)
 	}
 	var detail library.Series
 	a.want(a.call("GET", fmt.Sprintf("/api/v1/series/%d", series.ID), nil, &detail), http.StatusOK)
@@ -1359,55 +1250,6 @@ func TestExistingFileImportSeries(t *testing.T) {
 	}
 	if owned != 1 {
 		t.Fatalf("owned volumes after import = %d, want 1", owned)
-	}
-
-	// --- Magazine ---
-	// A fuzzy folder name ("Wired Magazine" vs the magazine "Wired"): the
-	// scan's exact matcher can't place it — the options flow can. (Exact names
-	// auto-match the moment the magazine is added, via rematch.)
-	magRoot := t.TempDir()
-	magFile := filepath.Join(magRoot, "Wired Magazine", "Wired Magazine - 2026-05-01.pdf")
-	if err := os.MkdirAll(filepath.Dir(magFile), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(magFile, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	a.want(a.call("POST", "/api/v1/rootfolder",
-		map[string]string{"mediaType": "magazine", "path": magRoot}, nil), http.StatusCreated)
-	a.want(a.call("POST", "/api/v1/library/scan", nil, nil), http.StatusOK)
-
-	// Unknown magazine: the parsed name is offered, nothing confident.
-	options = nil
-	a.want(a.call("GET", "/api/v1/bookfile/unmatched/options?mediaType=magazine", nil, &options), http.StatusOK)
-	if len(options) != 1 || options[0].Confident || options[0].SeriesName != "Wired Magazine" {
-		t.Fatalf("magazine options = %+v", options)
-	}
-	fileID := options[0].File.ID
-
-	// Add the magazine by name (the UI's "+ Add magazine" button) → confident
-	// (80: the folder name is a fuzzy, not exact, title match).
-	var mag library.Series
-	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "magazine", "title": "Wired"}, &mag), http.StatusCreated)
-	options = nil
-	a.want(a.call("GET", "/api/v1/bookfile/unmatched/options?mediaType=magazine", nil, &options), http.StatusOK)
-	if len(options) != 1 || !options[0].Confident || options[0].SeriesID != mag.ID ||
-		options[0].Issue != "2026-05-01" || options[0].Confidence < 75 {
-		t.Fatalf("magazine options after add = %+v", options)
-	}
-
-	// Manual import materializes the issue and adopts the file.
-	a.want(a.call("POST", fmt.Sprintf("/api/v1/bookfile/%d/match", fileID),
-		map[string]any{"seriesId": mag.ID, "issue": "2026-05-01"}, nil), http.StatusOK)
-	a.want(a.call("GET", fmt.Sprintf("/api/v1/series/%d", mag.ID), nil, &detail), http.StatusOK)
-	if len(detail.Volumes) != 1 || !detail.Volumes[0].HasFile {
-		t.Fatalf("magazine issues after import = %+v", detail.Volumes)
-	}
-	options = nil
-	a.want(a.call("GET", "/api/v1/bookfile/unmatched/options?mediaType=magazine", nil, &options), http.StatusOK)
-	if len(options) != 0 {
-		t.Errorf("magazine options after import = %+v, want none", options)
 	}
 }
 
@@ -1521,9 +1363,9 @@ func TestNamingSettingsAndRename(t *testing.T) {
 	if len(preview.Moves) != 1 {
 		t.Fatalf("ebook-scoped preview = %d moves, want 1", len(preview.Moves))
 	}
-	a.want(a.call("GET", "/api/v1/library/rename?mediaType=manga", nil, &preview), http.StatusOK)
+	a.want(a.call("GET", "/api/v1/library/rename?mediaType=comic", nil, &preview), http.StatusOK)
 	if len(preview.Moves) != 0 {
-		t.Fatalf("manga-scoped preview sees the ebook move: %+v", preview.Moves)
+		t.Fatalf("comic-scoped preview sees the ebook move: %+v", preview.Moves)
 	}
 	a.want(a.call("GET", "/api/v1/library/rename?mediaType=bogus", nil, nil), http.StatusBadRequest)
 	a.want(a.call("GET", "/api/v1/library/rename", nil, &preview), http.StatusOK) // re-plan unscoped
@@ -2134,10 +1976,9 @@ func TestNamingSaveKeepsOtherTemplates(t *testing.T) {
 	// A partial save (only ebook fields, like an older client) must not wipe
 	// the other media types' templates.
 	var ns struct {
-		EbookFolder    string `json:"ebookFolder"`
-		MangaFile      string `json:"mangaFile"`
-		ComicFile      string `json:"comicFile"`
-		MagazineFolder string `json:"magazineFolder"`
+		EbookFolder     string `json:"ebookFolder"`
+		ComicFile       string `json:"comicFile"`
+		AudiobookFolder string `json:"audiobookFolder"`
 	}
 	a.want(a.call("PUT", "/api/v1/settings/naming", map[string]string{
 		"ebookFolder": "{Author SortName}",
@@ -2146,45 +1987,9 @@ func TestNamingSaveKeepsOtherTemplates(t *testing.T) {
 	if ns.EbookFolder != "{Author SortName}" {
 		t.Errorf("ebook folder not saved: %+v", ns)
 	}
-	if ns.MangaFile == "" || ns.ComicFile == "" || ns.MagazineFolder == "" {
+	if ns.ComicFile == "" || ns.AudiobookFolder == "" {
 		t.Fatalf("partial naming save wiped other templates: %+v", ns)
 	}
-}
-
-func TestMagazineSeries(t *testing.T) {
-	a := newTestAPI(t, nil)
-
-	// Magazines are created by name; no provider involved.
-	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "magazine"}, nil), http.StatusBadRequest) // no title
-	var mag library.Series
-	a.want(a.call("POST", "/api/v1/series",
-		map[string]any{"mediaType": "magazine", "title": "The Economist"}, &mag), http.StatusCreated)
-	// Adds are metadata-only: the magazine starts unmonitored (no auto-grab
-	// until the user flips the series toggle).
-	if mag.MediaType != "magazine" || mag.Monitored || mag.MonitorNew || mag.Source != "manual" {
-		t.Fatalf("magazine = %+v", mag)
-	}
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/series/%d/monitor", mag.ID),
-		map[string]bool{"monitored": true, "monitorNew": true}, &mag), http.StatusOK)
-	if !mag.Monitored || !mag.MonitorNew {
-		t.Fatalf("magazine after monitor toggle = %+v", mag)
-	}
-
-	// Listed alongside other series types; filterable.
-	var list []library.Series
-	a.want(a.call("GET", "/api/v1/series?mediaType=magazine", nil, &list), http.StatusOK)
-	if len(list) != 1 || list[0].Title != "The Economist" {
-		t.Fatalf("list = %+v", list)
-	}
-
-	// Refresh is a quiet no-op (no provider), not an error.
-	a.want(a.call("POST", fmt.Sprintf("/api/v1/series/%d/refresh", mag.ID), nil, nil), http.StatusOK)
-
-	// Magazine search-by-provider is rejected with guidance.
-	a.want(a.call("GET", "/api/v1/search?term=x&type=magazine", nil, nil), http.StatusBadRequest)
-
-	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/series/%d", mag.ID), nil, nil), http.StatusNoContent)
 }
 
 func TestLibrariesHomeAndCrossAdd(t *testing.T) {

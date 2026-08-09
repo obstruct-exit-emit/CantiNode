@@ -35,8 +35,7 @@ export interface Book {
   id: number;
   authorId: number;
   foreignBookId: string;
-  // "book" for prose; "manga"/"comic" volumes and "magazine" issues carry
-  // their series' type.
+  // "book" for prose; "comic" volumes carry their series' type.
   mediaType: string;
   title: string;
   sortTitle: string;
@@ -52,8 +51,6 @@ export interface Book {
   hasFile: boolean;
   hasEbookFile: boolean;
   hasAudiobookFile: boolean;
-  hasColorFile: boolean;
-  hasMonoFile: boolean;
   editions?: Edition[];
   series?: SeriesLink[];
   files?: BookFile[];
@@ -85,7 +82,6 @@ export interface BookFile {
   rootFolderId: number;
   bookId?: number;
   mediaType: string;
-  variant?: string;
   path: string;
   size: number;
   format: string;
@@ -98,7 +94,6 @@ export interface BookFile {
 export interface RootFolder {
   id: number;
   mediaType: string;
-  variant?: string;
   path: string;
   accessible: boolean;
 }
@@ -115,14 +110,13 @@ export interface ScanResult {
 export interface Indexer {
   id: number;
   name: string;
-  // "newznab" | "torznab" | a native implementation name (e.g. "audiobookbay").
+  // "newznab" | "torznab" | a native implementation name.
   type: string;
   baseUrl: string;
   apiKey: string;
   categories: string;
   audioCategories: string;
   comicCategories: string;
-  magazineCategories: string;
   enabled: boolean;
   priority: number;
   addedAt?: string;
@@ -216,7 +210,7 @@ export interface ReleaseCandidate extends Release {
     formats?: string[];
     language?: string;
     retail: boolean;
-    // Manga/comic volume number the release names, and the range end when it
+    // Comic volume number the release names, and the range end when it
     // spans several ("v01-v12"); 0/absent for a single-volume release.
     volume?: number;
     volumeEnd?: number;
@@ -349,12 +343,8 @@ export interface NamingSettings {
   ebookFile: string;
   audiobookFolder: string;
   audiobookFile: string;
-  mangaFolder: string;
-  mangaFile: string;
   comicFolder: string;
   comicFile: string;
-  magazineFolder: string;
-  magazineFile: string;
   tokens: string[];
   example: string;
   audiobookExample: string;
@@ -407,11 +397,8 @@ export interface MetadataSettings {
   // a subset of `available`, never including `active`.
   fallbacks: string[];
   providers: Record<string, ProviderSettings>;
-  mangaProviders: string[];
-  mangaProvider: string;
   comicProviders: string[];
   comicProvider: string;
-  mangaCoverSource: string;
   comicCoverSource: string;
   language: string;
   country: string;
@@ -456,11 +443,10 @@ export interface UnmatchedOption {
   file: BookFile;
   authorName?: string;
   authorId?: number;
-  // Series-first libraries: the parsed series/magazine and volume/issue.
+  // Series-first (comic) library: the parsed series and volume number.
   seriesName?: string;
   seriesId?: number;
   volume?: number;
-  issue?: string;
   suggested?: number;
   confident: boolean;
   confidence: number; // 0–100
@@ -723,13 +709,6 @@ export const api = {
       "/api/v1/bookfile/import-matched",
       json({ mediaType }),
     ),
-  // materializeIssue imports an unmatched magazine file: the issue book is
-  // created on the spot and the file adopted into it.
-  materializeIssue: (fileId: number, seriesId: number, issue: string) =>
-    request<{ file: BookFile; skips: string[] }>(
-      `/api/v1/bookfile/${fileId}/match`,
-      json({ seriesId, issue }),
-    ),
   matchFile: (fileId: number, bookId: number) =>
     request<{ file: BookFile; skips: string[] }>(
       `/api/v1/bookfile/${fileId}/match`,
@@ -880,8 +859,6 @@ export const api = {
   listSeries: () => request<Series[]>("/api/v1/series"),
   addSeries: (mediaType: string, foreignSeriesId: string) =>
     request<Series>("/api/v1/series", json({ mediaType, foreignSeriesId })),
-  addMagazine: (title: string) =>
-    request<Series>("/api/v1/series", json({ mediaType: "magazine", title })),
   getSeries: (id: number) => request<Series>(`/api/v1/series/${id}`),
   setSeriesProvider: (id: number, provider: string) =>
     request<Series>(`/api/v1/series/${id}/provider`, {
@@ -911,8 +888,8 @@ export const api = {
     request<FolderListing>(
       `/api/v1/filesystem${path ? `?path=${encodeURIComponent(path)}` : ""}`,
     ),
-  addRootFolder: (mediaType: string, path: string, variant?: string) =>
-    request<RootFolder>("/api/v1/rootfolder", json({ mediaType, path, variant })),
+  addRootFolder: (mediaType: string, path: string) =>
+    request<RootFolder>("/api/v1/rootfolder", json({ mediaType, path })),
   deleteRootFolder: (id: number) =>
     request<void>(`/api/v1/rootfolder/${id}`, { method: "DELETE" }),
 
@@ -923,9 +900,7 @@ export const api = {
     providers: Record<string, ProviderSettings>,
     extra?: {
       fallbacks?: string[];
-      mangaProvider?: string;
       comicProvider?: string;
-      mangaCoverSource?: string;
       comicCoverSource?: string;
       language?: string;
       country?: string;

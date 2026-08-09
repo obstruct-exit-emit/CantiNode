@@ -193,15 +193,9 @@ func (s *Service) targetPath(f *library.BookFile, rootByID map[int64]string) (st
 		} else {
 			target = filepath.Join(dir, bookDir+"."+f.Format)
 		}
-	case "manga":
-		target = filepath.Join(root, naming.FormatPath(ns.MangaFolder, data),
-			naming.Format(ns.MangaFile, data)+"."+f.Format)
 	case "comic":
 		target = filepath.Join(root, naming.FormatPath(ns.ComicFolder, data),
 			naming.Format(ns.ComicFile, data)+"."+f.Format)
-	case "magazine":
-		target = filepath.Join(root, naming.FormatPath(ns.MagazineFolder, data),
-			naming.Format(ns.MagazineFile, data)+"."+f.Format)
 	default:
 		target = filepath.Join(root, naming.FormatPath(ns.EbookFolder, data),
 			naming.Format(ns.EbookFile, data)+"."+f.Format)
@@ -240,17 +234,12 @@ func (s *Service) tokenData(book *library.Book) (naming.TokenData, error) {
 // (Audiobookshelf layout) and FileName names single-file books inside it.
 type Placement struct {
 	RootFolderID int64
-	Variant      string // the chosen root's manga variant ('' otherwise)
 	Dir          string
 	FileName     string // includes extension
 }
 
 // PlaceFile computes where a newly imported item for book belongs: the
 // first root folder of the media type plus that type's naming templates.
-// For manga with both a colorized and a monochrome root, this picks
-// whichever was added first — a grabbed file's variant isn't known from the
-// release, so imports are variant-agnostic; the scanner is what records
-// per-variant ownership once the file lands under a variant root.
 func (s *Service) PlaceFile(book *library.Book, format, mediaType string) (*Placement, error) {
 	roots, err := s.store.ListRootFolders()
 	if err != nil {
@@ -265,21 +254,15 @@ func (s *Service) PlaceFile(book *library.Book, format, mediaType string) (*Plac
 			return nil, err
 		}
 		ns := s.cfg.NamingSettings()
-		p := &Placement{RootFolderID: root.ID, Variant: root.Variant}
+		p := &Placement{RootFolderID: root.ID}
 		switch mediaType {
 		case "audiobook":
 			bookDir := naming.Format(ns.AudiobookFile, data)
 			p.Dir = filepath.Join(root.Path, naming.FormatPath(ns.AudiobookFolder, data), bookDir)
 			p.FileName = bookDir + "." + format
-		case "manga":
-			p.Dir = filepath.Join(root.Path, naming.FormatPath(ns.MangaFolder, data))
-			p.FileName = naming.Format(ns.MangaFile, data) + "." + format
 		case "comic":
 			p.Dir = filepath.Join(root.Path, naming.FormatPath(ns.ComicFolder, data))
 			p.FileName = naming.Format(ns.ComicFile, data) + "." + format
-		case "magazine":
-			p.Dir = filepath.Join(root.Path, naming.FormatPath(ns.MagazineFolder, data))
-			p.FileName = naming.Format(ns.MagazineFile, data) + "." + format
 		default:
 			p.Dir = filepath.Join(root.Path, naming.FormatPath(ns.EbookFolder, data))
 			p.FileName = naming.Format(ns.EbookFile, data) + "." + format

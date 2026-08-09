@@ -290,19 +290,14 @@ func (s *Service) importItem(ctx context.Context, item *download.Item, grab *dow
 
 	var sources []string
 	var format string
-	var pack *packPlan           // set when an ebook/manga/comic download is a multi-book release
+	var pack *packPlan           // set when an ebook/comic download is a multi-book release
 	var audioPack *audioPackPlan // set when an audiobook download is a multi-book release
 	switch mediaType {
 	case "audiobook":
 		sources, format, audioPack, err = s.pickAudioPackAware(item.Path, grab, book)
-	case "manga", "comic":
+	case "comic":
 		var source string
 		source, pack, err = s.pickPackAware(item.Path, scanner.IsComicPath, "comic archive", grab, book, mediaType)
-		sources = []string{source}
-		format = fileFormat(source)
-	case "magazine":
-		var source string
-		source, err = pickLargestFile(item.Path, scanner.IsMagazinePath, "magazine file")
 		sources = []string{source}
 		format = fileFormat(source)
 	default:
@@ -566,7 +561,7 @@ func (s *Service) placeAndRecord(book *library.Book, mediaType, format string, s
 
 	// Comic archives get a ComicInfo.xml sidecar inside the CBZ so Kavita/
 	// Komga pick up series metadata; failures aren't fatal to the import.
-	if (mediaType == "manga" || mediaType == "comic") && format == "cbz" {
+	if mediaType == "comic" && format == "cbz" {
 		if err := s.writeComicInfo(target, book); err != nil {
 			result.note("%s: writing ComicInfo.xml: %v", itemTitle, err)
 		}
@@ -584,7 +579,6 @@ func (s *Service) placeAndRecord(book *library.Book, mediaType, format string, s
 		RootFolderID: place.RootFolderID,
 		BookID:       book.ID,
 		MediaType:    mediaType,
-		Variant:      place.Variant, // manga colorized/monochrome; '' otherwise
 		Path:         target,
 		Size:         size,
 		Format:       format,
@@ -711,11 +705,11 @@ func (s *Service) importPackExtras(pack *packPlan, primary string, grabbed *libr
 }
 
 // packMatcher resolves a pack's files to library books from data fetched
-// once per download: the grabbed volume's series (manga/comic) or the
-// grabbed book's author's bibliography (ebooks).
+// once per download: the grabbed volume's series (comic) or the grabbed
+// book's author's bibliography (ebooks).
 type packMatcher struct {
 	mediaType string
-	volumes   []library.Book    // manga/comic: the series' volumes…
+	volumes   []library.Book    // comic: the series' volumes…
 	positions map[int64]float64 // …and their volume numbers
 	books     []library.Book    // ebook: the author's books
 }
@@ -723,7 +717,7 @@ type packMatcher struct {
 func (s *Service) newPackMatcher(grabbed *library.Book, mediaType string) *packMatcher {
 	m := &packMatcher{mediaType: mediaType}
 	switch mediaType {
-	case "manga", "comic":
+	case "comic":
 		links, err := s.store.ListSeriesForBook(grabbed.ID)
 		if err != nil || len(links) == 0 {
 			return m
@@ -738,12 +732,12 @@ func (s *Service) newPackMatcher(grabbed *library.Book, mediaType string) *packM
 	return m
 }
 
-// match resolves one file to a library book: manga/comic files match by
-// volume number within the series; ebooks match by title, and only when the
-// match is unambiguous.
+// match resolves one file to a library book: comic files match by volume
+// number within the series; ebooks match by title, and only when the match
+// is unambiguous.
 func (m *packMatcher) match(path string) *library.Book {
 	switch m.mediaType {
-	case "manga", "comic":
+	case "comic":
 		number := scanner.VolumeFromName(filepath.Base(path))
 		if number == 0 {
 			return nil
@@ -838,12 +832,12 @@ func bestBookMatches(norm string, books []library.Book) []*library.Book {
 // whose folders haven't all appeared on disk yet, so it currently LOOKS like
 // a single-book download" — the two are indistinguishable from the
 // filesystem alone; the release's own name is the only independent signal
-// of how many books should eventually show up. Manga/comic packs don't need
-// this: a series' volume count is already known from its own metadata, not
+// of how many books should eventually show up. Comic packs don't need this:
+// a series' volume count is already known from its own metadata, not
 // guessed from a title. Returns 1 (never less) when nothing more than the
 // grabbed book itself is named, or the matcher has no bibliography loaded.
 func (m *packMatcher) expectedBookCount(releaseTitle string) int {
-	if m.mediaType == "manga" || m.mediaType == "comic" {
+	if m.mediaType == "comic" {
 		return 1
 	}
 	relNorm := scanner.Normalize(releaseTitle)
@@ -956,8 +950,8 @@ func (s *Service) matchByTitle(title string) *library.Book {
 // pack-extra imports. Single-candidate downloads behave as always: the
 // largest acceptable file wins (releases ship samples and extras). Tracked
 // multi-file downloads are packs — the grabbed book's file is identified by
-// volume number (manga/comic) or title (ebooks), never by size: the largest
-// file of a v01–v12 bundle is rarely the volume that was grabbed.
+// volume number (comic) or title (ebooks), never by size: the largest file
+// of a v01–v12 bundle is rarely the volume that was grabbed.
 func (s *Service) pickPackAware(path string, accept func(string) bool, kind string, grab *download.GrabRecord, book *library.Book, mediaType string) (string, *packPlan, error) {
 	files, err := listAcceptable(path, accept, kind)
 	if err != nil {
@@ -983,7 +977,7 @@ func (s *Service) pickPackAware(path string, accept func(string) bool, kind stri
 	}
 
 	// The release's own title can promise more books than have appeared as
-	// files yet (manga/comic always report 1 here — their volume count comes
+	// files yet (comic always reports 1 here — its volume count comes
 	// from series metadata, never guessed from a title) — the same
 	// folder-by-folder sync delay audiobook packs already guard against, just
 	// file-by-file here. Only applies once at least one file has been
@@ -1236,16 +1230,6 @@ func (s *Service) writeComicInfo(cbzPath string, book *library.Book) error {
 		}
 	}
 	return comicinfo.Inject(cbzPath, info)
-}
-
-// pickLargestFile returns the largest file at path (a file or directory)
-// accepted by the matcher.
-func pickLargestFile(path string, accept func(string) bool, kind string) (string, error) {
-	files, err := listAcceptable(path, accept, kind)
-	if err != nil {
-		return "", err
-	}
-	return largestFile(files), nil
 }
 
 // audioGroup is one candidate book's own audio files within a possibly

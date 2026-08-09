@@ -191,11 +191,6 @@ func (s *server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
 	if req.MediaType == "" {
 		req.MediaType = "ebook"
 	}
-	if req.MediaType == "magazine" {
-		writeError(w, http.StatusBadRequest,
-			"magazine acquisition is disabled — the magazine library is organize-only for now")
-		return
-	}
 	if req.BookID > 0 {
 		if _, err := s.store.GetBook(req.BookID); err != nil {
 			writeStoreError(w, err)

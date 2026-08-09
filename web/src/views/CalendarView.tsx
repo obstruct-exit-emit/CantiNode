@@ -6,9 +6,7 @@ import { RowsSkeleton } from "../components/Skeleton";
 const typeIcons: Record<string, string> = {
   ebook: "📖",
   audiobook: "🎧",
-  manga: "🀄",
   comic: "💥",
-  magazine: "📰",
 };
 
 // Agenda-style calendar: releases across all libraries grouped by date,

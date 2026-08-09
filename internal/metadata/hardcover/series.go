@@ -12,11 +12,11 @@ import (
 )
 
 // SeriesClient adapts the Hardcover book API to metadata.SeriesProvider for
-// manga and comics: a Hardcover *series* is the manga/comic, and the books
-// linked to it via book_series are its volumes/issues. Hardcover's series are
-// messier than AniList's — spin-offs sit at position 0 and each numbered
-// volume carries several editions (English/Japanese/collector's) — so
-// GetSeries keeps the positioned volumes (dropping the position-0 extras),
+// comics: a Hardcover *series* is the comic, and the books linked to it via
+// book_series are its issues. Hardcover's series are messier than a
+// purpose-built comics API — spin-offs sit at position 0 and each numbered
+// issue carries several editions (translations/reissues/collector's) — so
+// GetSeries keeps the positioned issues (dropping the position-0 extras),
 // collapses each position to its richest edition, and only numbers
 // sequentially when a series has no positive positions at all.
 type SeriesClient struct {
@@ -28,14 +28,8 @@ type SeriesClient struct {
 	country  string
 }
 
-// SeriesFactory builds the Hardcover manga series provider; it shares the
-// book provider's token.
-func SeriesFactory(s metadata.Settings) (metadata.SeriesProvider, error) {
-	return seriesFactoryFor("manga", s)
-}
-
-// ComicSeriesFactory builds the Hardcover comic series provider — the same
-// client and series handling, registered for the comic media type.
+// ComicSeriesFactory builds the Hardcover comic series provider; it shares
+// the book provider's token.
 func ComicSeriesFactory(s metadata.Settings) (metadata.SeriesProvider, error) {
 	return seriesFactoryFor("comic", s)
 }

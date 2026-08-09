@@ -31,9 +31,7 @@ type QualityProfile struct {
 var formatsByMediaType = map[string][]string{
 	"ebook":     {"epub", "azw3", "mobi", "pdf"},
 	"audiobook": {"m4b", "m4a", "mp3", "flac", "opus"},
-	"manga":     {"cbz", "cbr", "epub"},
 	"comic":     {"cbz", "cbr", "pdf"},
-	"magazine":  {"pdf", "epub", "cbz"},
 }
 
 // ValidateProfile normalizes and checks a profile definition in place.

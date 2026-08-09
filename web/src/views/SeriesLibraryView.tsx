@@ -6,9 +6,9 @@ import { PosterGridSkeleton } from "../components/Skeleton";
 import UnmatchedCard from "../components/UnmatchedCard";
 import WantedCard from "../components/WantedCard";
 
-// A series-first library area (Manga, Comics, or Magazines) — a *arr-style
-// poster grid of series; clicking one opens its full detail page. Adding is
-// scoped to this library.
+// A series-first library area (Comics) — a *arr-style poster grid of
+// series; clicking one opens its full detail page. Adding is scoped to
+// this library.
 export default function SeriesLibraryView({
   mediaType,
   onError,
@@ -133,22 +133,18 @@ export default function SeriesLibraryView({
         </h2>
         <span className="row-actions">
           <button onClick={() => setShowAdd(!showAdd)}>{showAdd ? "Close" : "+ Add"}</button>
-          {mediaType !== "magazine" && (
-            <button disabled={busy} onClick={searchWanted}>Search wanted</button>
-          )}
+          <button disabled={busy} onClick={searchWanted}>Search wanted</button>
           <button disabled={busy} onClick={previewRenames} title="Preview naming-template moves">
             Organize…
           </button>
           <button disabled={busy} onClick={scan}>Scan files</button>
-          {mediaType !== "magazine" && (
-            <button
-              disabled={busy}
-              onClick={refreshAll}
-              title="Re-sync every series in this library from the metadata provider (runs in the background)"
-            >
-              Refresh metadata
-            </button>
-          )}
+          <button
+            disabled={busy}
+            onClick={refreshAll}
+            title="Re-sync every series in this library from the metadata provider (runs in the background)"
+          >
+            Refresh metadata
+          </button>
         </span>
       </div>
       {notice && <p className="muted">{notice}</p>}
@@ -212,28 +208,20 @@ export default function SeriesLibraryView({
         </div>
       )}
 
-      {showAdd &&
-        (mediaType === "magazine" ? (
-          <AddMagazinePanel onAdded={reload} />
-        ) : (
-          <AddSeriesPanel mediaType={mediaType} onAdded={reload} />
-        ))}
+      {showAdd && <AddSeriesPanel mediaType={mediaType} onAdded={reload} />}
 
       {series.length === 0 ? (
         <div className="empty-state">
           <span className="empty-icon" aria-hidden="true">
-            {mediaType === "manga" ? "🀄" : mediaType === "comic" ? "💥" : "📰"}
+            💥
           </span>
           <h3>Your {(libraryLabels[mediaType] ?? mediaType).toLowerCase()} library is empty</h3>
           <p className="muted">
-            {mediaType === "magazine"
-              ? "Add a magazine by name — issues are recognized from file names when you scan, and organized into clean folders."
-              : `Search for a ${mediaType} series and monitor the volumes you want, or scan a root folder with files you already own.`}
+            Search for a {mediaType} series and monitor the volumes you want,
+            or scan a root folder with files you already own.
           </p>
           <div className="settings-actions">
-            <button onClick={() => setShowAdd(true)}>
-              {mediaType === "magazine" ? "+ Add a magazine" : "+ Add a series"}
-            </button>
+            <button onClick={() => setShowAdd(true)}>+ Add a series</button>
             <button className="toggle" disabled={busy} onClick={scan}>
               Scan files
             </button>
@@ -285,9 +273,7 @@ export default function SeriesLibraryView({
       )}
     </section>
 
-    {mediaType !== "magazine" && (
-      <WantedCard key={`wanted-${mediaType}`} library={mediaType} onError={onError} />
-    )}
+    <WantedCard key={`wanted-${mediaType}`} library={mediaType} onError={onError} />
 
     <UnmatchedCard
       key={`unmatched-${mediaType}`}
@@ -365,40 +351,3 @@ function AddSeriesPanel({
   );
 }
 
-function AddMagazinePanel({ onAdded }: { onAdded: () => void }) {
-  const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
-
-  const add = (e: React.FormEvent) => {
-    e.preventDefault();
-    const t = title.trim();
-    if (!t) return;
-    setBusy(true);
-    setNotice("");
-    api
-      .addMagazine(t)
-      .then(() => {
-        setTitle("");
-        setNotice(`✓ Added "${t}" — scan a magazine root and its issues match by date or number`);
-        onAdded();
-      })
-      .catch((err: unknown) => setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`))
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <div className="add-panel">
-      <form onSubmit={add} className="search-form">
-        <input
-          placeholder="Magazine name (e.g. The Economist) — issues match by date"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          autoFocus
-        />
-        <button type="submit" disabled={busy || !title.trim()}>Add magazine</button>
-      </form>
-      {notice && <p className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>{notice}</p>}
-    </div>
-  );
-}

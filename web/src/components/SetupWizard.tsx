@@ -10,7 +10,7 @@ import FolderBrowser from "./FolderBrowser";
 
 const steps = ["Account", "Library", "Metadata", "Indexer", "Downloads", "Done"] as const;
 
-const mediaTypes = ["ebook", "audiobook", "manga", "comic", "magazine"] as const;
+const mediaTypes = ["ebook", "audiobook", "comic"] as const;
 
 export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -24,7 +24,6 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
   // Step 1 — root folders.
   const [mediaType, setMediaType] = useState<string>("ebook");
-  const [variant, setVariant] = useState("mono");
   const [path, setPath] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const [folders, setFolders] = useState<RootFolder[]>([]);
@@ -41,7 +40,6 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     categories: "7000,7020",
     audioCategories: "3030",
     comicCategories: "7030",
-    magazineCategories: "7010",
     enabled: true,
     priority: 25,
   });
@@ -94,11 +92,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     const trimmed = path.trim();
     if (!trimmed) return;
     run(async () => {
-      const f = await api.addRootFolder(
-        mediaType,
-        trimmed,
-        mediaType === "manga" ? variant : undefined,
-      );
+      const f = await api.addRootFolder(mediaType, trimmed);
       setFolders((list) => [...list, f]);
       setPath("");
     }, "✓ Library folder added — add another, or continue");
@@ -111,9 +105,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         "hardcover",
         { ...s.providers, hardcover: { ...(s.providers.hardcover ?? {}), token: token.trim() } },
         {
-          mangaProvider: s.mangaProvider,
           comicProvider: s.comicProvider,
-          mangaCoverSource: s.mangaCoverSource,
           comicCoverSource: s.comicCoverSource,
           language: s.language,
           country: s.country,
@@ -210,12 +202,6 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
                   </option>
                 ))}
               </select>
-              {mediaType === "manga" && (
-                <select value={variant} onChange={(e) => setVariant(e.target.value)}>
-                  <option value="mono">monochrome</option>
-                  <option value="color">colorized</option>
-                </select>
-              )}
               <input
                 style={{ flex: 1, minWidth: 220 }}
                 placeholder="/data/ebooks"
@@ -268,8 +254,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
             <a href="https://hardcover.app/account/api" target="_blank" rel="noreferrer">
               hardcover.app/account/api
             </a>
-            . Manga (AniList) needs no key; a ComicVine key can be added later
-            in Settings → Metadata.
+            . A ComicVine key can be added later in Settings → Metadata.
           </p>
           <div className="settings-form">
             <label>

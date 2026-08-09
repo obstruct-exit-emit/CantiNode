@@ -222,29 +222,29 @@ func TestScanUnmatchedGainsMatchAfterBookAdded(t *testing.T) {
 // other libraries' files untouched — the per-library Scan-files button.
 func TestScanScopedToMediaType(t *testing.T) {
 	f := fixture(t) // one ebook root with matchable files
-	// Add a manga root with a stray file that a full scan would record.
-	mangaRoot := t.TempDir()
-	if _, err := f.db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('manga', ?)`, mangaRoot); err != nil {
+	// Add a comic root with a stray file that a full scan would record.
+	comicRoot := t.TempDir()
+	if _, err := f.db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('comic', ?)`, comicRoot); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(mangaRoot, "Some Series v01.cbz"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(comicRoot, "Some Series v01.cbz"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Scan only ebooks: the manga root is skipped entirely.
+	// Scan only ebooks: the comic root is skipped entirely.
 	res, err := f.svc.Scan(context.Background(), "ebook")
 	if err != nil {
 		t.Fatalf("scoped scan: %v", err)
 	}
 	if res.Roots != 1 {
-		t.Errorf("ebook-scoped scan walked %d roots, want 1 (manga skipped)", res.Roots)
+		t.Errorf("ebook-scoped scan walked %d roots, want 1 (comic skipped)", res.Roots)
 	}
 
-	// The manga file was never recorded.
+	// The comic file was never recorded.
 	unmatched, _ := f.store.ListUnmatchedBookFiles()
 	for _, u := range unmatched {
 		if filepath.Base(u.Path) == "Some Series v01.cbz" {
-			t.Error("ebook-scoped scan recorded a manga file")
+			t.Error("ebook-scoped scan recorded a comic file")
 		}
 	}
 
@@ -636,18 +636,18 @@ func TestScanAudiobookRoot(t *testing.T) {
 func TestScanComicRoot(t *testing.T) {
 	f := fixture(t)
 
-	// Manga series with two volumes in the library.
-	series := &library.Series{Source: "anilist", ForeignID: "500", Title: "Berserk",
-		MediaType: "manga", Monitored: true}
+	// Comic series with two issues in the library.
+	series := &library.Series{Source: "comicvine", ForeignID: "500", Title: "Berserk",
+		MediaType: "comic", Monitored: true}
 	if err := f.store.UpsertSeries(series); err != nil {
 		t.Fatal(err)
 	}
-	author := &library.Author{Source: "anilist", ForeignID: "creator:miura", Name: "Kentarou Miura"}
+	author := &library.Author{Source: "comicvine", ForeignID: "creator:miura", Name: "Kentarou Miura"}
 	if err := f.store.UpsertAuthor(author); err != nil {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 2; i++ {
-		vol := &library.Book{AuthorID: author.ID, Source: "anilist", MediaType: "manga",
+		vol := &library.Book{AuthorID: author.ID, Source: "comicvine", MediaType: "comic",
 			ForeignID: filepath.Join("500-v", string(rune('0'+i))), Title: "Berserk Vol. " + string(rune('0'+i)), Monitored: true}
 		if err := f.store.UpsertBook(vol); err != nil {
 			t.Fatal(err)
@@ -657,9 +657,9 @@ func TestScanComicRoot(t *testing.T) {
 		}
 	}
 
-	mangaRoot := t.TempDir()
+	comicRoot := t.TempDir()
 	write := func(rel string) {
-		path := filepath.Join(mangaRoot, filepath.FromSlash(rel))
+		path := filepath.Join(comicRoot, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -671,7 +671,7 @@ func TestScanComicRoot(t *testing.T) {
 	write("Berserk v02 (Digital).cbz")   // loose, series from filename
 	write("One Piece/One Piece v01.cbz") // unknown series → unmatched
 	write("Berserk/notes.txt")           // ignored
-	if _, err := f.db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('manga', ?)`, mangaRoot); err != nil {
+	if _, err := f.db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('comic', ?)`, comicRoot); err != nil {
 		t.Fatal(err)
 	}
 
@@ -679,7 +679,7 @@ func TestScanComicRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
-	// Ebook fixture root scans 4; manga root scans 3 archives, 2 matched.
+	// Ebook fixture root scans 4; comic root scans 3 archives, 2 matched.
 	if result.Scanned != 7 || result.Unmatched != 2 {
 		t.Fatalf("result = %+v", result)
 	}
@@ -689,87 +689,8 @@ func TestScanComicRoot(t *testing.T) {
 		t.Fatalf("volumes = %+v", volumes)
 	}
 	files, _ := f.store.ListBookFiles(volumes[0].ID)
-	if len(files) != 1 || files[0].MediaType != "manga" || files[0].Format != "cbz" {
+	if len(files) != 1 || files[0].MediaType != "comic" || files[0].Format != "cbz" {
 		t.Fatalf("files = %+v", files)
-	}
-}
-
-// TestScanMangaVariants: colorized and monochrome manga live in separate
-// root folders but ONE library; a volume tracks each variant's ownership
-// independently, sharing the single volume metadata row.
-func TestScanMangaVariants(t *testing.T) {
-	f := fixture(t)
-
-	series := &library.Series{Source: "anilist", ForeignID: "600", Title: "Berserk",
-		MediaType: "manga", Monitored: true}
-	if err := f.store.UpsertSeries(series); err != nil {
-		t.Fatal(err)
-	}
-	author := &library.Author{Source: "anilist", ForeignID: "creator:m", Name: "Miura"}
-	if err := f.store.UpsertAuthor(author); err != nil {
-		t.Fatal(err)
-	}
-	for i := 1; i <= 2; i++ {
-		vol := &library.Book{AuthorID: author.ID, Source: "anilist", MediaType: "manga",
-			ForeignID: "600-v" + string(rune('0'+i)), Title: "Berserk Vol. " + string(rune('0'+i)), Monitored: true}
-		if err := f.store.UpsertBook(vol); err != nil {
-			t.Fatal(err)
-		}
-		if err := f.store.LinkBookSeries(vol.ID, series.ID, float64(i)); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	writeInto := func(dir, rel string) {
-		path := filepath.Join(dir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("pages"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Colorized root has vol 1 only; monochrome root has both volumes.
-	colorRoot := t.TempDir()
-	monoRoot := t.TempDir()
-	writeInto(colorRoot, "Berserk/Berserk v01.cbz")
-	writeInto(monoRoot, "Berserk/Berserk v01.cbz")
-	writeInto(monoRoot, "Berserk/Berserk v02.cbz")
-	if _, err := f.db.Exec(`INSERT INTO root_folders (media_type, variant, path) VALUES ('manga', 'color', ?)`, colorRoot); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.db.Exec(`INSERT INTO root_folders (media_type, variant, path) VALUES ('manga', 'mono', ?)`, monoRoot); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := f.svc.Scan(context.Background()); err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-
-	volumes, _ := f.store.ListVolumes(series.ID)
-	if len(volumes) != 2 {
-		t.Fatalf("volumes = %d, want 2", len(volumes))
-	}
-	// Vol 1: owned in both variants. Vol 2: monochrome only.
-	v1, v2 := volumes[0], volumes[1]
-	if !v1.HasColorFile || !v1.HasMonoFile {
-		t.Errorf("vol 1 variants: color=%v mono=%v, want both owned", v1.HasColorFile, v1.HasMonoFile)
-	}
-	if v2.HasColorFile || !v2.HasMonoFile {
-		t.Errorf("vol 2 variants: color=%v mono=%v, want mono only", v2.HasColorFile, v2.HasMonoFile)
-	}
-	// The variants share ONE volume row — vol 1 has two files, one per variant.
-	files, _ := f.store.ListBookFiles(v1.ID)
-	if len(files) != 2 {
-		t.Fatalf("vol 1 files = %d, want 2 (one per variant)", len(files))
-	}
-	gotVariants := map[string]bool{}
-	for _, bf := range files {
-		gotVariants[bf.Variant] = true
-	}
-	if !gotVariants["color"] || !gotVariants["mono"] {
-		t.Errorf("vol 1 file variants = %v, want color+mono", gotVariants)
 	}
 }
 
@@ -795,83 +716,6 @@ func TestScanMatchesOwnTemplateOutput(t *testing.T) {
 	got, _ := f.store.GetBook(guards.ID)
 	if !got.HasEbookFile {
 		t.Fatal("template-named file did not re-match its book")
-	}
-}
-
-func TestIssueIdentifier(t *testing.T) {
-	cases := map[string]string{
-		"The Economist - 2026-07-04.pdf":    "2026-07-04",
-		"The Economist 2026.07.04 (retail)": "2026-07-04",
-		"National Geographic - July 2026":   "2026-07",
-		"Wired - Sept 2025 Retail EPUB":     "2025-09",
-		"Retro Gamer Issue 261 pdf":         "issue-261",
-		"MagPi No. 143":                     "issue-143",
-		"Some Book Without A Date":          "",
-		"The Economist - January 15, 2026":  "2026-01-15",
-	}
-	for in, want := range cases {
-		if got := IssueIdentifier(in); got != want {
-			t.Errorf("IssueIdentifier(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestScanMagazineRoot(t *testing.T) {
-	f := fixture(t)
-
-	// A monitored magazine in the library, no issues yet.
-	mag := &library.Series{Source: "manual", ForeignID: "magazine:economist",
-		Title: "The Economist", MediaType: "magazine", Monitored: true, MonitorNew: true}
-	if err := f.store.UpsertSeries(mag); err != nil {
-		t.Fatal(err)
-	}
-
-	magRoot := t.TempDir()
-	if _, err := f.db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('magazine', ?)`, magRoot); err != nil {
-		t.Fatal(err)
-	}
-	write := func(rel string) {
-		path := filepath.Join(magRoot, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("The Economist/The Economist - 2026-07-04.pdf") // known magazine → issue created
-	write("The Economist/The Economist - 2026-06-27.pdf") // second issue
-	write("Unknown Weekly/Unknown Weekly - 2026-01.pdf")  // no series → unmatched
-
-	result, err := f.svc.Scan(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Matched < 2 || result.Unmatched < 1 {
-		t.Fatalf("result = %+v", result)
-	}
-
-	// Issues were materialized, owned (file attached), and unmonitored.
-	volumes, err := f.store.ListVolumes(mag.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(volumes) != 2 {
-		t.Fatalf("volumes = %+v", volumes)
-	}
-	for _, v := range volumes {
-		if !v.HasFile || v.Monitored || v.MediaType != "magazine" {
-			t.Errorf("issue = title %q hasFile %v monitored %v", v.Title, v.HasFile, v.Monitored)
-		}
-	}
-
-	// Re-scan is idempotent — no duplicate issues.
-	if _, err := f.svc.Scan(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	volumes, _ = f.store.ListVolumes(mag.ID)
-	if len(volumes) != 2 {
-		t.Fatalf("re-scan duplicated issues: %+v", volumes)
 	}
 }
 

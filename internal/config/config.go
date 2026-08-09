@@ -37,18 +37,14 @@ type MetadataSettings struct {
 	// Google Books are the keyless fallbacks that ship. See
 	// metadata.FallbackProvider.
 	Fallbacks []string `yaml:"fallbacks,omitempty"`
-	// MangaProvider chooses the manga series provider ("anilist",
-	// "hardcover", or "none" to disable); empty defaults to anilist.
 	// ComicProvider chooses the comic series provider ("hardcover",
 	// "comicvine", or "none"); empty defaults to hardcover. "none" turns off
 	// search/adds for that library — existing series still refresh through
 	// their own source.
-	MangaProvider string `yaml:"manga_provider,omitempty"`
 	ComicProvider string `yaml:"comic_provider,omitempty"`
-	// MangaCoverSource / ComicCoverSource pick volume/issue cover art per
-	// library: "file" (extract the first page of the owned archive) or
-	// "provider" (the metadata provider's art). Both default to provider art.
-	MangaCoverSource string `yaml:"manga_cover_source,omitempty"`
+	// ComicCoverSource picks volume/issue cover art for the comics library:
+	// "file" (extract the first page of the owned archive) or "provider"
+	// (the metadata provider's art). Defaults to provider art.
 	ComicCoverSource string `yaml:"comic_cover_source,omitempty"`
 	// Language / Country / IncludeAdult are global, provider-agnostic
 	// metadata preferences: every provider that carries the data prefers
@@ -62,17 +58,6 @@ type MetadataSettings struct {
 	// IncludeCompilations, off by default, keeps box sets / omnibus editions /
 	// collections out of metadata search so results are individual books.
 	IncludeCompilations bool `yaml:"include_compilations,omitempty"`
-}
-
-// MangaSeriesProvider returns the configured manga provider name, defaulting
-// to anilist.
-func (c *Config) MangaSeriesProvider() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.Metadata.MangaProvider == "" {
-		return "anilist"
-	}
-	return c.Metadata.MangaProvider
 }
 
 // ComicSeriesProvider returns the configured comic provider name, defaulting
@@ -147,15 +132,13 @@ func (c *Config) ProviderSettings() map[string]metadata.Settings {
 }
 
 // CoverSourceFor returns the effective volume-cover source ("file" or
-// "provider") for a manga/comic media type: the per-type setting, or the
+// "provider") for the comic media type: the per-type setting, or the
 // default — the provider's art.
 func (c *Config) CoverSourceFor(mediaType string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var v string
 	switch mediaType {
-	case "manga":
-		v = c.Metadata.MangaCoverSource
 	case "comic":
 		v = c.Metadata.ComicCoverSource
 	}
@@ -175,7 +158,6 @@ func (c *Config) UseProviderCovers(mediaType string) bool {
 // metadata.Manager.ConfigureSeries.
 func (c *Config) SeriesSelection() map[string]string {
 	return map[string]string{
-		"manga": c.MangaSeriesProvider(),
 		"comic": c.ComicSeriesProvider(),
 	}
 }
@@ -191,15 +173,9 @@ type NamingSettings struct {
 	// single-file books).
 	AudiobookFolder string `yaml:"audiobook_folder" json:"audiobookFolder"`
 	AudiobookFile   string `yaml:"audiobook_file" json:"audiobookFile"`
-	// Manga/comics use Kavita/Komga's Series/File layout.
-	MangaFolder string `yaml:"manga_folder" json:"mangaFolder"`
-	MangaFile   string `yaml:"manga_file" json:"mangaFile"`
+	// Comics use Kavita/Komga's Series/File layout.
 	ComicFolder string `yaml:"comic_folder" json:"comicFolder"`
 	ComicFile   string `yaml:"comic_file" json:"comicFile"`
-	// Magazines: issue books are titled "Magazine - <date/issue>", so the
-	// file template can lean on {Book Title}.
-	MagazineFolder string `yaml:"magazine_folder" json:"magazineFolder"`
-	MagazineFile   string `yaml:"magazine_file" json:"magazineFile"`
 }
 
 func defaultNaming() NamingSettings {
@@ -211,13 +187,8 @@ func defaultNaming() NamingSettings {
 		EbookFile:       "{Author Name} - {Series Title} {Series Position} - {Book Title} ({Release Year})",
 		AudiobookFolder: "{Author Name}",
 		AudiobookFile:   "{Series Title} {Series Position} - {Book Title} ({Release Year})",
-		MangaFolder:     "{Series Title}",
-		MangaFile:       "{Series Title} Vol. {Series Position 00} ({Release Year})",
 		ComicFolder:     "{Series Title}",
 		ComicFile:       "{Series Title} #{Series Position 00} ({Release Year})",
-		// Magazines accumulate; year subfolders keep the pile browsable.
-		MagazineFolder: "{Series Title}/{Release Year}",
-		MagazineFile:   "{Book Title}",
 	}
 }
 
@@ -579,12 +550,8 @@ func (ns *NamingSettings) FillDefaults() {
 	fill(&ns.EbookFile, def.EbookFile)
 	fill(&ns.AudiobookFolder, def.AudiobookFolder)
 	fill(&ns.AudiobookFile, def.AudiobookFile)
-	fill(&ns.MangaFolder, def.MangaFolder)
-	fill(&ns.MangaFile, def.MangaFile)
 	fill(&ns.ComicFolder, def.ComicFolder)
 	fill(&ns.ComicFile, def.ComicFile)
-	fill(&ns.MagazineFolder, def.MagazineFolder)
-	fill(&ns.MagazineFile, def.MagazineFile)
 }
 
 // SetNaming replaces the naming templates and persists the config. Empty
@@ -692,9 +659,7 @@ func (c *Config) MetadataSettings() MetadataSettings {
 	defer c.mu.Unlock()
 	out := MetadataSettings{
 		Active:              c.Metadata.Active,
-		MangaProvider:       c.Metadata.MangaProvider,
 		ComicProvider:       c.Metadata.ComicProvider,
-		MangaCoverSource:    c.Metadata.MangaCoverSource,
 		ComicCoverSource:    c.Metadata.ComicCoverSource,
 		Language:            c.Metadata.Language,
 		Country:             c.Metadata.Country,

@@ -27,13 +27,20 @@ func TestCalendarNavIDs(t *testing.T) {
 		t.Fatalf("SetBookLibrary: %v", err)
 	}
 
-	// Magazine: an issue dated today (CreateMagazineIssue links series_books).
-	sr := &Series{Source: "manual", ForeignID: "mag-cal", MediaType: "magazine", Title: "Calendar Weekly"}
+	// Comic: a volume dated today, linked to its series.
+	sr := &Series{Source: "comicvine", ForeignID: "comic-cal", MediaType: "comic", Title: "Calendar Comic"}
 	if err := s.UpsertSeries(sr); err != nil {
 		t.Fatalf("UpsertSeries: %v", err)
 	}
-	if _, err := s.CreateMagazineIssue(sr, today, false); err != nil {
-		t.Fatalf("CreateMagazineIssue: %v", err)
+	cb := &Book{
+		AuthorID: a.ID, Source: "comicvine", ForeignID: "comic-cal-1",
+		MediaType: "comic", Title: "Calendar Comic #1", ReleaseDate: today,
+	}
+	if err := s.UpsertBook(cb); err != nil {
+		t.Fatalf("UpsertBook: %v", err)
+	}
+	if err := s.LinkBookSeries(cb.ID, sr.ID, 1); err != nil {
+		t.Fatalf("LinkBookSeries: %v", err)
 	}
 
 	items, err := s.Calendar(today, today)
@@ -48,8 +55,8 @@ func TestCalendarNavIDs(t *testing.T) {
 	if !ok || eb.AuthorID != a.ID {
 		t.Errorf("ebook item = %+v, ok=%v; want authorId %d", eb, ok, a.ID)
 	}
-	mg, ok := byType["magazine"]
-	if !ok || mg.SeriesID != sr.ID {
-		t.Errorf("magazine item = %+v, ok=%v; want seriesId %d", mg, ok, sr.ID)
+	cm, ok := byType["comic"]
+	if !ok || cm.SeriesID != sr.ID {
+		t.Errorf("comic item = %+v, ok=%v; want seriesId %d", cm, ok, sr.ID)
 	}
 }

@@ -16,7 +16,7 @@ type LibraryStatus struct {
 }
 
 // MediaTypes in display order.
-var MediaTypes = []string{"ebook", "audiobook", "manga", "comic", "magazine"}
+var MediaTypes = []string{"ebook", "audiobook", "comic"}
 
 // itemsWhere returns the SQL predicate selecting a library's *visible*
 // items. Membership alone decides visibility: any book enrolled in a format
@@ -70,16 +70,6 @@ func (s *Store) LibraryStatuses() ([]LibraryStatus, error) {
 		}
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM books WHERE ` + wantedWhere(mt)).Scan(&st.Wanted); err != nil {
 			return nil, err
-		}
-		// Magazines count series, not materialized issues, as their items.
-		if mt == "magazine" {
-			var seriesCount int
-			if err := s.db.QueryRow(`SELECT COUNT(*) FROM series WHERE media_type = 'magazine'`).Scan(&seriesCount); err != nil {
-				return nil, err
-			}
-			if seriesCount > st.Items {
-				st.Items = seriesCount
-			}
 		}
 		st.Active = hasRoot[mt]
 		statuses = append(statuses, st)
@@ -274,7 +264,7 @@ func scanBookWithSeries(rows *sql.Rows) (*Book, error) {
 	if err := rows.Scan(&b.ID, &b.AuthorID, &b.Source, &b.MediaType, &b.ForeignID, &b.Title, &b.SortTitle,
 		&b.Description, &b.ReleaseDate, &b.Rating, &b.CoverURL, &b.Monitored,
 		&b.InEbookLibrary, &b.EbookMonitored, &b.InAudiobookLibrary, &b.AudiobookMonitored,
-		&b.HasFile, &b.HasEbookFile, &b.HasAudiobookFile, &b.HasColorFile, &b.HasMonoFile,
+		&b.HasFile, &b.HasEbookFile, &b.HasAudiobookFile,
 		&b.AddedAt, &b.UpdatedAt, &st, &sp); err != nil {
 		return nil, err
 	}

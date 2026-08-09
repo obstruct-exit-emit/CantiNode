@@ -41,8 +41,8 @@ type Book struct {
 	ID       int64  `json:"id"`
 	AuthorID int64  `json:"authorId"`
 	Source   string `json:"metadataSource"`
-	// MediaType is "book" for prose (owned as ebook/audiobook), or
-	// "manga"/"comic" for a series volume/issue.
+	// MediaType is "book" for prose (owned as ebook/audiobook), or "comic"
+	// for a series issue.
 	MediaType   string  `json:"mediaType"`
 	ForeignID   string  `json:"foreignBookId"`
 	Title       string  `json:"title"`
@@ -60,13 +60,9 @@ type Book struct {
 	InAudiobookLibrary bool `json:"inAudiobookLibrary"`
 	AudiobookMonitored bool `json:"audiobookMonitored"`
 	HasFile            bool `json:"hasFile"` // any media type
-	HasEbookFile       bool `json:"hasEbookFile"`
-	HasAudiobookFile   bool `json:"hasAudiobookFile"`
-	// Per-variant ownership for manga volumes (colorized/monochrome share one
-	// volume row); both false for non-manga.
-	HasColorFile bool   `json:"hasColorFile"`
-	HasMonoFile  bool   `json:"hasMonoFile"`
-	AddedAt      string `json:"addedAt"`
+	HasEbookFile       bool   `json:"hasEbookFile"`
+	HasAudiobookFile   bool   `json:"hasAudiobookFile"`
+	AddedAt            string `json:"addedAt"`
 	UpdatedAt    string `json:"updatedAt"`
 	// Populated on detail endpoints.
 	Editions []Edition    `json:"editions,omitempty"`
@@ -96,7 +92,7 @@ type Series struct {
 	ForeignID   string `json:"foreignSeriesId"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
-	MediaType   string `json:"mediaType"` // book (prose series), manga, comic
+	MediaType   string `json:"mediaType"` // book (prose series) or comic
 	Monitored   bool   `json:"monitored"`
 	MonitorNew  bool   `json:"monitorNew"` // future volumes start monitored
 	// ProviderOverride pins this series to a metadata provider, beating the

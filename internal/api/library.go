@@ -109,7 +109,7 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, results)
 	default:
-		writeError(w, http.StatusBadRequest, "type must be author, book, manga, or comic")
+		writeError(w, http.StatusBadRequest, "type must be author, book, or comic")
 	}
 }
 
@@ -299,7 +299,7 @@ func (s *server) handleRefreshLibrary(w http.ResponseWriter, r *http.Request) {
 				count++
 			}
 		}
-	case "manga", "comic":
+	case "comic":
 		seriesList, err := s.store.ListSeries(req.MediaType)
 		if err != nil {
 			writeStoreError(w, err)
@@ -307,21 +307,18 @@ func (s *server) handleRefreshLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 		count = len(seriesList)
 	case "all":
-		// Every author (prose) plus every manga/comic series — the whole library.
+		// Every author (prose) plus every comic series — the whole library.
 		authors, err := s.store.ListAuthors()
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
 		count = len(authors)
-		for _, mt := range []string{"manga", "comic"} {
-			if seriesList, err := s.store.ListSeries(mt); err == nil {
-				count += len(seriesList)
-			}
+		if seriesList, err := s.store.ListSeries("comic"); err == nil {
+			count += len(seriesList)
 		}
 	default:
-		writeError(w, http.StatusBadRequest,
-			"mediaType must be ebook, audiobook, manga, or comic (magazines are provider-less)")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, comic, or all")
 		return
 	}
 	if count == 0 {
@@ -578,14 +575,13 @@ func (s *server) handleBookLibrary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	// Manga volumes and comic issues have no per-format membership column —
-	// one is in the library when it's monitored or owned. member=true
-	// monitors it (adds it back from the series' Missing section);
-	// member=false removes it: it unmonitors, and its file records are
-	// forgotten so it's no longer owned and drops into Missing (optionally
-	// deleting the files from disk first — otherwise the next scan re-finds
-	// them, like any other library).
-	if req.Library == "manga" || req.Library == "comic" {
+	// Comic issues have no per-format membership column — one is in the
+	// library when it's monitored or owned. member=true monitors it (adds it
+	// back from the series' Missing section); member=false removes it: it
+	// unmonitors, and its file records are forgotten so it's no longer owned
+	// and drops into Missing (optionally deleting the files from disk first
+	// — otherwise the next scan re-finds them, like any other library).
+	if req.Library == "comic" {
 		if !req.Member {
 			if req.DeleteFiles {
 				paths, err := s.store.FilePathsForBookFormat(id, req.Library)
@@ -813,7 +809,7 @@ func (s *server) handleGetBook(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleBookCover streams the cover image extracted from one of a book's
-// comic archives (CBZ/CBR) — a real cover for owned manga/comic volumes.
+// comic archives (CBZ/CBR) — a real cover for owned comic volumes.
 // The extracted image is cached on disk (<data>/covers) and re-used until a
 // source file changes. 404 when the book has no comic file or none yields an
 // image; the UI then falls back to the provider cover.
@@ -845,7 +841,7 @@ func (s *server) handleBookCover(w http.ResponseWriter, r *http.Request) {
 	var comicFiles []library.BookFile
 	var newest time.Time
 	for _, f := range files {
-		if f.MediaType != "manga" && f.MediaType != "comic" {
+		if f.MediaType != "comic" {
 			continue
 		}
 		comicFiles = append(comicFiles, f)

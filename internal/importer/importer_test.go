@@ -1191,19 +1191,19 @@ func TestAmbiguousUntrackedIsSkipped(t *testing.T) {
 	}
 }
 
-// mangaSeries adds a manga series with three volumes (positions 1–3) and a
-// manga root folder: vol 1 monitored, vol 2 monitored (the grab target),
+// comicSeries adds a comic series with three volumes (positions 1–3) and a
+// comic root folder: vol 1 monitored, vol 2 monitored (the grab target),
 // vol 3 unmonitored.
-func (f *fx) mangaSeries(t *testing.T) (v1, v2, v3 *library.Book) {
+func (f *fx) comicSeries(t *testing.T) (v1, v2, v3 *library.Book) {
 	t.Helper()
 	series := &library.Series{Source: "hardcover", ForeignID: "7310",
-		Title: "Death Note", MediaType: "manga", Monitored: true}
+		Title: "Death Note", MediaType: "comic", Monitored: true}
 	if err := f.store.UpsertSeries(series); err != nil {
 		t.Fatal(err)
 	}
 	vol := func(fid string, pos float64, monitored bool) *library.Book {
 		b := &library.Book{AuthorID: f.book.AuthorID, Source: "hardcover",
-			ForeignID: fid, MediaType: "manga", Monitored: monitored,
+			ForeignID: fid, MediaType: "comic", Monitored: monitored,
 			Title: fmt.Sprintf("Death Note Vol. %.0f", pos)}
 		if err := f.store.UpsertBook(b); err != nil {
 			t.Fatal(err)
@@ -1214,7 +1214,7 @@ func (f *fx) mangaSeries(t *testing.T) (v1, v2, v3 *library.Book) {
 		return b
 	}
 	if _, err := f.db.Exec(
-		`INSERT INTO root_folders (media_type, path, variant) VALUES ('manga', ?, 'mono')`,
+		`INSERT INTO root_folders (media_type, path) VALUES ('comic', ?)`,
 		t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
@@ -1226,7 +1226,7 @@ func (f *fx) mangaSeries(t *testing.T) (v1, v2, v3 *library.Book) {
 // size) plus any other *monitored* volumes — never the unmonitored ones.
 func TestPackImportsMonitoredVolumesOnly(t *testing.T) {
 	f := fixture(t)
-	v1, v2, v3 := f.mangaSeries(t)
+	v1, v2, v3 := f.comicSeries(t)
 
 	// The unmonitored volume's file is the largest in the bundle — size must
 	// not decide which file the grabbed volume gets.
@@ -1235,7 +1235,7 @@ func TestPackImportsMonitoredVolumesOnly(t *testing.T) {
 		"Death Note v02.cbz",
 		"Death Note v03 Extended Collectors Special Edition.cbz")
 	if err := f.grabs.AddGrab(&download.GrabRecord{
-		BookID: v2.ID, MediaType: "manga", ClientConfigID: 1, ClientItemID: "nzo_pack",
+		BookID: v2.ID, MediaType: "comic", ClientConfigID: 1, ClientItemID: "nzo_pack",
 		Title: "Death Note v01-v03 Complete Digital", Protocol: download.ProtocolUsenet,
 	}); err != nil {
 		t.Fatal(err)
@@ -1326,12 +1326,12 @@ func TestPackEbookImportsMonitoredByTitle(t *testing.T) {
 func TestPackImportAllOptIn(t *testing.T) {
 	f := fixture(t)
 	f.packAll = true
-	v1, v2, v3 := f.mangaSeries(t)
+	v1, v2, v3 := f.comicSeries(t)
 
 	f.completedDownload(t, "nzo_all", "Death Note v01-v03 Complete Digital",
 		"Death Note v01.cbz", "Death Note v02.cbz", "Death Note v03.cbz")
 	if err := f.grabs.AddGrab(&download.GrabRecord{
-		BookID: v2.ID, MediaType: "manga", ClientConfigID: 1, ClientItemID: "nzo_all",
+		BookID: v2.ID, MediaType: "comic", ClientConfigID: 1, ClientItemID: "nzo_all",
 		Title: "Death Note v01-v03 Complete Digital", Protocol: download.ProtocolUsenet,
 	}); err != nil {
 		t.Fatal(err)

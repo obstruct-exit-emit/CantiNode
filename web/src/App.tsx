@@ -41,20 +41,16 @@ type Page =
 export const libraryLabels: Record<string, string> = {
   ebook: "Ebooks",
   audiobook: "Audiobooks",
-  manga: "Manga",
   comic: "Comics",
-  magazine: "Magazines",
 };
 
 const libraryIcons: Record<string, string> = {
   ebook: "📖",
   audiobook: "🎧",
-  manga: "🀄",
   comic: "💥",
-  magazine: "📰",
 };
 
-// Hash routing: every page has a URL (#/library/manga, #/book/34?lib=ebook…),
+// Hash routing: every page has a URL (#/library/comic, #/book/34?lib=ebook…),
 // so refresh keeps the page, back/forward work, and any view can be
 // bookmarked or shared. The hash is the single source of truth — navigation
 // writes it, a hashchange listener drives the page state.
@@ -96,7 +92,7 @@ function hashToPage(hash: string): Page {
         : { name: "home" };
     case "series":
       return id > 0
-        ? { name: "series-detail", id, mediaType: q.get("type") ?? "manga" }
+        ? { name: "series-detail", id, mediaType: q.get("type") ?? "comic" }
         : { name: "home" };
     case "search":
       return { name: "search", q: q.get("q") ?? "" };

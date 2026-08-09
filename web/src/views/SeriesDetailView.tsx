@@ -16,12 +16,10 @@ import { formatBytes } from "../format";
 import { useUi } from "../ui";
 
 // Full-page series detail, *arr-style: header with cover, description and
-// series-level actions, then volumes/issues as rows. Manga volumes and comic
-// issues expand to show file locations (manga: owned variants too) and
-// per-item monitor/remove controls; a Missing section lists items not in the
-// library (neither monitored nor owned), each with a one-click Monitor —
-// mirroring the per-author Missing view. Magazines stay flat (issues
-// materialize from grabs and scans).
+// series-level actions, then issues as rows. Issues expand to show file
+// locations and per-item monitor/remove controls; a Missing section lists
+// items not in the library (neither monitored nor owned), each with a
+// one-click Monitor — mirroring the per-author Missing view.
 export default function SeriesDetailView({
   id,
   mediaType,
@@ -60,11 +58,7 @@ export default function SeriesDetailView({
   useEffect(() => {
     api
       .getMetadataSettings()
-      .then((s) =>
-        setProviderOptions(
-          mediaType === "manga" ? s.mangaProviders : mediaType === "comic" ? s.comicProviders : [],
-        ),
-      )
+      .then((s) => setProviderOptions(mediaType === "comic" ? s.comicProviders : []))
       .catch(() => setProviderOptions([]));
   }, [mediaType]);
 
@@ -72,11 +66,10 @@ export default function SeriesDetailView({
 
   const volumes = series.volumes ?? [];
   const owned = volumes.filter((v) => v.hasFile).length;
-  const unitName = mediaType === "manga" ? "volume" : "issue";
-  // Manga and comics split into the library (monitored or owned) and Missing
-  // (neither), like books/authors, with expandable per-item rows; magazines
-  // show every issue in one flat list.
-  const expandable = mediaType === "manga" || mediaType === "comic";
+  const unitName = "issue";
+  // Comics split into the library (monitored or owned) and Missing (neither),
+  // like books/authors, with expandable per-item rows.
+  const expandable = mediaType === "comic";
   const inLibrary = expandable ? volumes.filter((v) => v.monitored || v.hasFile) : volumes;
   const missing = expandable ? volumes.filter((v) => !v.monitored && !v.hasFile) : [];
 
@@ -205,24 +198,20 @@ export default function SeriesDetailView({
             >
               {series.monitored ? "monitored" : "unmonitored"}
             </button>
-            {mediaType !== "magazine" && (
-              <button
-                disabled={busy}
-                title={`Search indexers for this series' wanted ${unitName}s`}
-                onClick={searchWanted}
-              >
-                Search wanted
-              </button>
-            )}
-            {mediaType !== "magazine" && (
-              <button
-                disabled={busy}
-                title="Search for whole-series packs (v01-vNN, Complete) — importing one fills every matching volume"
-                onClick={() => setShowPacks(!showPacks)}
-              >
-                {showPacks ? "Close packs" : "🎁 Search packs"}
-              </button>
-            )}
+            <button
+              disabled={busy}
+              title={`Search indexers for this series' wanted ${unitName}s`}
+              onClick={searchWanted}
+            >
+              Search wanted
+            </button>
+            <button
+              disabled={busy}
+              title="Search for whole-series packs (v01-vNN, Complete) — importing one fills every matching volume"
+              onClick={() => setShowPacks(!showPacks)}
+            >
+              {showPacks ? "Close packs" : "🎁 Search packs"}
+            </button>
             <button disabled={busy} title="Preview naming-template moves for this series' files" onClick={previewRenames}>
               Organize…
             </button>
@@ -301,9 +290,7 @@ export default function SeriesDetailView({
       </section>
 
       <section className="card">
-        <h2>
-          {mediaType === "manga" ? "Volumes" : "Issues"} ({inLibrary.length})
-        </h2>
+        <h2>Issues ({inLibrary.length})</h2>
         {notice && <p className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>{notice}</p>}
         {inLibrary.length === 0 ? (
           <p className="muted">
@@ -367,10 +354,9 @@ export default function SeriesDetailView({
             </span>
           </div>
           <p className="muted">
-            {unitName === "volume" ? "Volumes" : "Issues"} in the series you're
-            not tracking — neither monitored nor owned. Monitor adds one back
-            to the library and searches for it — check several to monitor them
-            in one go.
+            Issues in the series you're not tracking — neither monitored nor
+            owned. Monitor adds one back to the library and searches for it —
+            check several to monitor them in one go.
           </p>
           <ul className="rows">
             {missing.map((v) => (
@@ -397,9 +383,6 @@ export default function SeriesDetailView({
     </>
   );
 }
-
-const variantLabel = (variant?: string) =>
-  variant === "color" ? "colorized" : variant === "mono" ? "monochrome" : "";
 
 // VolumeCover shows the volume's cover, preferring one extracted from the
 // owned comic file (first page), then the provider cover, then an initial —
@@ -440,11 +423,11 @@ function coverAbout(volume: Book) {
   );
 }
 
-// VolumeRow keeps the list compact for series with hundreds of volumes or
-// issues: collapsed it's just the title + an owned/wanted badge. Expanding
-// reveals the cover + blurb, where each file lives (and, for manga, which
-// variants are owned), plus the same per-item controls an individual book
-// gets — monitor, Auto grab, Search releases, and remove-from-library.
+// VolumeRow keeps the list compact for series with hundreds of issues:
+// collapsed it's just the title + an owned/wanted badge. Expanding reveals
+// the cover + blurb, where each file lives, plus the same per-item controls
+// an individual book gets — monitor, Auto grab, Search releases, and
+// remove-from-library.
 function VolumeRow({
   volume,
   mediaType,
@@ -577,20 +560,6 @@ function VolumeRow({
       {open && (
         <div className="book-detail">
           {coverAbout(volume)}
-          {volume.hasFile && (
-            <div className="settings-actions">
-              {volume.hasColorFile && (
-                <span className="owned yes" title="Colorized copy owned">
-                  🎨 colorized
-                </span>
-              )}
-              {volume.hasMonoFile && (
-                <span className="owned yes" title="Monochrome copy owned">
-                  ◻️ monochrome
-                </span>
-              )}
-            </div>
-          )}
           {volume.hasFile &&
             (detail === null ? (
               <p className="muted">Loading files…</p>
@@ -601,10 +570,7 @@ function VolumeRow({
                 {files.map((f) => (
                   <li key={f.id}>
                     <div className="row">
-                      <span className="file-path">
-                        📄 {variantLabel(f.variant) && `${variantLabel(f.variant)} · `}
-                        {f.path}
-                      </span>
+                      <span className="file-path">📄 {f.path}</span>
                       <span className="row-actions">
                         <span className="muted">
                           {f.format} · {formatBytes(f.size)}

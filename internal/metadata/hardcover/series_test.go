@@ -21,9 +21,9 @@ func TestSeriesSearchAndGet(t *testing.T) {
 			]
 		}]}}`,
 	})
-	sc := &SeriesClient{Client: c, mediaType: "manga"}
+	sc := &SeriesClient{Client: c, mediaType: "comic"}
 
-	if sc.MediaType() != "manga" || sc.Name() != "hardcover" {
+	if sc.MediaType() != "comic" || sc.Name() != "hardcover" {
 		t.Fatalf("MediaType/Name = %s/%s", sc.MediaType(), sc.Name())
 	}
 
@@ -66,7 +66,7 @@ func TestSeriesSearchAndGet(t *testing.T) {
 	}
 }
 
-// Hardcover's manga series often store every book at position 0; volume
+// Hardcover's comic series often store every book at position 0; volume
 // numbers must fall back to sequential order.
 func TestSeriesMessyPositionsFallBackToSequential(t *testing.T) {
 	c := mockAPI(t, map[string]string{
@@ -79,7 +79,7 @@ func TestSeriesMessyPositionsFallBackToSequential(t *testing.T) {
 			]
 		}]}}`,
 	})
-	sc := &SeriesClient{Client: c, mediaType: "manga"}
+	sc := &SeriesClient{Client: c, mediaType: "comic"}
 
 	s, err := sc.GetSeries(context.Background(), "7310")
 	if err != nil {
@@ -92,7 +92,7 @@ func TestSeriesMessyPositionsFallBackToSequential(t *testing.T) {
 	}
 }
 
-// A real Hardcover manga series (e.g. Death Note, 7310) mixes position-0
+// A real Hardcover comic series (e.g. Death Note, 7310) mixes position-0
 // spin-offs with numbered volumes, and carries several editions per volume:
 // reissues/box sets alongside the standard release. GetSeries must drop the
 // spin-offs and, per position, keep the standard edition — even when a reissue
@@ -111,7 +111,7 @@ func TestSeriesDropsSpinOffsAndPrefersStandardEdition(t *testing.T) {
 			]
 		}]}}`,
 	})
-	sc := &SeriesClient{Client: c, mediaType: "manga"}
+	sc := &SeriesClient{Client: c, mediaType: "comic"}
 
 	s, err := sc.GetSeries(context.Background(), "7310")
 	if err != nil {
@@ -158,7 +158,7 @@ func TestSeriesLanguageAndCountryPreference(t *testing.T) {
 	// Spanish preference: the Spanish edition wins volume 9 despite the
 	// English one's longer description; volume 10 (no Spanish at all) falls
 	// back to the description tiers.
-	sc := &SeriesClient{Client: mockAPI(t, mock), mediaType: "manga", language: "spanish"}
+	sc := &SeriesClient{Client: mockAPI(t, mock), mediaType: "comic", language: "spanish"}
 	s, err := sc.GetSeries(context.Background(), "7310")
 	if err != nil {
 		t.Fatalf("GetSeries: %v", err)
@@ -172,7 +172,7 @@ func TestSeriesLanguageAndCountryPreference(t *testing.T) {
 
 	// English + United Kingdom: language ties volume 10's two candidates, the
 	// country preference picks the UK printing over the longer-described US one.
-	sc = &SeriesClient{Client: mockAPI(t, mock), mediaType: "manga", language: "english", country: "united kingdom"}
+	sc = &SeriesClient{Client: mockAPI(t, mock), mediaType: "comic", language: "english", country: "united kingdom"}
 	if s, err = sc.GetSeries(context.Background(), "7310"); err != nil {
 		t.Fatalf("GetSeries: %v", err)
 	}

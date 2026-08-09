@@ -18,13 +18,9 @@ import (
 	"github.com/librinode/librinode/internal/api"
 	"github.com/librinode/librinode/internal/config"
 	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/indexer/audiobookbay"
-	"github.com/librinode/librinode/internal/indexer/libgen"
 	"github.com/librinode/librinode/internal/library"
 	"github.com/librinode/librinode/internal/logging"
 	"github.com/librinode/librinode/internal/metadata"
-	"github.com/librinode/librinode/internal/metadata/anilist"
 	"github.com/librinode/librinode/internal/metadata/comicvine"
 	"github.com/librinode/librinode/internal/metadata/googlebooks"
 	"github.com/librinode/librinode/internal/metadata/hardcover"
@@ -151,18 +147,8 @@ func run(dataDir string) error {
 	// being is the fallback chain (Settings → Metadata → Fallbacks).
 	metadata.Register("openlibrary", openlibrary.Factory)
 	metadata.Register("googlebooks", googlebooks.Factory)
-	metadata.RegisterSeries("anilist", anilist.Factory)
-	metadata.RegisterSeries("hardcover", hardcover.SeriesFactory)
-	// Hardcover serves comics too — a distinct registry key, but the provider
-	// reports itself as "hardcover" (what series.Source records).
 	metadata.RegisterSeries("hardcover-comics", hardcover.ComicSeriesFactory)
 	metadata.RegisterSeries("comicvine", comicvine.Factory)
-
-	// Native indexers: built-in sources for sites with no Newznab/Torznab API.
-	// Nothing is bundled or enabled by default — registering only makes the
-	// implementation selectable when a user deliberately adds it.
-	indexer.RegisterNative(audiobookbay.Def())
-	indexer.RegisterNative(libgen.Def())
 
 	providers := metadata.NewManager()
 	// ProviderSettings carries the global metadata preferences (language,

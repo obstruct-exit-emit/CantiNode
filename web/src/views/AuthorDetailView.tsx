@@ -13,7 +13,7 @@ import {
 
 // Books section display: "grid" (current default, large covers), "compact"
 // (same grid, smaller covers), or "list" (a plain title + status row, like
-// manga volumes/issues).
+// comic volumes/issues).
 type BooksView = "grid" | "compact" | "list";
 
 // Full-page author detail, *arr-style: header with portrait, description and
@@ -179,7 +179,7 @@ export default function AuthorDetailView({
     );
   };
 
-  // List view: a plain title + status row, like manga volumes/issues —
+  // List view: a plain title + status row, like comic volumes/issues —
   // no covers, one line per book.
   const renderRow = (b: Book) => {
     const bookOwned = library === "ebook" ? b.hasEbookFile : b.hasAudiobookFile;

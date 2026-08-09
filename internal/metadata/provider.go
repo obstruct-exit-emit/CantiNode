@@ -1,7 +1,7 @@
 // Package metadata defines the pluggable metadata-provider interface and the
 // provider-neutral types it returns. Hardcover implements it for books and
-// audiobooks; manga and comic providers (AniList, ComicVine) slot in behind
-// the SeriesProvider interface.
+// audiobooks; comic providers (Hardcover, ComicVine) slot in behind the
+// SeriesProvider interface.
 package metadata
 
 import (
@@ -77,13 +77,13 @@ type SeriesLink struct {
 	Position    float64 `json:"position"`
 }
 
-// SeriesProvider is a series-first metadata source (manga, comics): search
-// series, then fetch one with its volumes/issues. AniList and ComicVine are
-// the first implementations.
+// SeriesProvider is a series-first metadata source (comics): search series,
+// then fetch one with its issues. Hardcover and ComicVine are the first
+// implementations.
 type SeriesProvider interface {
 	// Name is stored in metadata_source columns.
 	Name() string
-	// MediaType is the library type this provider serves: manga or comic.
+	// MediaType is the library type this provider serves (comic).
 	MediaType() string
 	// SearchSeries returns series matching a free-text query.
 	SearchSeries(ctx context.Context, query string) ([]SeriesResult, error)
@@ -91,19 +91,19 @@ type SeriesProvider interface {
 	GetSeries(ctx context.Context, foreignID string) (*SeriesResult, error)
 }
 
-// SeriesResult is a manga/comic series at the provider.
+// SeriesResult is a comic series at the provider.
 type SeriesResult struct {
 	ForeignID   string  `json:"foreignSeriesId"`
 	Title       string  `json:"title"`
 	Description string  `json:"description,omitempty"`
-	AuthorName  string  `json:"authorName,omitempty"` // writer / mangaka
+	AuthorName  string  `json:"authorName,omitempty"` // writer
 	Year        int     `json:"year,omitempty"`
 	CoverURL    string  `json:"coverUrl,omitempty"`
 	IssueCount  int     `json:"issueCount"`
 	Issues      []Issue `json:"issues,omitempty"` // populated by GetSeries
 }
 
-// Issue is one volume (manga) or issue (comic) of a series.
+// Issue is one issue of a comic series.
 type Issue struct {
 	ForeignID   string  `json:"foreignIssueId"`
 	Number      float64 `json:"number"`

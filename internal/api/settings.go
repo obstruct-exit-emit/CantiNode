@@ -25,16 +25,12 @@ type metadataSettingsResponse struct {
 	// finds nothing; a subset of Available, never including Active itself.
 	Fallbacks []string                     `json:"fallbacks"`
 	Providers map[string]metadata.Settings `json:"providers"`
-	// MangaProviders / ComicProviders list the providers that can serve each
-	// series media type (for the selectors); the singular fields are the
-	// chosen ones.
-	MangaProviders []string `json:"mangaProviders"`
-	MangaProvider  string   `json:"mangaProvider"`
+	// ComicProviders lists the providers that can serve the comic series
+	// media type (for the selector); ComicProvider is the chosen one.
 	ComicProviders []string `json:"comicProviders"`
 	ComicProvider  string   `json:"comicProvider"`
 	// Per-library volume-cover source, "file" or "provider" (effective
-	// values — defaults applied).
-	MangaCoverSource string `json:"mangaCoverSource"`
+	// value — default applied).
 	ComicCoverSource string `json:"comicCoverSource"`
 	// Global, provider-agnostic metadata preferences (effective values).
 	Language            string `json:"language"`
@@ -51,11 +47,8 @@ func (s *server) metadataSettingsResponse() metadataSettingsResponse {
 		SeriesAvailable:     metadata.SeriesAvailable(),
 		Fallbacks:           ms.Fallbacks,
 		Providers:           ms.Providers,
-		MangaProviders:      metadata.AvailableSeriesProviders("manga"),
-		MangaProvider:       s.cfg.MangaSeriesProvider(),
 		ComicProviders:      metadata.AvailableSeriesProviders("comic"),
 		ComicProvider:       s.cfg.ComicSeriesProvider(),
-		MangaCoverSource:    s.cfg.CoverSourceFor("manga"),
 		ComicCoverSource:    s.cfg.CoverSourceFor("comic"),
 		Language:            s.cfg.MetadataLanguage(),
 		Country:             s.cfg.MetadataCountry(),
@@ -89,9 +82,7 @@ func (s *server) handlePutMetadataSettings(w http.ResponseWriter, r *http.Reques
 		Active              string                       `json:"active"`
 		Fallbacks           []string                     `json:"fallbacks"`
 		Providers           map[string]metadata.Settings `json:"providers"`
-		MangaProvider       string                       `json:"mangaProvider"`
 		ComicProvider       string                       `json:"comicProvider"`
-		MangaCoverSource    string                       `json:"mangaCoverSource"`
 		ComicCoverSource    string                       `json:"comicCoverSource"`
 		Language            string                       `json:"language"`
 		Country             string                       `json:"country"`
@@ -121,17 +112,12 @@ func (s *server) handlePutMetadataSettings(w http.ResponseWriter, r *http.Reques
 		seenFallback[fb] = true
 		fallbacks = append(fallbacks, fb)
 	}
-	if req.MangaProvider != "" && req.MangaProvider != "none" &&
-		!slices.Contains(metadata.AvailableSeriesProviders("manga"), req.MangaProvider) {
-		writeError(w, http.StatusBadRequest, "unknown manga provider: "+req.MangaProvider)
-		return
-	}
 	if req.ComicProvider != "" && req.ComicProvider != "none" &&
 		!slices.Contains(metadata.AvailableSeriesProviders("comic"), req.ComicProvider) {
 		writeError(w, http.StatusBadRequest, "unknown comic provider: "+req.ComicProvider)
 		return
 	}
-	if !validCoverSource(req.MangaCoverSource) || !validCoverSource(req.ComicCoverSource) {
+	if !validCoverSource(req.ComicCoverSource) {
 		writeError(w, http.StatusBadRequest, "cover source must be file or provider")
 		return
 	}
@@ -143,9 +129,7 @@ func (s *server) handlePutMetadataSettings(w http.ResponseWriter, r *http.Reques
 		Active:              req.Active,
 		Fallbacks:           fallbacks,
 		Providers:           req.Providers,
-		MangaProvider:       req.MangaProvider,
 		ComicProvider:       req.ComicProvider,
-		MangaCoverSource:    req.MangaCoverSource,
 		ComicCoverSource:    req.ComicCoverSource,
 		Language:            strings.ToLower(strings.TrimSpace(req.Language)),
 		Country:             strings.ToLower(strings.TrimSpace(req.Country)),

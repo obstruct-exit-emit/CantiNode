@@ -23,8 +23,7 @@ type Parsed struct {
 	Narrator string `json:"narrator,omitempty"`
 	Bitrate  int    `json:"bitrate,omitempty"` // kbps
 	Abridged bool   `json:"abridged"`
-	// Manga/comic volume or issue number ("v05", "Vol. 5", "#12"); 0 when
-	// not stated.
+	// Comic issue number ("v05", "Vol. 5", "#12"); 0 when not stated.
 	Volume float64 `json:"volume,omitempty"`
 	// VolumeEnd is the range end when the release spans volumes
 	// ("v01-v12", "Vol. 1-12"); 0 when the release names a single volume.
@@ -39,7 +38,7 @@ var mediaFormats = map[string]bool{
 	"epub": true, "mobi": true, "azw3": true, "pdf": true,
 	// audiobook
 	"m4b": true, "m4a": true, "mp3": true, "flac": true, "opus": true,
-	// manga/comic
+	// comic
 	"cbz": true, "cbr": true,
 }
 

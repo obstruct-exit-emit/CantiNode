@@ -126,15 +126,15 @@ func TestScoreGeneric(t *testing.T) {
 	}
 }
 
-// Manga/comic/magazine releases routinely omit the format from the name (the
-// real format is read from the files at import), so a format-less release must
-// still approve — but rank below one that names a format.
+// Comic releases routinely omit the format from the name (the real format is
+// read from the files at import), so a format-less release must still
+// approve — but rank below one that names a format.
 func TestScoreImageMediaAllowsUnknownFormat(t *testing.T) {
-	prefs := DefaultMangaPreferences()
+	prefs := DefaultComicPreferences()
 
 	noFormat := Score(rel("Death Note Vol. 01 (2005) (Digital)", indexer.ProtocolUsenet, 5<<20, -1), prefs, nil, nil, nil)
 	if !noFormat.Approved {
-		t.Fatalf("format-less manga release should approve: %v", noFormat.Rejections)
+		t.Fatalf("format-less comic release should approve: %v", noFormat.Rejections)
 	}
 
 	cbz := Score(rel("Death Note Vol. 01 (cbz)", indexer.ProtocolUsenet, 5<<20, -1), prefs, nil, nil, nil)
@@ -145,7 +145,7 @@ func TestScoreImageMediaAllowsUnknownFormat(t *testing.T) {
 	// A stated but unwanted format is still rejected, even for image media.
 	badFmt := Score(rel("Death Note Vol. 01 (mp3)", indexer.ProtocolUsenet, 5<<20, -1), prefs, nil, nil, nil)
 	if badFmt.Approved {
-		t.Error("an unwanted format should still be rejected for manga")
+		t.Error("an unwanted format should still be rejected for comics")
 	}
 
 	// Ebooks keep requiring a format.
@@ -392,7 +392,7 @@ func TestScoreAudiobook(t *testing.T) {
 }
 
 func TestScoreVolume(t *testing.T) {
-	prefs := DefaultMangaPreferences()
+	prefs := DefaultComicPreferences()
 
 	right := ScoreVolume(rel("Berserk v05 (Digital) CBZ", indexer.ProtocolUsenet, 50<<20, -1), prefs, "Berserk", 5)
 	if !right.Approved {
@@ -421,39 +421,9 @@ func TestScoreVolume(t *testing.T) {
 	if !tagged.Approved {
 		t.Errorf("tagged release wrongly rejected: %v", tagged.Rejections)
 	}
-	epubUnderComic := ScoreVolume(rel("Berserk v05 EPUB", indexer.ProtocolUsenet, 50<<20, -1), DefaultComicPreferences(), "Berserk", 5)
+	epubUnderComic := ScoreVolume(rel("Berserk v05 EPUB", indexer.ProtocolUsenet, 50<<20, -1), prefs, "Berserk", 5)
 	if epubUnderComic.Approved {
 		t.Error("epub approved under comic prefs")
-	}
-}
-
-func TestScoreMagazine(t *testing.T) {
-	prefs := DefaultMagazinePreferences()
-	owned := map[string]bool{"2026-06-27": true}
-
-	fresh, id := ScoreMagazine(rel("The Economist - 2026-07-04 PDF", indexer.ProtocolUsenet, 50<<20, -1), prefs, "The Economist", owned)
-	if !fresh.Approved || id != "2026-07-04" {
-		t.Fatalf("fresh issue = %+v (id %q)", fresh.Rejections, id)
-	}
-
-	ownedIssue, _ := ScoreMagazine(rel("The Economist - 2026-06-27 PDF", indexer.ProtocolUsenet, 50<<20, -1), prefs, "The Economist", owned)
-	if ownedIssue.Approved {
-		t.Error("owned issue should be rejected")
-	}
-
-	wrongMag, _ := ScoreMagazine(rel("Wired - 2026-07 PDF", indexer.ProtocolUsenet, 50<<20, -1), prefs, "The Economist", owned)
-	if wrongMag.Approved {
-		t.Error("different magazine should be rejected")
-	}
-
-	noIssue, _ := ScoreMagazine(rel("The Economist PDF", indexer.ProtocolUsenet, 50<<20, -1), prefs, "The Economist", owned)
-	if noIssue.Approved {
-		t.Error("release without issue identifier should be rejected")
-	}
-
-	numbered, id := ScoreMagazine(rel("Retro Gamer Issue 261 PDF", indexer.ProtocolUsenet, 50<<20, -1), prefs, "Retro Gamer", nil)
-	if !numbered.Approved || id != "issue-261" {
-		t.Errorf("numbered issue = %+v (id %q)", numbered.Rejections, id)
 	}
 }
 
@@ -503,7 +473,7 @@ func TestParseVolumeRange(t *testing.T) {
 }
 
 func TestScoreSeriesPack(t *testing.T) {
-	prefs := DefaultMangaPreferences()
+	prefs := DefaultComicPreferences()
 
 	full := ScoreSeriesPack(rel("Berserk v01-v41 (Digital) (CBZ)", indexer.ProtocolTorrent, 10<<30, 12), prefs, "Berserk", 41)
 	if !full.Approved {

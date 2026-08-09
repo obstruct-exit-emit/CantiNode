@@ -30,13 +30,11 @@ type Indexer struct {
 	Categories string `json:"categories"` // comma-separated Newznab category ids (book searches)
 	// AudioCategories are used for audiobook searches (3030 = Audio/Audiobook).
 	AudioCategories string `json:"audioCategories"`
-	// ComicCategories are used for manga and comic searches (7030 = Books/Comics).
+	// ComicCategories are used for comic searches (7030 = Books/Comics).
 	ComicCategories string `json:"comicCategories"`
-	// MagazineCategories are used for magazine searches (7010 = Books/Mags).
-	MagazineCategories string `json:"magazineCategories"`
-	Enabled            bool   `json:"enabled"`
-	Priority           int    `json:"priority"` // 1-50, lower wins ties
-	AddedAt            string `json:"addedAt"`
+	Enabled         bool   `json:"enabled"`
+	Priority        int    `json:"priority"` // 1-50, lower wins ties
+	AddedAt         string `json:"addedAt"`
 }
 
 // Protocol reports how releases from this indexer are downloaded. A native
@@ -56,10 +54,8 @@ func (i *Indexer) CategoriesFor(mediaType string) string {
 	switch mediaType {
 	case "audiobook":
 		return i.AudioCategories
-	case "manga", "comic":
+	case "comic":
 		return i.ComicCategories
-	case "magazine":
-		return i.MagazineCategories
 	}
 	return i.Categories
 }
@@ -77,10 +73,10 @@ type Release struct {
 	Size        int64  `json:"size"`
 	PublishDate string `json:"publishDate,omitempty"`
 	Categories  []int  `json:"categories,omitempty"`
-	// Keywords is extra searchable text an indexer can supply beyond Title —
-	// e.g. AudioBook Bay's per-post tag list, which often names the author
-	// even when the title itself doesn't. Scoring's author check falls back
-	// to it; it's never shown to the user and never used for the book-title
+	// Keywords is extra searchable text a native source can supply beyond
+	// Title — e.g. a per-post tag list, which often names the author even
+	// when the title itself doesn't. Scoring's author check falls back to
+	// it; it's never shown to the user and never used for the book-title
 	// check (a stray keyword match there would be too easy to fool).
 	Keywords string `json:"-"`
 	// Torrent-only; -1 means unknown/not applicable (usenet).

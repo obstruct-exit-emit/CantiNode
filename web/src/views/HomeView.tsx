@@ -33,8 +33,8 @@ export default function HomeView({
         <h2>Welcome to LibriNode</h2>
         <p className="muted">
           No libraries yet. Set one up under <strong>Settings → Root
-          Folders</strong> — add a folder for ebooks, audiobooks, manga,
-          comics, or magazines, and its library appears here.
+          Folders</strong> — add a folder for ebooks, audiobooks, or
+          comics, and its library appears here.
         </p>
       </section>
     );
@@ -52,7 +52,7 @@ export default function HomeView({
             </h2>
             <span className="muted">
               {s.items} item{s.items === 1 ? "" : "s"}
-              {s.mediaType !== "magazine" && s.wantedCount > 0 && ` · ${s.wantedCount} wanted`}
+              {s.wantedCount > 0 && ` · ${s.wantedCount} wanted`}
             </span>
           </div>
           {s.recentlyAdded.length > 0 && (
@@ -62,8 +62,7 @@ export default function HomeView({
               onOpen={(it) => onOpenItem(s.mediaType, it)}
             />
           )}
-          {/* Magazines are organize-only for now — no acquisition, so no Wanted. */}
-          {s.mediaType !== "magazine" && s.wanted.length > 0 && (
+          {s.wanted.length > 0 && (
             <HomeRow
               title="Wanted"
               items={s.wanted}

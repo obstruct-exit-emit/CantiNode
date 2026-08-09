@@ -104,9 +104,6 @@ func decodeIndexer(r *http.Request) (*indexer.Indexer, string) {
 	if in.ComicCategories == "" {
 		in.ComicCategories = "7030"
 	}
-	if in.MagazineCategories == "" {
-		in.MagazineCategories = "7010"
-	}
 	return &in, ""
 }
 
@@ -263,7 +260,7 @@ func (s *server) handleSearchReleases(w http.ResponseWriter, r *http.Request) {
 			writeStoreError(w, err)
 			return
 		}
-		if book.MediaType == "manga" || book.MediaType == "comic" {
+		if book.MediaType == "comic" {
 			// Volumes dictate their own media type and search by series.
 			mediaType = book.MediaType
 			links, err := s.store.ListSeriesForBook(book.ID)
@@ -297,21 +294,17 @@ func (s *server) handleSearchReleases(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch mediaType {
-	case "ebook", "audiobook", "manga", "comic":
-	case "magazine":
-		writeError(w, http.StatusBadRequest,
-			"magazine acquisition is disabled — the magazine library is organize-only for now")
-		return
+	case "ebook", "audiobook", "comic":
 	default:
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, manga, or comic")
+		writeError(w, http.StatusBadRequest, "mediaType must be ebook, audiobook, or comic")
 		return
 	}
 
 	ctx, cancel := s.metadataCtx(r)
 	defer cancel()
 
-	// Native scraped sources (ABB, Libgen) match a title as a contiguous phrase,
-	// so hand them the bare title rather than the author-prefixed term.
+	// Native scraped sources match a title as a contiguous phrase, so hand them
+	// the bare title rather than the author-prefixed term.
 	nativeTerm := term
 	if seriesTitle != "" {
 		nativeTerm = seriesTitle

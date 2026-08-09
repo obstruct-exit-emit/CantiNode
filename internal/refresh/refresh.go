@@ -409,12 +409,12 @@ func (s *Service) persistBook(p metadata.Provider, remote *metadata.Book, author
 	return nil
 }
 
-// RefreshAll re-syncs every author and manga/comic series in the library.
+// RefreshAll re-syncs every author and comic series in the library.
 // Individual failures are logged and skipped so one dead provider record
 // can't stall the rest.
 // RefreshLibrary re-syncs one library's records from their providers: a
 // format library's member authors (ebook/audiobook) or a series library's
-// series (manga/comic) — the library-wide twin of the per-author/per-series
+// series (comic) — the library-wide twin of the per-author/per-series
 // Refresh buttons, honoring per-record provider overrides the same way.
 // Individual failures are logged and skipped; the count of successfully
 // refreshed records is returned.
@@ -451,7 +451,7 @@ func (s *Service) RefreshLibrary(ctx context.Context, mediaType string) (int, er
 				done++
 			}
 		}
-	case "manga", "comic":
+	case "comic":
 		seriesList, err := s.store.ListSeries(mediaType)
 		if err != nil {
 			return 0, err

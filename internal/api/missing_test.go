@@ -219,12 +219,12 @@ func TestListBooksScopedByLibrary(t *testing.T) {
 }
 
 // TestLibraryRefresh: the library-wide metadata refresh counts the library's
-// records, refuses provider-less magazines, and answers 202 for a real run.
+// records, refuses an unknown media type, and answers 202 for a real run.
 func TestLibraryRefresh(t *testing.T) {
 	a := newTestAPI(t, fakeProvider{})
 
 	a.want(a.call("POST", "/api/v1/library/refresh",
-		map[string]string{"mediaType": "magazine"}, nil), http.StatusBadRequest)
+		map[string]string{"mediaType": "bogus"}, nil), http.StatusBadRequest)
 
 	var res struct {
 		Started int    `json:"started"`

@@ -36,9 +36,9 @@ type Result struct {
 
 // Scan walks root folders and reconciles their files. With no media types it
 // walks every root; given one or more, it walks only those libraries' roots —
-// so "Scan files" on the Manga page touches manga roots only, never the whole
-// server. Roots that fail (missing drive, ...) are reported in Result.Errors
-// without aborting the others.
+// so "Scan files" on the Comics page touches comic roots only, never the
+// whole server. Roots that fail (missing drive, ...) are reported in
+// Result.Errors without aborting the others.
 func (s *Service) Scan(ctx context.Context, mediaTypes ...string) (*Result, error) {
 	roots, err := s.store.ListRootFolders()
 	if err != nil {
@@ -66,12 +66,9 @@ func (s *Service) Scan(ctx context.Context, mediaTypes ...string) (*Result, erro
 		case "audiobook":
 			result.Roots++
 			scanErr = s.scanAudiobookRoot(ctx, root, index, result)
-		case "manga", "comic":
+		case "comic":
 			result.Roots++
 			scanErr = s.scanComicRoot(ctx, root, index, result)
-		case "magazine":
-			result.Roots++
-			scanErr = s.scanMagazineRoot(ctx, root, index, result)
 		default:
 			continue
 		}
@@ -104,8 +101,7 @@ func walkEntryErr(rootPath, path string, d fs.DirEntry, err error, result *Resul
 
 // bookFileDeleter is satisfied by both *library.Store and
 // *library.BookFileBatch — pruneMissing runs inside the walk's batch
-// transaction where one is in use (ebook/audiobook/comic), or directly
-// against the store where it isn't (magazines; see scanMagazineRoot).
+// transaction (ebook/audiobook/comic all use one).
 type bookFileDeleter interface {
 	DeleteBookFile(id int64) error
 }
@@ -380,9 +376,9 @@ func audiobookDirInfo(dir string) (int64, string, time.Time) {
 	return total, format, modified
 }
 
-// scanComicRoot walks a manga/comic root where each archive file is one
-// volume/issue: Series/Series v05.cbz (series from the directory) or loose
-// Series v05.cbz (series from the filename prefix).
+// scanComicRoot walks a comic root where each archive file is one issue:
+// Series/Series v05.cbz (series from the directory) or loose Series v05.cbz
+// (series from the filename prefix).
 func (s *Service) scanComicRoot(ctx context.Context, root library.RootFolder, index *matchIndex, result *Result) error {
 	known, err := s.store.BookFilePathsUnderRoot(root.ID)
 	if err != nil {
@@ -427,7 +423,6 @@ func (s *Service) scanComicRoot(ctx context.Context, root library.RootFolder, in
 			RootFolderID: root.ID,
 			BookID:       bookID,
 			MediaType:    root.MediaType,
-			Variant:      root.Variant, // colorized/monochrome for manga; '' otherwise
 			Path:         path,
 			Format:       strings.TrimPrefix(ext, "."),
 		}
@@ -457,121 +452,6 @@ func (s *Service) scanComicRoot(ctx context.Context, root library.RootFolder, in
 		}
 	}
 	return batch.Commit()
-}
-
-// MagazineGuess extracts the magazine title and issue identifier from a
-// relative file path: the parent directory names the magazine when present,
-// otherwise the filename prefix before the last " - ".
-func MagazineGuess(rel string) (string, string) {
-	name := filepath.Base(rel)
-	identifier := IssueIdentifier(name)
-	if dir := filepath.Dir(rel); dir != "." {
-		return filepath.Base(dir), identifier
-	}
-	base := strings.TrimSuffix(name, filepath.Ext(name))
-	if i := strings.LastIndex(base, " - "); i > 0 {
-		return strings.TrimSpace(base[:i]), identifier
-	}
-	return base, identifier
-}
-
-// matchMagazineFile resolves (or materializes) the issue book for a scanned
-// magazine file. Issues under a known magazine are created on the spot —
-// scanning an existing archive populates the library. Unmonitored: we
-// already own them.
-func (s *Service) matchMagazineFile(index *matchIndex, rel string) (int64, error) {
-	guess, identifier := MagazineGuess(rel)
-	if identifier == "" {
-		return 0, nil
-	}
-	sr := index.magazines[Normalize(guess)]
-	if sr == nil {
-		return 0, nil
-	}
-	if existing, err := s.store.GetBookByForeignID(sr.Source, sr.ForeignID+":"+identifier); err == nil {
-		return existing.ID, nil
-	}
-	book, err := s.store.CreateMagazineIssue(sr, identifier, false)
-	if err != nil {
-		return 0, err
-	}
-	return book.ID, nil
-}
-
-// scanMagazineRoot walks a magazine root where each pdf/epub/cbz is one
-// issue: Magazine/Magazine - 2026-07.pdf, matched (and created) by magazine
-// title + issue date or number.
-func (s *Service) scanMagazineRoot(ctx context.Context, root library.RootFolder, index *matchIndex, result *Result) error {
-	known, err := s.store.BookFilePathsUnderRoot(root.ID)
-	if err != nil {
-		return err
-	}
-	seen := map[string]bool{}
-	walkIncomplete := false
-
-	// Not batched into one transaction like the other scan*Root functions:
-	// matchMagazineFile below does its own reads/writes (GetBookByForeignID,
-	// CreateMagazineIssue) against the store's own connection pool — which
-	// is capped at one connection (database.Open), so running those while a
-	// batch transaction already holds that single connection would deadlock
-	// the pass against itself. Magazine files are the smallest-volume scan
-	// path in practice, so the per-file commit cost here is a fine trade.
-	err = filepath.WalkDir(root.Path, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return walkEntryErr(root.Path, path, d, err, result, &walkIncomplete)
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && path != root.Path {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !IsMagazinePath(d.Name()) {
-			return nil
-		}
-		rel, err := filepath.Rel(root.Path, path)
-		if err != nil {
-			return err
-		}
-		bookID, err := s.matchMagazineFile(index, rel)
-		if err != nil {
-			return err
-		}
-
-		file := &library.BookFile{
-			RootFolderID: root.ID,
-			BookID:       bookID,
-			MediaType:    "magazine",
-			Path:         path,
-			Format:       strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."),
-		}
-		if info, err := d.Info(); err == nil {
-			file.Size = info.Size()
-			file.ModifiedAt = info.ModTime().UTC().Format(time.RFC3339)
-		}
-		if err := s.store.UpsertBookFile(file); err != nil {
-			return err
-		}
-		seen[path] = true
-		result.Scanned++
-		if file.BookID > 0 { // effective match after upsert (see scanRoot)
-			result.Matched++
-		} else {
-			result.Unmatched++
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	if walkIncomplete {
-		return nil // partial walk — pruning would misread unvisited files as deleted
-	}
-	return s.pruneMissing(s.store, known, seen, result)
 }
 
 // RematchUnmatched re-runs matching for unmatched file records against the
@@ -607,14 +487,9 @@ func (s *Service) RematchUnmatched() (int, error) {
 		}
 		var bookID int64
 		switch root.MediaType {
-		case "manga", "comic":
+		case "comic":
 			seriesGuess, number := ComicGuess(rel)
 			bookID = index.matchVolume(root.MediaType, seriesGuess, number)
-		case "magazine":
-			bookID, err = s.matchMagazineFile(index, rel)
-			if err != nil {
-				return matched, err
-			}
 		default:
 			bookID = index.match(ParsePath(rel), root.MediaType)
 		}
@@ -656,7 +531,6 @@ type matchIndex struct {
 	byTitle       map[string]map[int64]bool      // title key → set of book ids
 	byIdentifier  map[string]int64               // ISBN-13 or ASIN → book id
 	volumes       map[string]map[float64]int64   // mediaType/series key → number → book id
-	magazines     map[string]*library.Series     // Normalize(title) → magazine series
 	// membership: prose book id → format-library bits (1 ebook, 2 audiobook).
 	// Auto-matching respects it: a book that belongs to SOME format library
 	// but not the file's format is never silently attached — the file lands
@@ -717,7 +591,7 @@ func (idx *matchIndex) claim(authorID int64, key string, b keyedBook) {
 	idx.byAuthorTitle[authorID][key] = b
 }
 
-// matchVolume resolves a manga/comic archive to a volume book id, or 0.
+// matchVolume resolves a comic archive to a volume book id, or 0.
 func (idx *matchIndex) matchVolume(mediaType, seriesGuess string, number float64) int64 {
 	if number == 0 || seriesGuess == "" {
 		return 0
@@ -765,15 +639,6 @@ func (s *Service) buildIndex() (*matchIndex, error) {
 			idx.volumes[key] = map[float64]int64{}
 		}
 		idx.volumes[key][ref.Position] = ref.BookID
-	}
-
-	magazines, err := s.store.ListSeries("magazine")
-	if err != nil {
-		return nil, err
-	}
-	idx.magazines = map[string]*library.Series{}
-	for i := range magazines {
-		idx.magazines[Normalize(magazines[i].Title)] = &magazines[i]
 	}
 
 	authors, err := s.store.ListAuthors()

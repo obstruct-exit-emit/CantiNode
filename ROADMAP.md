@@ -7,6 +7,11 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
 
 **Legend:** ✅ complete · 🔄 in progress · ⏳ externally gated · 💡 under consideration
 
+> **Since removed:** manga and magazines (media types, Phase 3) and the
+> AudioBook Bay / Library Genesis native indexers (Phase 5) were pulled from
+> the codebase entirely — see the [CHANGELOG](CHANGELOG.md#removed). The
+> phase write-ups below are left as delivered-at-the-time history.
+
 ## At a glance
 
 | Phase | Scope | Status |
@@ -188,9 +193,6 @@ Under consideration, in no particular order:
   well-supported Linux path through burn-in — reintroducing them, plus the
   originally-planned code-signed Windows installer, is a matter of picking
   the work back up, not redesigning it
-- [ ] **Magazine metadata**: Wikidata as a series enricher (publisher, ISSN,
-  publication frequency feeding Calendar predictions) + Internet Archive for
-  vintage per-issue records
 - [ ] **Import lists**: Hardcover want-to-read shelf → auto-monitor
 - [ ] **External notifications**: Discord/webhook/email on grab, import,
   upgrade, and failure

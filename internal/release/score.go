@@ -22,9 +22,9 @@ var titleStopwords = map[string]bool{
 
 // authorMatches reports whether a release mentions the author: either the
 // full normalized name as a contiguous run, or — for "Last, First" style
-// sources like Libgen where the words are present but reordered — every
-// significant (2+ char) word of the name somewhere in the release. Single-char
-// initials are ignored so "Kevin J. Anderson" matches "Kevin, J. Anderson".
+// sources where the words are present but reordered — every significant
+// (2+ char) word of the name somewhere in the release. Single-char initials
+// are ignored so "Kevin J. Anderson" matches "Kevin, J. Anderson".
 func authorMatches(relNorm, authorNorm string) bool {
 	if strings.Contains(relNorm, authorNorm) {
 		return true
@@ -159,9 +159,9 @@ type Preferences struct {
 	// (audiobook profiles default to true).
 	RejectAbridged bool
 	// AllowUnknownFormat accepts releases whose name states no format instead
-	// of rejecting them — manga/comic/magazine scene names routinely omit it
-	// (the real format is read from the files at import). Ebooks/audiobooks
-	// keep requiring a recognized format.
+	// of rejecting them — comic scene names routinely omit it (the real
+	// format is read from the files at import). Ebooks/audiobooks keep
+	// requiring a recognized format.
 	AllowUnknownFormat bool
 }
 
@@ -182,20 +182,16 @@ func PreferencesFor(store *library.Store, mediaType string) Preferences {
 	switch mediaType {
 	case "audiobook":
 		return DefaultAudiobookPreferences()
-	case "manga":
-		return DefaultMangaPreferences()
 	case "comic":
 		return DefaultComicPreferences()
-	case "magazine":
-		return DefaultMagazinePreferences()
 	}
 	return DefaultEbookPreferences()
 }
 
 // isImageMedia reports whether a media type ships as image archives (cbz/cbr)
-// or periodicals whose release names routinely omit the format.
+// whose release names routinely omit the format.
 func isImageMedia(mediaType string) bool {
-	return mediaType == "manga" || mediaType == "comic" || mediaType == "magazine"
+	return mediaType == "comic"
 }
 
 // formatOptional reports media types whose release names routinely omit the
@@ -206,30 +202,8 @@ func formatOptional(mediaType string) bool {
 	return isImageMedia(mediaType) || mediaType == "audiobook"
 }
 
-// DefaultMagazinePreferences scores pdf first — periodicals ship as pdf.
-func DefaultMagazinePreferences() Preferences {
-	return Preferences{
-		FormatScores:       map[string]int{"pdf": 100, "epub": 70, "cbz": 50},
-		Language:           "english",
-		MinSize:            1 << 20,
-		MaxSize:            1 << 30,
-		AllowUnknownFormat: true,
-	}
-}
-
-// DefaultMangaPreferences prefer lossless archives; scanlation sizes run
-// from a few MB per volume to a GB+ for omnibus scans.
-func DefaultMangaPreferences() Preferences {
-	return Preferences{
-		FormatScores:       map[string]int{"cbz": 100, "cbr": 80, "epub": 60, "pdf": 40},
-		Language:           "english",
-		MinSize:            2 << 20,
-		MaxSize:            2 << 30,
-		AllowUnknownFormat: true,
-	}
-}
-
-// DefaultComicPreferences mirror manga but drop epub (comics don't ship it).
+// DefaultComicPreferences prefers lossless archives; scan sizes run from a
+// few MB per issue to a GB+ for omnibus collections.
 func DefaultComicPreferences() Preferences {
 	return Preferences{
 		FormatScores:       map[string]int{"cbz": 100, "cbr": 80, "pdf": 40},
@@ -323,8 +297,8 @@ func Score(rel indexer.Release, prefs Preferences, book *library.Book, author *l
 	}
 	switch {
 	case len(c.Parsed.Formats) == 0 && prefs.AllowUnknownFormat:
-		// No format stated, but manga/comic/magazine names often omit it; the
-		// importer verifies the actual file's format. Give a low baseline.
+		// No format stated, but comic names often omit it; the importer
+		// verifies the actual file's format. Give a low baseline.
 		c.Score += unknownFormatScore
 	case len(c.Parsed.Formats) == 0:
 		c.reject("no recognized ebook format in release name")
@@ -384,8 +358,8 @@ func Score(rel indexer.Release, prefs Preferences, book *library.Book, author *l
 	return c
 }
 
-// ScoreVolume evaluates a release against a wanted manga volume / comic
-// issue: generic checks plus the series title and the exact volume number.
+// ScoreVolume evaluates a release against a wanted comic issue: generic
+// checks plus the series title and the exact issue number.
 func ScoreVolume(rel indexer.Release, prefs Preferences, seriesTitle string, number float64) Candidate {
 	c := Score(rel, prefs, nil, nil, nil)
 
@@ -405,12 +379,12 @@ func ScoreVolume(rel indexer.Release, prefs Preferences, seriesTitle string, num
 	return c
 }
 
-// ScoreSeriesPack evaluates a release as a whole-series (or multi-volume)
+// ScoreSeriesPack evaluates a release as a whole-series (or multi-issue)
 // pack: generic checks, the series title, and pack-ness — a volume range
 // ("v01-v12"), a completeness word ("Complete", "Collection"), or a bare
 // series-title release with no volume number at all (the common shape for
-// manga packs). Single-volume releases are rejected — they belong to the
-// per-volume flow. maxWanted is the highest missing position; a range that
+// comic packs). Single-issue releases are rejected — they belong to the
+// per-issue flow. maxWanted is the highest missing position; a range that
 // reaches it earns a bonus, one that falls short is kept but penalized.
 func ScoreSeriesPack(rel indexer.Release, prefs Preferences, seriesTitle string, maxWanted float64) Candidate {
 	// A pack is dozens of volumes in one release — the per-item size cap
@@ -443,29 +417,6 @@ func ScoreSeriesPack(rel indexer.Release, prefs Preferences, seriesTitle string,
 
 	c.Approved = len(c.Rejections) == 0
 	return c
-}
-
-// ScoreMagazine evaluates a release for a magazine: generic checks, the
-// magazine's title, and an issue identifier (date or number) that isn't
-// already owned. The identifier is returned so the caller can materialize
-// the issue on grab.
-func ScoreMagazine(rel indexer.Release, prefs Preferences, title string, owned map[string]bool) (Candidate, string) {
-	c := Score(rel, prefs, nil, nil, nil)
-
-	relNorm := scanner.Normalize(rel.Title)
-	if !titleMatches(relNorm, scanner.TitleKeys(title)) {
-		c.reject("does not contain the magazine title")
-	}
-
-	identifier := scanner.IssueIdentifier(rel.Title)
-	if identifier == "" {
-		c.reject("no issue date or number in release name")
-	} else if owned[identifier] {
-		c.reject("issue " + identifier + " already owned")
-	}
-
-	c.Approved = len(c.Rejections) == 0
-	return c, identifier
 }
 
 // matchBook rejects releases that don't look like the wanted book.
@@ -518,12 +469,11 @@ func (c *Candidate) matchBook(book *library.Book, author *library.Author, otherT
 
 	if author != nil {
 		authorNorm := scanner.Normalize(author.Name)
-		// Some sources (AudioBook Bay) omit the author from the title on a
-		// series/collection post but carry it in a separate tag list instead
-		// — fall back to that rather than rejecting a release the source
-		// itself associates with the right author. Never used for the
-		// book-title check above: a stray tag match there would be too easy
-		// to fool.
+		// Some sources omit the author from the title on a series/collection
+		// post but carry it in a separate tag list instead — fall back to
+		// that rather than rejecting a release the source itself associates
+		// with the right author. Never used for the book-title check above:
+		// a stray tag match there would be too easy to fool.
 		matchText := relNorm
 		if c.Release.Keywords != "" {
 			matchText = relNorm + " " + scanner.Normalize(c.Release.Keywords)

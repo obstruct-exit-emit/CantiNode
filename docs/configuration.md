@@ -23,9 +23,7 @@ metadata:
                                  #   ONLY when the active one draws a blank on a
                                  #   search or lookup (Settings → Metadata →
                                  #   Fallbacks); omit for none
-  manga_provider: anilist        # anilist | hardcover | none (Settings → Metadata)
-  comic_provider: hardcover      # hardcover | comicvine | none
-  manga_cover_source: provider   # provider | file — manga volume covers
+  comic_provider: hardcover      # hardcover | comicvine | none (Settings → Metadata)
   comic_cover_source: provider   # provider | file — comic issue covers
   language: english              # global metadata preference — providers
   country: united states         #   prefer matching editions, then fall
@@ -43,7 +41,7 @@ naming:
   # Each ebook gets its own folder, so sidecars travel with the book.
   ebook_folder: "{Author Name}/{Book Title} ({Release Year})"
   ebook_file: "{Author Name} - {Series Title} {Series Position} - {Book Title} ({Release Year})"
-  # audiobook_*, manga_*, comic_*, magazine_* — all editable in the UI
+  # audiobook_*, comic_* — all editable in the UI
 import:                          # Completed Download Handling (Settings →
                                  # Download Clients → Import handling).
                                  # All default to true.
@@ -93,8 +91,7 @@ so `Vol. 01` sorts before `Vol. 10`), `{Release Year}`. Tokens without a
 value drop out cleanly; emptied fields revert to defaults (a partial save
 can never wipe another type's templates). Folder templates may span several
 levels with `/` — a level that renders empty drops away, so a year-less book
-nests one level shallower (and the magazine default
-`{Series Title}/{Release Year}` files issues under per-year subfolders).
+nests one level shallower.
 
 ## Authentication
 
@@ -179,7 +176,7 @@ and applies them on the next restart, keeping the replaced ones as
 Two kinds of images are cached under `<data>/covers`, both disposable and
 safe to delete (they rebuild on demand):
 
-- **Extracted comic covers** (`covers/book-<id>`): a manga/comic volume's
+- **Extracted comic covers** (`covers/book-<id>`): a comic volume's
   cover, pulled from the owned archive's first page and re-extracted when the
   source file changes. Clear it from **Settings → Metadata → Clear extracted
   covers**.

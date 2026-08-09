@@ -90,7 +90,7 @@ func (s *server) planRename(bookID, authorID, seriesID int64, mediaType string) 
 // renameMediaType validates the optional ?mediaType= library scope.
 func renameMediaType(v string) (string, bool) {
 	switch v {
-	case "", "ebook", "audiobook", "manga", "comic", "magazine":
+	case "", "ebook", "audiobook", "comic":
 		return v, true
 	}
 	return "", false
@@ -237,8 +237,7 @@ func (s *server) adoptFile(fileID, bookID int64) ([]string, error) {
 }
 
 // handleMatchBookFile is manual import: adopt an unmatched file for a book —
-// {"bookId": N}, or for magazines {"seriesId": N, "issue": "2026-07-04"},
-// which materializes the issue first (unmonitored: the file in hand IS it).
+// {"bookId": N}.
 func (s *server) handleMatchBookFile(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -246,31 +245,11 @@ func (s *server) handleMatchBookFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		BookID   int64  `json:"bookId"`
-		SeriesID int64  `json:"seriesId"`
-		Issue    string `json:"issue"`
+		BookID int64 `json:"bookId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
-		(req.BookID <= 0 && (req.SeriesID <= 0 || req.Issue == "")) {
-		writeError(w, http.StatusBadRequest, "bookId (or seriesId + issue) is required")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BookID <= 0 {
+		writeError(w, http.StatusBadRequest, "bookId is required")
 		return
-	}
-	if req.BookID <= 0 {
-		series, err := s.store.GetSeries(req.SeriesID)
-		if err != nil {
-			writeStoreError(w, err)
-			return
-		}
-		if series.MediaType != "magazine" {
-			writeError(w, http.StatusBadRequest, "seriesId + issue import is for magazines")
-			return
-		}
-		book, err := s.store.CreateMagazineIssue(series, req.Issue, false)
-		if err != nil {
-			writeStoreError(w, err)
-			return
-		}
-		req.BookID = book.ID
 	}
 	skips, err := s.adoptFile(id, req.BookID)
 	if err != nil {
@@ -328,15 +307,10 @@ func (s *server) handleReplaceBookFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Out with the old (same format only — the other format's file stays; for
-	// manga, same VARIANT only — replacing a colorized copy never touches the
-	// monochrome one)…
+	// Out with the old (same format only — the other format's file stays)…
 	paths := []string{}
 	for i := range old {
 		if old[i].MediaType != file.MediaType {
-			continue
-		}
-		if file.MediaType == "manga" && old[i].Variant != file.Variant {
 			continue
 		}
 		paths = append(paths, old[i].Path)

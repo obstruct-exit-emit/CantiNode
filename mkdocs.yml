@@ -1,5 +1,5 @@
 site_name: LibriNode
-site_description: Self-hosted automation for ebooks, audiobooks, manga, comics, and magazines
+site_description: Self-hosted automation for ebooks, audiobooks, and comics
 repo_url: https://github.com/obstruct-exit-emit/LibriNode
 theme:
   name: material

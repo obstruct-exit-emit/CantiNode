@@ -32,8 +32,8 @@ type Searcher interface {
 // stand-in download URL (e.g. a release page) that must be turned into the real
 // downloadable URL only at grab time. Deferring this keeps search cheap — one
 // request instead of one per result — which is what keeps a scraped source from
-// tripping rate limits and IP bans. AudioBook Bay uses it: search returns the
-// release-page URL, and Resolve fetches that one page to assemble the magnet.
+// tripping rate limits and IP bans. A source that lists a release page in
+// search results and resolves it to a magnet only at grab time would use it.
 type Resolver interface {
 	// Resolve turns a search result's download URL into the real one (a magnet,
 	// a file URL, ...). It is called for exactly the release the user grabs.
@@ -42,7 +42,7 @@ type Resolver interface {
 
 // NativeDef describes a registered native implementation.
 type NativeDef struct {
-	Name        string   // registry key AND the stored indexer type (e.g. "audiobookbay")
+	Name        string   // registry key AND the stored indexer type
 	DisplayName string   // human label for the Settings dropdown
 	Protocol    string   // ProtocolTorrent | ProtocolUsenet
 	MediaTypes  []string // media types served; empty means all

@@ -76,7 +76,7 @@ func Build(name string, s Settings) (Provider, error) {
 	return f(s)
 }
 
-// SeriesFactory builds a series provider (manga/comic) from its settings.
+// SeriesFactory builds a series provider (e.g. comics) from its settings.
 // ErrNotConfigured means "valid but disabled" (e.g. no API key yet).
 type SeriesFactory func(Settings) (SeriesProvider, error)
 
@@ -90,8 +90,7 @@ func RegisterSeries(name string, f SeriesFactory) {
 }
 
 // seriesRegistryKeys lists the raw registration keys, sorted. A provider can
-// be registered under several keys — one per media type it serves (Hardcover
-// has "hardcover" for manga and "hardcover-comics" for comics) — while
+// be registered under several keys — one per media type it serves — while
 // reporting one Name() everywhere user-visible.
 func seriesRegistryKeys() []string {
 	regMu.RLock()

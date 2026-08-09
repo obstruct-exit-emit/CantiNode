@@ -142,11 +142,11 @@ func (s *Service) checkMetadata(ctx context.Context) []Issue {
 		issues = append(issues, s.validateProvider(ctx, "metadata", p.Name(), p)...)
 	}
 
-	// Manga/comic series providers, checked only for libraries actually set
-	// up — a user who never touches manga shouldn't see banners about
-	// AniList. "None" (deliberately disabled) reports nil here, same as an
-	// unconfigured book provider would, but that's a valid choice, not a
-	// problem, so it's silent rather than a warning.
+	// The comic series provider, checked only when the comics library is
+	// actually set up — a user who never touches comics shouldn't see
+	// banners about it. "None" (deliberately disabled) reports nil here,
+	// same as an unconfigured book provider would, but that's a valid
+	// choice, not a problem, so it's silent rather than a warning.
 	statuses, err := s.store.LibraryStatuses()
 	if err != nil {
 		return issues
@@ -157,8 +157,6 @@ func (s *Service) checkMetadata(ctx context.Context) []Issue {
 		}
 		var sp metadata.SeriesProvider
 		switch st.MediaType {
-		case "manga":
-			sp = s.metadata.SeriesFor("manga")
 		case "comic":
 			sp = s.metadata.SeriesFor("comic")
 		default:

@@ -357,8 +357,6 @@ const bookCols = `id, author_id, metadata_source, media_type, foreign_id, title,
 	EXISTS(SELECT 1 FROM book_files WHERE book_files.book_id = books.id),
 	EXISTS(SELECT 1 FROM book_files WHERE book_files.book_id = books.id AND book_files.media_type = 'ebook'),
 	EXISTS(SELECT 1 FROM book_files WHERE book_files.book_id = books.id AND book_files.media_type = 'audiobook'),
-	EXISTS(SELECT 1 FROM book_files WHERE book_files.book_id = books.id AND book_files.media_type = 'manga' AND book_files.variant = 'color'),
-	EXISTS(SELECT 1 FROM book_files WHERE book_files.book_id = books.id AND book_files.media_type = 'manga' AND book_files.variant = 'mono'),
 	added_at, updated_at`
 
 func scanBook(row interface{ Scan(...any) error }) (*Book, error) {
@@ -366,7 +364,7 @@ func scanBook(row interface{ Scan(...any) error }) (*Book, error) {
 	err := row.Scan(&b.ID, &b.AuthorID, &b.Source, &b.MediaType, &b.ForeignID, &b.Title, &b.SortTitle,
 		&b.Description, &b.ReleaseDate, &b.Rating, &b.CoverURL, &b.Monitored,
 		&b.InEbookLibrary, &b.EbookMonitored, &b.InAudiobookLibrary, &b.AudiobookMonitored,
-		&b.HasFile, &b.HasEbookFile, &b.HasAudiobookFile, &b.HasColorFile, &b.HasMonoFile,
+		&b.HasFile, &b.HasEbookFile, &b.HasAudiobookFile,
 		&b.AddedAt, &b.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -750,7 +748,7 @@ func (s *Store) ListVolumes(seriesID int64) ([]Book, error) {
 }
 
 // EnsureAuthorStub finds or creates a minimal author row (creator stubs for
-// series, magazine publishers).
+// series).
 func (s *Store) EnsureAuthorStub(source, foreignID, name string) (*Author, error) {
 	author, err := s.GetAuthorByForeignID(source, foreignID)
 	if err == nil {
@@ -761,37 +759,6 @@ func (s *Store) EnsureAuthorStub(source, foreignID, name string) (*Author, error
 		return nil, err
 	}
 	return author, nil
-}
-
-// CreateMagazineIssue materializes one magazine issue as a book row linked
-// to its series. identifier is a date ("2026-07-04", "2026-07") or
-// "issue-N"; releaseDate is set when the identifier is a date. Issues are
-// created on grab (wanted) or on scan (owned, unmonitored).
-func (s *Store) CreateMagazineIssue(series *Series, identifier string, monitored bool) (*Book, error) {
-	author, err := s.EnsureAuthorStub(series.Source, "magazine:"+series.ForeignID, series.Title)
-	if err != nil {
-		return nil, err
-	}
-	releaseDate := ""
-	if len(identifier) >= 7 && identifier[4] == '-' {
-		releaseDate = identifier
-	}
-	book := &Book{
-		AuthorID:    author.ID,
-		Source:      series.Source,
-		MediaType:   "magazine",
-		ForeignID:   series.ForeignID + ":" + identifier,
-		Title:       series.Title + " - " + identifier,
-		ReleaseDate: releaseDate,
-		Monitored:   monitored,
-	}
-	if err := s.UpsertBook(book); err != nil {
-		return nil, err
-	}
-	if err := s.LinkBookSeries(book.ID, series.ID, 0); err != nil {
-		return nil, err
-	}
-	return book, nil
 }
 
 // DeleteSeries removes a series and its volume/issue books (prose books in
@@ -824,7 +791,7 @@ func (s *Store) LinkBookSeries(bookID, seriesID int64, position float64) error {
 // wrong link — e.g. a standalone that a provider once mislabeled as part of a
 // series, or a link left behind after the provider corrected its data. An empty
 // keep removes all of the book's series links. (Only prose books flow through
-// here; manga/comic volumes are linked on a separate path.)
+// here; comic volumes are linked on a separate path.)
 func (s *Store) SetBookSeries(bookID int64, keep []int64) error {
 	if len(keep) == 0 {
 		_, err := s.db.Exec(`DELETE FROM series_books WHERE book_id = ?`, bookID)

@@ -4,8 +4,7 @@ import { downloadPct, useQueue } from "../useQueue";
 import { SortSelect, DirectionButtons, sortItems, groupBySeries, defaultDirFor, type SortDir } from "./SortControl";
 
 // WantedCard is the per-library Wanted page: everything monitored but
-// missing this format's file, each with its own search button (magazines
-// grab whole issues via the header's Search wanted instead).
+// missing this format's file, each with its own search button.
 export default function WantedCard({
   library,
   onError,
@@ -67,19 +66,18 @@ export default function WantedCard({
           {item.subtitle && <span className="muted"> · {item.subtitle}</span>}
         </span>
         <span className="row-actions">
-          {library !== "magazine" &&
-            (() => {
-              const dl = queue.activeFor(item.bookId, library);
-              return dl ? (
-                <span className="owned dl" title={`${dl.status} on ${dl.client}`}>
-                  ⬇ downloading {downloadPct(dl)}
-                </span>
-              ) : (
-                <button disabled={busyID !== null} onClick={() => grab(item)}>
-                  {busyID === item.bookId ? "Searching…" : "Auto grab"}
-                </button>
-              );
-            })()}
+          {(() => {
+            const dl = queue.activeFor(item.bookId, library);
+            return dl ? (
+              <span className="owned dl" title={`${dl.status} on ${dl.client}`}>
+                ⬇ downloading {downloadPct(dl)}
+              </span>
+            ) : (
+              <button disabled={busyID !== null} onClick={() => grab(item)}>
+                {busyID === item.bookId ? "Searching…" : "Auto grab"}
+              </button>
+            );
+          })()}
         </span>
       </div>
     </li>

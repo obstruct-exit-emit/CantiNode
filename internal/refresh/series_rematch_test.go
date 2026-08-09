@@ -10,7 +10,7 @@ import (
 	"github.com/librinode/librinode/internal/metadata"
 )
 
-// fakeSeriesProvider is an in-memory metadata.SeriesProvider for manga tests.
+// fakeSeriesProvider is an in-memory metadata.SeriesProvider for series-refresh tests.
 type fakeSeriesProvider struct {
 	name   string
 	search []metadata.SeriesResult
@@ -18,7 +18,7 @@ type fakeSeriesProvider struct {
 }
 
 func (f *fakeSeriesProvider) Name() string      { return f.name }
-func (f *fakeSeriesProvider) MediaType() string { return "manga" }
+func (f *fakeSeriesProvider) MediaType() string { return "comic" }
 
 func (f *fakeSeriesProvider) SearchSeries(context.Context, string) ([]metadata.SeriesResult, error) {
 	return f.search, nil
@@ -32,7 +32,7 @@ func (f *fakeSeriesProvider) GetSeries(_ context.Context, id string) (*metadata.
 	return s, nil
 }
 
-// Switching the selected manga provider and refreshing must re-bind an existing
+// Switching the selected comic provider and refreshing must re-bind an existing
 // series to the newly selected provider (by title match), in place — same local
 // id, no duplicate series — and pull the new provider's per-volume descriptions.
 func TestRefreshSeriesReMatchesToSelectedProvider(t *testing.T) {
@@ -66,11 +66,11 @@ func TestRefreshSeriesReMatchesToSelectedProvider(t *testing.T) {
 	}
 
 	mgr := metadata.NewManager()
-	mgr.SetSeries(ani) // manga provider = anifake
+	mgr.SetSeries(ani) // comic provider = anifake
 	svc := New(store, mgr)
 	ctx := context.Background()
 
-	added, err := svc.SyncSeries(ctx, "manga", "a1", true, true, true)
+	added, err := svc.SyncSeries(ctx, "comic", "a1", true, true, true)
 	if err != nil {
 		t.Fatalf("SyncSeries: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestRefreshSeriesReMatchesToSelectedProvider(t *testing.T) {
 		t.Fatalf("added source = %q, want anifake", added.Source)
 	}
 
-	mgr.SetSeries(hc) // user switches manga provider to hcfake
+	mgr.SetSeries(hc) // user switches comic provider to hcfake
 
 	if err := svc.RefreshSeries(ctx, added.ID); err != nil {
 		t.Fatalf("RefreshSeries: %v", err)
@@ -95,12 +95,12 @@ func TestRefreshSeriesReMatchesToSelectedProvider(t *testing.T) {
 		t.Fatalf("series id changed %d -> %d (should re-bind in place)", added.ID, got.ID)
 	}
 
-	all, err := store.ListSeries("manga")
+	all, err := store.ListSeries("comic")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(all) != 1 {
-		t.Fatalf("manga series count = %d, want 1 (no duplicate)", len(all))
+		t.Fatalf("comic series count = %d, want 1 (no duplicate)", len(all))
 	}
 
 	vols, err := store.ListVolumes(got.ID)
@@ -145,7 +145,7 @@ func TestRefreshSeriesRetiresStaleEditions(t *testing.T) {
 	svc := New(store, mgr)
 	ctx := context.Background()
 
-	added, err := svc.SyncSeries(ctx, "manga", "h1", true, true, false)
+	added, err := svc.SyncSeries(ctx, "comic", "h1", true, true, false)
 	if err != nil {
 		t.Fatalf("SyncSeries: %v", err)
 	}

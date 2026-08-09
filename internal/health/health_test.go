@@ -168,7 +168,7 @@ func (unreachableProvider) Validate(context.Context) error {
 	return fmt.Errorf("connection refused: %w", metadata.ErrUnreachable)
 }
 
-// unreachableSeriesProvider is unreachableProvider's manga/comic counterpart.
+// unreachableSeriesProvider is unreachableProvider's comic counterpart.
 type unreachableSeriesProvider struct {
 	name      string
 	mediaType string
@@ -186,9 +186,9 @@ func (unreachableSeriesProvider) Validate(context.Context) error {
 	return fmt.Errorf("connection refused: %w", metadata.ErrUnreachable)
 }
 
-// TestCheckSeriesMetadataScopedToActiveLibraries: a manga provider outage
-// only produces a banner when the manga library is actually set up (a root
-// folder exists) — a user who never touches manga shouldn't see AniList
+// TestCheckSeriesMetadataScopedToActiveLibraries: a comic provider outage
+// only produces a banner when the comics library is actually set up (a root
+// folder exists) — a user who never touches comics shouldn't see provider
 // noise, but someone who does gets told when it's unreachable.
 func TestCheckSeriesMetadataScopedToActiveLibraries(t *testing.T) {
 	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -198,7 +198,7 @@ func TestCheckSeriesMetadataScopedToActiveLibraries(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	mgr := metadata.NewManager()
-	mgr.SetSeries(unreachableSeriesProvider{name: "fake-manga", mediaType: "manga"})
+	mgr.SetSeries(unreachableSeriesProvider{name: "fake-comic", mediaType: "comic"})
 
 	svc := New(
 		library.NewStore(db),
@@ -209,7 +209,7 @@ func TestCheckSeriesMetadataScopedToActiveLibraries(t *testing.T) {
 
 	hasSeriesIssue := func(res Result) bool {
 		for _, is := range res.Issues {
-			if is.Source == "metadata-manga" {
+			if is.Source == "metadata-comic" {
 				return true
 			}
 		}
@@ -217,18 +217,18 @@ func TestCheckSeriesMetadataScopedToActiveLibraries(t *testing.T) {
 	}
 
 	if res := svc.Check(context.Background()); hasSeriesIssue(res) {
-		t.Error("no manga root folder set up yet — should not report the manga provider at all")
+		t.Error("no comic root folder set up yet — should not report the comic provider at all")
 	}
 
-	if _, err := db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('manga', ?)`, t.TempDir()); err != nil {
+	if _, err := db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('comic', ?)`, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	res := svc.Check(context.Background())
 	if !hasSeriesIssue(res) {
-		t.Fatalf("manga library is active — expected a metadata-manga issue, got %+v", res.Issues)
+		t.Fatalf("comic library is active — expected a metadata-comic issue, got %+v", res.Issues)
 	}
 	for _, is := range res.Issues {
-		if is.Source == "metadata-manga" && is.Level != LevelWarning {
+		if is.Source == "metadata-comic" && is.Level != LevelWarning {
 			t.Errorf("unreachable series provider level = %s, want warning", is.Level)
 		}
 	}

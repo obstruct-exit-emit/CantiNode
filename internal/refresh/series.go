@@ -10,8 +10,8 @@ import (
 	"github.com/librinode/librinode/internal/scanner"
 )
 
-// SyncSeries fetches a manga/comic series from its media type's provider and
-// persists it with volume/issue books. Existing volumes keep their monitored
+// SyncSeries fetches a comic series from its media type's provider and
+// persists it with issue books. Existing volumes keep their monitored
 // flags (upsert semantics); newly discovered ones get newVolumesMonitored —
 // the caller passes the add-time choice or, on refresh, the series'
 // monitor_new flag ("monitor future volumes").
@@ -25,8 +25,8 @@ func (s *Service) SyncSeries(ctx context.Context, mediaType, foreignID string, m
 
 // syncSeriesWith persists a series using the given provider — the caller picks
 // it (the media type's active provider when adding, or the series' own source
-// provider when refreshing, so a manga added from AniList keeps refreshing
-// from AniList even after the manga provider is switched to Hardcover).
+// provider when refreshing, so a comic added from ComicVine keeps refreshing
+// from ComicVine even after the comic provider is switched to Hardcover).
 func (s *Service) syncSeriesWith(ctx context.Context, p metadata.SeriesProvider, mediaType, foreignID string, monitored, monitorNew, newVolumesMonitored bool) (*library.Series, error) {
 	remote, err := p.GetSeries(ctx, foreignID)
 	if err != nil {
@@ -35,7 +35,7 @@ func (s *Service) syncSeriesWith(ctx context.Context, p metadata.SeriesProvider,
 	source := p.Name()
 
 	// The creator gets an author stub (volumes need an author row); keyed by
-	// name so one mangaka's series share it.
+	// name so one creator's series share it.
 	authorName := remote.AuthorName
 	if authorName == "" {
 		authorName = "Unknown Creator"
@@ -89,9 +89,8 @@ func (s *Service) syncSeriesWith(ctx context.Context, p metadata.SeriesProvider,
 			volMonitored = existing.Monitored // preserved by upsert anyway
 		}
 		// Use the volume's own description. Comics rarely carry a per-issue
-		// synopsis, so the issue name stands in there; manga volumes are left
-		// blank when the provider has none (AniList synthesizes volumes with
-		// no descriptions) rather than repeating the series blurb on every one.
+		// synopsis, so the issue name stands in there rather than repeating
+		// the series blurb on every one.
 		description := issue.Description
 		if description == "" && mediaType == "comic" {
 			description = issue.Title
@@ -187,8 +186,8 @@ func trimFloat(f float64) string {
 }
 
 // RefreshSeries re-syncs an existing series; new volumes follow monitor_new.
-// Manual series (magazines) have no provider to refresh — their issues come
-// from grabs and scans — so they're a quiet no-op.
+// A manual (provider-less) series has nothing to refresh against — a quiet
+// no-op.
 //
 // Provider resolution: the series' own provider override wins when set;
 // otherwise the global Settings → Metadata selection applies — INCLUDING
@@ -271,9 +270,9 @@ func pickSeriesMatch(results []metadata.SeriesResult, title string) *metadata.Se
 	return &results[0]
 }
 
-// refreshAllSeries re-syncs every manga/comic series (called from RefreshAll).
+// refreshAllSeries re-syncs every comic series (called from RefreshAll).
 func (s *Service) refreshAllSeries(ctx context.Context) {
-	for _, mediaType := range []string{"manga", "comic"} {
+	for _, mediaType := range []string{"comic"} {
 		seriesList, err := s.store.ListSeries(mediaType)
 		if err != nil {
 			continue
@@ -285,9 +284,9 @@ func (s *Service) refreshAllSeries(ctx context.Context) {
 			}
 			err := s.RefreshSeries(ctx, sr.ID)
 			if unreachable.hit(err) {
-				// The manga/comic provider stopped responding partway
-				// through — move to the next media type rather than timing
-				// out on every remaining series.
+				// The comic provider stopped responding partway through —
+				// move to the next media type rather than timing out on
+				// every remaining series.
 				break
 			}
 			// one dead record (err != nil, not a streak) can't stall the rest

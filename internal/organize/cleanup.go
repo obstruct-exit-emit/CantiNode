@@ -47,10 +47,8 @@ func mediaFor(mediaType, name string) bool {
 		return scanner.IsEbookPath(name)
 	case "audiobook":
 		return scanner.IsAudioPath(name)
-	case "manga", "comic":
+	case "comic":
 		return scanner.IsComicPath(name)
-	case "magazine":
-		return scanner.IsMagazinePath(name)
 	}
 	return true // unknown type: keep everything
 }
