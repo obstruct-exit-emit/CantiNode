@@ -69,6 +69,16 @@ export default function ArtistDetailView({
 
   useEffect(reload, [reload]);
 
+  // Shared by the Missing and Wanted cards below: wanting, un-wanting, or
+  // monitoring an album moves it between the two lists, so either side
+  // needs the other to refetch too — bumping reloadTick (both cards' own
+  // effects depend on it) does that; reload() also picks up a changed
+  // monitored badge on the artist header.
+  const refreshMissingAndWanted = () => {
+    reload();
+    setReloadTick((t) => t + 1);
+  };
+
   if (!artist) return <DetailSkeleton />;
 
   const headerAction = (action: () => Promise<string>) => {
@@ -285,20 +295,22 @@ export default function ArtistDetailView({
         )}
       </section>
 
-      <WantedAlbumsCard artistId={id} onError={onError} refreshKey={reloadTick} />
-      <MissingAlbumsCard artistId={id} onMonitored={reload} onError={onError} refreshKey={reloadTick} />
+      <WantedAlbumsCard artistId={id} onChanged={refreshMissingAndWanted} onError={onError} refreshKey={reloadTick} />
+      <MissingAlbumsCard artistId={id} onChanged={refreshMissingAndWanted} onError={onError} refreshKey={reloadTick} />
     </>
   );
 }
 
 // WantedAlbumsCard lists albums queued for acquisition — search indexers and
-// grab, or ignore.
+// grab, or remove (stop wanting it — it falls back into Missing).
 function WantedAlbumsCard({
   artistId,
+  onChanged,
   onError,
   refreshKey,
 }: {
   artistId: number;
+  onChanged: () => void;
   onError: (message: string) => void;
   refreshKey: number;
 }) {
@@ -310,7 +322,7 @@ function WantedAlbumsCard({
   const reload = useCallback(() => {
     api
       .listWantedMusicAlbums(artistId)
-      .then((w) => setWanted(w.filter((x) => x.status !== "ignored")))
+      .then(setWanted)
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   }, [artistId, onError]);
 
@@ -336,11 +348,11 @@ function WantedAlbumsCard({
       .finally(() => setBusyId(null));
   };
 
-  const ignore = (w: WantedAlbum) => {
+  const remove = (w: WantedAlbum) => {
     setBusyId(w.id);
     api
-      .ignoreWantedMusicAlbum(w.id)
-      .then(reload)
+      .removeWantedMusicAlbum(w.id)
+      .then(onChanged)
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setBusyId(null));
   };
@@ -366,8 +378,13 @@ function WantedAlbumsCard({
                 <button disabled={busyId !== null} onClick={() => search(w)}>
                   {busyId === w.id ? "Searching…" : "Search releases"}
                 </button>
-                <button disabled={busyId !== null} className="toggle" onClick={() => ignore(w)}>
-                  Ignore
+                <button
+                  disabled={busyId !== null}
+                  className="toggle"
+                  title="Stop wanting this album — it moves back to Missing"
+                  onClick={() => remove(w)}
+                >
+                  Remove
                 </button>
               </span>
             </div>
@@ -404,12 +421,12 @@ function WantedAlbumsCard({
 // groups from MusicBrainz that are neither owned nor already wanted.
 function MissingAlbumsCard({
   artistId,
-  onMonitored,
+  onChanged,
   onError,
   refreshKey,
 }: {
   artistId: number;
-  onMonitored: () => void;
+  onChanged: () => void;
   onError: (message: string) => void;
   refreshKey: number;
 }) {
@@ -437,7 +454,7 @@ function MissingAlbumsCard({
     setBusyMbid(rg.releaseGroupMbid);
     api
       .wantMusicAlbum(artistId, rg.releaseGroupMbid, monitor)
-      .then(onMonitored)
+      .then(onChanged)
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setBusyMbid(null));
   };

@@ -71,3 +71,62 @@ func TestGetWantedAlbumNotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestDeleteWantedAlbumReturnsItToMissing is the regression case for a real
+// bug: wanting an album, then removing it, must free the release group back
+// up for Missing — leaving a lingering row behind (the old "ignored" status
+// did exactly this) permanently strands it in neither list.
+func TestDeleteWantedAlbumReturnsItToMissing(t *testing.T) {
+	db := newTestStore(t)
+	a, err := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceArtistReleaseGroups(a.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-mbid", Title: "Geogaddi", PrimaryType: "Album", FirstReleaseDate: "2002-02-04"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups: %v", err)
+	}
+
+	missing, err := db.ListMissingArtistReleaseGroups(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 1 {
+		t.Fatalf("before wanting: missing = %+v, want 1 entry", missing)
+	}
+
+	w, err := db.GetOrCreateWantedAlbum(a.ID, "rg-mbid", "Geogaddi", "Album", "2002-02-04")
+	if err != nil {
+		t.Fatalf("GetOrCreateWantedAlbum: %v", err)
+	}
+	missing, err = db.ListMissingArtistReleaseGroups(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("after wanting: missing = %+v, want empty (it's wanted now)", missing)
+	}
+
+	if err := db.DeleteWantedAlbum(w.ID); err != nil {
+		t.Fatalf("DeleteWantedAlbum: %v", err)
+	}
+	missing, err = db.ListMissingArtistReleaseGroups(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 1 || missing[0].ReleaseGroupMBID != "rg-mbid" {
+		t.Errorf("after removing the wanted album: missing = %+v, want the release group back", missing)
+	}
+
+	if _, err := db.GetWantedAlbum(w.ID); err != ErrNotFound {
+		t.Errorf("GetWantedAlbum after delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeleteWantedAlbumNotFound(t *testing.T) {
+	db := newTestStore(t)
+	if err := db.DeleteWantedAlbum(999); err != ErrNotFound {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}

@@ -286,7 +286,7 @@ export interface WantedAlbum {
   title: string;
   primaryType: string;
   releaseDate: string;
-  status: "wanted" | "downloading" | "downloaded" | "ignored";
+  status: "wanted" | "downloading" | "downloaded";
   addedAt: string;
 }
 
@@ -617,8 +617,8 @@ export const api = {
     ),
   listWantedMusicAlbums: (artistId: number) =>
     request<WantedAlbum[]>(`/api/v1/music/artist/${artistId}/wanted`),
-  ignoreWantedMusicAlbum: (id: number) =>
-    request<void>(`/api/v1/music/wanted/${id}/ignore`, { method: "POST" }),
+  removeWantedMusicAlbum: (id: number) =>
+    request<void>(`/api/v1/music/wanted/${id}`, { method: "DELETE" }),
   searchWantedMusicAlbum: (id: number) =>
     request<{ releases: Release[]; errors: string[] }>(`/api/v1/music/wanted/${id}/search`),
   grabWantedMusicAlbum: (

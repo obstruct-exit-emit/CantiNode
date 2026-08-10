@@ -276,6 +276,21 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **"Ignore" on a wanted album could strand it forever, showing in neither
+  Wanted nor Missing** — reported after a real album got lost this way.
+  Ignoring set `wanted_albums.status = 'ignored'`, but
+  `ListMissingArtistReleaseGroups` excludes a release group for as long as
+  *any* `wanted_albums` row references it, regardless of status — so an
+  ignored album never fell back into Missing, and the Wanted list filtered
+  ignored rows out of its own display, so it vanished from both. The
+  action is now a real removal (`DELETE /api/v1/music/wanted/{id}`,
+  replacing `POST .../ignore`): it deletes the row outright instead of
+  leaving one behind, which is what actually frees the release group back
+  up for Missing. The `ignored` status is gone entirely. Also fixed a
+  related bug this surfaced: wanting/un-wanting an album on the artist
+  page only refreshed its own card, not the other one, so Missing and
+  Wanted could show stale state relative to each other even before the
+  strand-forever bug — both cards now refresh together.
 - **Quality-profile scoring and the blocklist were never actually applied
   to a music search — found while auditing the repo for dead files.**
   `internal/release` (format preferences, size bounds, spam/executable

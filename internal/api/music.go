@@ -831,13 +831,19 @@ func (s *server) handleListWantedMusicAlbums(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, wanted)
 }
 
-func (s *server) handleIgnoreWantedMusicAlbum(w http.ResponseWriter, r *http.Request) {
+// handleRemoveWantedMusicAlbum stops wanting an album — the "not wanted
+// after all" action. This deletes the wanted_albums row outright rather
+// than marking it with some "ignored" status: a status that lingers still
+// counts as "wanted" for ListMissingArtistReleaseGroups's own exclusion
+// check, which would strand the album in neither Missing nor Wanted.
+// Deleting it is what actually lets it fall back into Missing.
+func (s *server) handleRemoveWantedMusicAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.musicStore.SetWantedAlbumStatus(id, musiclibrary.WantedStatusIgnored); err != nil {
+	if err := s.musicStore.DeleteWantedAlbum(id); err != nil {
 		writeMusicStoreError(w, err)
 		return
 	}

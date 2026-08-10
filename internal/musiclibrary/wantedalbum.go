@@ -14,7 +14,6 @@ const (
 	WantedStatusWanted      WantedStatus = "wanted"
 	WantedStatusDownloading WantedStatus = "downloading"
 	WantedStatusDownloaded  WantedStatus = "downloaded"
-	WantedStatusIgnored     WantedStatus = "ignored"
 )
 
 // WantedAlbum is one release group CantiNode is trying to acquire for an
@@ -139,6 +138,23 @@ func (s *Store) SetWantedAlbumStatus(id int64, status WantedStatus) error {
 	_, err := s.db.Exec(`UPDATE wanted_albums SET status = ? WHERE id = ?`, status, id)
 	if err != nil {
 		return fmt.Errorf("set wanted album status: %w", err)
+	}
+	return nil
+}
+
+// DeleteWantedAlbum removes a wanted album entirely — the "no longer
+// wanted" action. Unlike a status change, this actually frees the release
+// group back up: ListMissingArtistReleaseGroups excludes a release group
+// for as long as any wanted_albums row references it, so leaving a row
+// behind (e.g. under a former "ignored" status) would strand the album
+// forever, showing in neither Wanted nor Missing.
+func (s *Store) DeleteWantedAlbum(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM wanted_albums WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete wanted album: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
 	}
 	return nil
 }
