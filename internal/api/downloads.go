@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/relname"
 )
 
@@ -248,12 +249,18 @@ func (s *server) enrichQueue(items []download.Item) []queueItem {
 	for i := range pending {
 		g := &pending[i]
 		if g.ClientItemID != "" {
-			byID[g.ClientItemID] = g
+			// Lowercased: a magnet's info hash is stored lowercase (see
+			// download.magnetHash), but not every qBittorrent-compatible
+			// bridge echoes it back that way — a debrid bridge in
+			// particular routinely reports the hash in whatever case the
+			// original magnet used. Matching case-insensitively here keeps
+			// the queue linked to its grab regardless.
+			byID[strings.ToLower(g.ClientItemID)] = g
 		}
 		byTitle[relname.Normalize(g.Title)] = g
 	}
 	for i := range out {
-		g := byID[out[i].ID]
+		g := byID[strings.ToLower(out[i].ID)]
 		if g == nil {
 			g = byTitle[relname.Normalize(out[i].Title)]
 		}
@@ -308,8 +315,15 @@ func (s *server) handleRemoveQueueItem(w http.ResponseWriter, r *http.Request) {
 		for i := range pending {
 			g := &pending[i]
 			if g.ID == grabID ||
-				(g.ClientItemID != "" && g.ClientItemID == itemID && g.ClientConfigID == configID) {
+				(g.ClientItemID != "" && strings.EqualFold(g.ClientItemID, itemID) && g.ClientConfigID == configID) {
 				_ = s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, "removed from queue")
+				// Revert the wanted album back to "wanted" so it doesn't sit
+				// stuck at "downloading" forever with no way to try again —
+				// the same recovery internal/importer's own failure path
+				// gives an automatically-detected failure.
+				if g.WantedAlbumID > 0 {
+					_ = s.musicStore.SetWantedAlbumStatus(g.WantedAlbumID, musiclibrary.WantedStatusWanted)
+				}
 				break
 			}
 		}

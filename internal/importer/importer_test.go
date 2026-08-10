@@ -140,12 +140,11 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 		t.Fatalf("imported grabs = %+v, want exactly 1", grabs)
 	}
 
-	got, err := musicStore.GetWantedAlbum(wanted.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != musiclibrary.WantedStatusDownloaded {
-		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusDownloaded)
+	// The album is owned now (a real albums row exists) — its wanted_albums
+	// row is deleted outright rather than left showing "downloaded" forever
+	// in the Wanted card for something no longer actionable.
+	if _, err := musicStore.GetWantedAlbum(wanted.ID); err != musiclibrary.ErrNotFound {
+		t.Errorf("GetWantedAlbum after import: err = %v, want ErrNotFound (the row should be gone)", err)
 	}
 
 	if *deleteCalls == 0 {
@@ -385,5 +384,49 @@ func TestQueueKeyIsStable(t *testing.T) {
 	}
 	if !strings.Contains(queueKey(1, "abc"), "abc") {
 		t.Error("queueKey should carry the item id")
+	}
+}
+
+// TestQueueKeyIsCaseInsensitive is the regression case for a real bug: a
+// magnet's info hash is stored lowercase (download.magnetHash), but a
+// debrid bridge routinely echoes qBittorrent's own torrent hash back in
+// whatever case the original magnet used — a mismatch here makes PollOnce
+// treat a perfectly healthy torrent as vanished from the queue.
+func TestQueueKeyIsCaseInsensitive(t *testing.T) {
+	if queueKey(1, "ABC123") != queueKey(1, "abc123") {
+		t.Error("queueKey must normalize case so a bridge's differently-cased hash still matches")
+	}
+}
+
+// TestPollOnceMatchesItemIDCaseInsensitively is the PollOnce-level version
+// of the same regression: a grab recorded with an uppercase client item id
+// (as a magnet's own hash was originally cased) must still match a queue
+// item the client reports in a different case, and get imported rather
+// than treated as an orphan.
+func TestPollOnceMatchesItemIDCaseInsensitively(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Test Album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "readme.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// mockSab's history slot always reports nzo_id "nzo1" (lowercase); the
+	// grab below is recorded with the uppercase form on purpose.
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, _, _ := setup(t, sab)
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "NZO1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("PollOnce result = %+v, want 1 imported despite the case mismatch", result)
 	}
 }

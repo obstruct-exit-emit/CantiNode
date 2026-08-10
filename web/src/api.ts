@@ -286,7 +286,7 @@ export interface WantedAlbum {
   title: string;
   primaryType: string;
   releaseDate: string;
-  status: "wanted" | "downloading" | "downloaded";
+  status: "wanted" | "downloading";
   addedAt: string;
 }
 

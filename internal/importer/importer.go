@@ -8,6 +8,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -127,8 +128,17 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 	return result
 }
 
+// queueKey lowercases itemID: a magnet's info hash is stored lowercase (see
+// download.magnetHash), but not every qBittorrent-compatible bridge reports
+// it back that way — a debrid bridge in particular routinely echoes the
+// hash in whatever case the original magnet URI used. Without normalizing
+// here, a grab and its own queue item can silently stop matching, which
+// PollOnce reads as "vanished from the queue" and fails a perfectly healthy
+// torrent. The qBittorrent client already treats hash comparison this way
+// internally (see qbittorrent.go's own use of strings.EqualFold); this
+// applies the same rule where grabs are matched back to the live queue.
 func queueKey(configID int64, itemID string) string {
-	return fmt.Sprintf("%d:%s", configID, itemID)
+	return fmt.Sprintf("%d:%s", configID, strings.ToLower(itemID))
 }
 
 // failGrab records a grab as failed and, if it was made for a wanted
@@ -186,8 +196,15 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		return false
 	}
 	if g.WantedAlbumID > 0 {
-		if err := s.music.SetWantedAlbumStatus(g.WantedAlbumID, musiclibrary.WantedStatusDownloaded); err != nil {
-			s.logger.Error("importer: set wanted album downloaded", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
+		// The album is owned now — a real albums row exists for it (just
+		// created by the scan above). Delete the wanted_albums row rather
+		// than marking it "downloaded": a status that lingers would clutter
+		// the Wanted card with something no longer actionable forever, and
+		// ListMissingArtistReleaseGroups already excludes anything with a
+		// real albums row, so nothing needs the wanted row to stay around
+		// to keep it out of Missing either.
+		if err := s.music.DeleteWantedAlbum(g.WantedAlbumID); err != nil && !errors.Is(err, musiclibrary.ErrNotFound) {
+			s.logger.Error("importer: remove satisfied wanted album", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
 		}
 	}
 	// The copy is safely in the library now — remove the download from its

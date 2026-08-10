@@ -7,13 +7,17 @@ import (
 	"time"
 )
 
-// WantedStatus is a WantedAlbum's acquisition state.
+// WantedStatus is a WantedAlbum's acquisition state. There's no "downloaded"
+// terminal state: once internal/importer successfully imports a grab, the
+// wanted_albums row is deleted outright rather than marked done — the
+// album's ownership is what the real albums row (created by that same
+// import) already represents, and ListMissingArtistReleaseGroups already
+// excludes anything with one, so nothing needs the wanted row to linger.
 type WantedStatus string
 
 const (
 	WantedStatusWanted      WantedStatus = "wanted"
 	WantedStatusDownloading WantedStatus = "downloading"
-	WantedStatusDownloaded  WantedStatus = "downloaded"
 )
 
 // WantedAlbum is one release group CantiNode is trying to acquire for an

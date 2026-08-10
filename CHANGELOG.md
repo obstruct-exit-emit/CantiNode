@@ -309,6 +309,28 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A completed torrent grab could be silently mistaken for "vanished from
+  the queue" and failed outright** — found while re-running the whole
+  add → search → grab → import loop live to verify the fixes above.
+  `download.magnetHash` stores a magnet's info hash lowercase, but a
+  qBittorrent-compatible debrid bridge routinely echoes it back in
+  whichever case the original magnet used — a case-sensitive string match
+  between the two then never resolves, even though the download is
+  perfectly healthy. `internal/importer`'s queue-to-grab matching, the
+  Activity queue's own grab enrichment, and manually removing a queue item
+  all did this exact comparison; all three now match case-insensitively,
+  the same way `qbittorrent.go`'s own hash-lookup code already treated
+  hashes internally. Also: removing a queue item manually resolved the
+  grab as failed but never reverted its wanted album back to "wanted",
+  leaving it stuck at "downloading" forever with no way to search again —
+  it now reverts, matching what an automatically-detected failure already did.
+- **A wanted album stayed listed as "downloaded" in the Wanted card
+  forever** after a successful import, cluttering it with things no longer
+  actionable — the real `albums` row created by the same import already
+  represents ownership, and Missing already excludes anything with one, so
+  the wanted_albums row is now deleted on successful import instead of
+  marked done (mirroring the earlier "Remove/un-want" fix). The now-unused
+  `downloaded` wanted-album status is gone.
 - **"Search releases" was coming back empty against real indexers** —
   found immediately after the quality-profile scoring fix below actually
   started running. Real-world music release titles routinely name the
