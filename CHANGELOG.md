@@ -18,13 +18,24 @@ in progress. Highlights from the hardening period, newest first:
   remembering to re-scan after a grab finishes. A release's remote path
   (as its download client reports it) is translated through **Settings →
   Download Clients → Remote path mappings** first, so a debrid bridge or a
-  client on another machine resolves correctly; a client-reported failure,
-  or a grab that vanishes from its client's queue outright (removed there,
-  or lost to a restart), is recorded failed instead of left stuck. Files
-  are copied, never moved — the download client keeps its own copy under
-  its own retention policy. Live-verified against a real TorBox/SABnzbd
-  bridge: a genuine grabbed album was imported and matched into the
-  library with no manual step. This restores the half of Completed
+  client on another machine resolves correctly. A grab is now linked to
+  the wanted album it was made for (`grabs.wanted_album_id` — renamed from
+  the dead `book_id` leftover the ebook/comic removal left behind; see
+  migration `021_grabs_wanted_album.sql`), so a successful import marks
+  that album **downloaded** instead of leaving it stuck at "downloading"
+  forever with no way back — the queue/history API field is renamed
+  `bookId` → `wantedAlbumId` to match. Once a download is safely copied
+  into the library, it's removed from its download client (with its data)
+  so it doesn't sit around in the download folder or the client's history
+  forever; a client-reported failure, a failed copy, or a grab that
+  vanishes from its client's queue outright (removed there, or lost to a
+  restart) reverts the wanted album back to **wanted** instead — either
+  way, nothing is deleted from the client until CantiNode's own copy is
+  confirmed good. Live-verified against a real TorBox/SABnzbd bridge: a
+  genuine grabbed album was imported and matched into the library, its
+  wanted status flipped to downloaded, and the source removed from both
+  the download folder and the client, with no manual step. This restores
+  the half of Completed
   Download Handling dropped in the ebook/comic removal that doesn't need
   an automatic search sweep to be useful on its own; see the
   [roadmap](ROADMAP.md#future-) for the other half.

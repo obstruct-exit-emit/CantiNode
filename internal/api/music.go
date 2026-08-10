@@ -909,13 +909,11 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 
 // handleGrabWantedMusicAlbum sends a release (a result from a prior
 // handleSearchWantedMusicAlbum call — the caller passes back whichever one
-// the user picked) to the matching download client. Grabs are recorded
-// untracked (no book_id — that column is a leftover plain field from the
-// removed prose/comic library; see 019_music_only.sql): internal/
-// musicscanner's own scan matches the downloaded files by their embedded
-// MusicBrainz tags once they land in a music root folder, the same as any
-// other file dropped there, so a grab doesn't need any automatic import
-// step to eventually show up.
+// the user picked) to the matching download client. The grab is recorded
+// against wanted.ID (GrabRelease's wantedAlbumID) so internal/importer can
+// find its way back to this wanted_albums row once the download resolves
+// — transitioning it to downloaded on success, or back to wanted on
+// failure — instead of leaving it stuck at "downloading" forever.
 func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -947,7 +945,7 @@ func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Reque
 
 	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
 	defer cancel()
-	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, 0, "music")
+	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, wanted.ID, "music")
 	if errors.Is(err, download.ErrNoClient) {
 		writeError(w, http.StatusServiceUnavailable,
 			"no enabled "+req.Protocol+" download client — add one under Settings")

@@ -68,9 +68,9 @@ export interface QueueItem {
   status: string;
   progress: number;
   path?: string;
-  // Set when the item belongs to a tracked grab — links it to its book.
+  // Set when the item belongs to a tracked grab — links it to its wanted album.
   grabId?: number;
-  bookId?: number;
+  wantedAlbumId?: number;
   mediaType?: string;
 }
 
@@ -90,7 +90,7 @@ export interface Release {
 
 export interface GrabRecord {
   id: number;
-  bookId?: number;
+  wantedAlbumId?: number;
   title: string;
   protocol: string;
   status: "grabbed" | "imported" | "failed";

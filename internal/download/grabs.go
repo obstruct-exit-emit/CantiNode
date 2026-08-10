@@ -16,7 +16,7 @@ const (
 // GrabRecord tracks one release sent to a download client and its outcome.
 type GrabRecord struct {
 	ID             int64  `json:"id"`
-	BookID         int64  `json:"bookId,omitempty"`
+	WantedAlbumID  int64  `json:"wantedAlbumId,omitempty"`
 	ClientConfigID int64  `json:"clientConfigId,omitempty"`
 	ClientItemID   string `json:"clientItemId,omitempty"`
 	Title          string `json:"title"`
@@ -29,12 +29,12 @@ type GrabRecord struct {
 	CompletedAt    string `json:"completedAt,omitempty"`
 }
 
-const grabCols = `id, COALESCE(book_id, 0), COALESCE(client_config_id, 0), client_item_id,
+const grabCols = `id, COALESCE(wanted_album_id, 0), COALESCE(client_config_id, 0), client_item_id,
 	title, guid, protocol, media_type, status, message, grabbed_at, COALESCE(completed_at, '')`
 
 func scanGrab(row interface{ Scan(...any) error }) (*GrabRecord, error) {
 	var g GrabRecord
-	err := row.Scan(&g.ID, &g.BookID, &g.ClientConfigID, &g.ClientItemID,
+	err := row.Scan(&g.ID, &g.WantedAlbumID, &g.ClientConfigID, &g.ClientItemID,
 		&g.Title, &g.GUID, &g.Protocol, &g.MediaType, &g.Status, &g.Message, &g.GrabbedAt, &g.CompletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -47,7 +47,7 @@ func scanGrab(row interface{ Scan(...any) error }) (*GrabRecord, error) {
 
 // AddGrab records a release sent to a client.
 func (s *Store) AddGrab(g *GrabRecord) error {
-	bookID := sql.NullInt64{Int64: g.BookID, Valid: g.BookID > 0}
+	wantedAlbumID := sql.NullInt64{Int64: g.WantedAlbumID, Valid: g.WantedAlbumID > 0}
 	configID := sql.NullInt64{Int64: g.ClientConfigID, Valid: g.ClientConfigID > 0}
 	if g.Status == "" {
 		g.Status = GrabStatusGrabbed
@@ -56,10 +56,10 @@ func (s *Store) AddGrab(g *GrabRecord) error {
 		g.MediaType = "music"
 	}
 	return s.db.QueryRow(`
-		INSERT INTO grabs (book_id, client_config_id, client_item_id, title, guid, protocol, media_type, status)
+		INSERT INTO grabs (wanted_album_id, client_config_id, client_item_id, title, guid, protocol, media_type, status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, grabbed_at`,
-		bookID, configID, g.ClientItemID, g.Title, g.GUID, g.Protocol, g.MediaType, g.Status,
+		wantedAlbumID, configID, g.ClientItemID, g.Title, g.GUID, g.Protocol, g.MediaType, g.Status,
 	).Scan(&g.ID, &g.GrabbedAt)
 }
 

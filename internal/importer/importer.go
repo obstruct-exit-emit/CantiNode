@@ -107,11 +107,7 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 			if failedClients[g.ClientConfigID] {
 				continue // that client just didn't answer this pass — not a true orphan
 			}
-			if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed,
-				"no longer in the download client's queue (removed there, or lost to a client restart)"); err != nil {
-				s.logger.Error("importer: resolve orphaned grab", "grab_id", g.ID, "error", err)
-				continue
-			}
+			s.failGrab(g, "no longer in the download client's queue (removed there, or lost to a client restart)")
 			result.Failed++
 			continue
 		}
@@ -123,11 +119,7 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 				result.Failed++
 			}
 		case "failed":
-			msg := "download client reported it failed"
-			if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, msg); err != nil {
-				s.logger.Error("importer: resolve failed grab", "grab_id", g.ID, "error", err)
-				continue
-			}
+			s.failGrab(g, "download client reported it failed")
 			result.Failed++
 		}
 	}
@@ -138,14 +130,31 @@ func queueKey(configID int64, itemID string) string {
 	return fmt.Sprintf("%d:%s", configID, itemID)
 }
 
+// failGrab records a grab as failed and, if it was made for a wanted
+// album, reverts that album back to "wanted" so the user can search again
+// and try a different release — the same as if it had never been grabbed,
+// rather than leaving it stuck at "downloading" forever.
+func (s *Service) failGrab(g download.GrabRecord, message string) {
+	if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, message); err != nil {
+		s.logger.Error("importer: resolve failed grab", "grab_id", g.ID, "error", err)
+		return
+	}
+	if g.WantedAlbumID > 0 {
+		if err := s.music.SetWantedAlbumStatus(g.WantedAlbumID, musiclibrary.WantedStatusWanted); err != nil {
+			s.logger.Error("importer: revert wanted album status", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
+		}
+	}
+}
+
 // importGrab copies a completed download's files from item.Path (the
 // download client's own local disk, translated through the configured
 // remote path mappings — see config.TranslatePath) into the first
 // configured root folder, then scans that root so the copied files are
 // matched/organized the normal way, same as any other file dropped there.
-// A copy, not a move: the download client keeps its own copy under its own
-// retention policy, which CantiNode has no business overriding. Reports
-// whether the grab ended up imported.
+// A copy, not a move, until the copy itself is confirmed good — only once
+// it succeeds is the source removed from the download client (with its
+// data), so a failed or partial copy never loses the only remaining copy
+// of the download. Reports whether the grab ended up imported.
 func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item download.Item) bool {
 	if item.Path == "" {
 		s.logger.Warn("importer: completed download reported no path, leaving it for manual import",
@@ -162,11 +171,8 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	src := config.TranslatePath(s.cfg.PathMappings(), item.Path)
 	dest := filepath.Join(root.Path, filepath.Base(src))
 	if err := copyTree(src, dest); err != nil {
-		msg := fmt.Sprintf("copy from download client failed: %v", err)
 		s.logger.Error("importer: copy failed", "grab_id", g.ID, "src", src, "dest", dest, "error", err)
-		if rerr := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, msg); rerr != nil {
-			s.logger.Error("importer: resolve failed grab", "grab_id", g.ID, "error", rerr)
-		}
+		s.failGrab(g, fmt.Sprintf("copy from download client failed: %v", err))
 		return false
 	}
 
@@ -178,6 +184,20 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		s.logger.Error("importer: resolve imported grab", "grab_id", g.ID, "error", err)
 		return false
 	}
+	if g.WantedAlbumID > 0 {
+		if err := s.music.SetWantedAlbumStatus(g.WantedAlbumID, musiclibrary.WantedStatusDownloaded); err != nil {
+			s.logger.Error("importer: set wanted album downloaded", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
+		}
+	}
+	// The copy is safely in the library now — remove the download from its
+	// client, deleting its own data too, so a finished grab doesn't sit
+	// around in the download folder or the client's history forever.
+	// Best-effort: the import already succeeded either way.
+	if err := s.downloads.Remove(ctx, g.ClientConfigID, g.ClientItemID, true); err != nil {
+		s.logger.Warn("importer: removing completed download from its client failed (import still succeeded)",
+			"grab_id", g.ID, "error", err)
+	}
+
 	s.logger.Info("importer: imported completed download", "grab_id", g.ID, "title", g.Title, "dest", dest)
 	return true
 }

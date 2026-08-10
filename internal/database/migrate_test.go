@@ -203,14 +203,16 @@ func TestMigrationChainDropsEbookComicKeepsMusic(t *testing.T) {
 	}
 
 	// grabs survives the rebuild — its dangling book_id (the deleted prose
-	// book) is now just an inert integer, not a broken foreign key.
+	// book) is now just an inert integer under its new name, wanted_album_id
+	// (021_grabs_wanted_album.sql renames the column; it doesn't touch data),
+	// not a broken foreign key.
 	var grabTitle string
-	var grabBookID int64
-	if err := db.QueryRow(`SELECT title, book_id FROM grabs WHERE title = 'A Prose Book'`).
-		Scan(&grabTitle, &grabBookID); err != nil {
+	var grabWantedAlbumID int64
+	if err := db.QueryRow(`SELECT title, wanted_album_id FROM grabs WHERE title = 'A Prose Book'`).
+		Scan(&grabTitle, &grabWantedAlbumID); err != nil {
 		t.Fatalf("grabs row did not survive the upgrade: %v", err)
 	}
-	if grabBookID != 1 {
-		t.Errorf("grab book_id = %d, want 1 (preserved as a plain value)", grabBookID)
+	if grabWantedAlbumID != 1 {
+		t.Errorf("grab wanted_album_id = %d, want 1 (preserved as a plain value across the rename)", grabWantedAlbumID)
 	}
 }

@@ -18,11 +18,20 @@ import (
 
 // mockSab fakes just enough of SABnzbd's API for Service.PollOnce to see one
 // finished download: an empty queue and one "Completed" history slot whose
-// storage path is the real source directory under test.
-func mockSab(t *testing.T, storagePath, status string) *httptest.Server {
+// storage path is the real source directory under test. deleteCalls counts
+// how many "delete" actions the server received (queue+history delete both
+// count, matching sabnzbd.Remove's own two calls), for tests to assert the
+// importer actually cleaned up the client side after a successful import.
+func mockSab(t *testing.T, storagePath, status string) (srv *httptest.Server, deleteCalls *int) {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	deleteCalls = new(int)
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		if q.Get("name") == "delete" {
+			*deleteCalls++
+			w.Write([]byte(`{"status": true}`))
+			return
+		}
 		switch q.Get("mode") {
 		case "queue":
 			w.Write([]byte(`{"queue":{"slots":[]}}`))
@@ -39,7 +48,7 @@ func mockSab(t *testing.T, storagePath, status string) *httptest.Server {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, deleteCalls
 }
 
 // setup builds a full Service against temp databases/directories: a source
@@ -90,11 +99,23 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sab := mockSab(t, albumDir, "Completed")
-	svc, dlStore, _, destRoot := setup(t, sab)
+	sab, deleteCalls := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, destRoot := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatalf("set wanted album downloading: %v", err)
+	}
 
 	if err := dlStore.AddGrab(&download.GrabRecord{
-		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
 		Protocol: download.ProtocolUsenet, MediaType: "music",
 	}); err != nil {
 		t.Fatalf("seed grab: %v", err)
@@ -117,6 +138,18 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	if len(grabs) != 1 {
 		t.Fatalf("imported grabs = %+v, want exactly 1", grabs)
 	}
+
+	got, err := musicStore.GetWantedAlbum(wanted.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != musiclibrary.WantedStatusDownloaded {
+		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusDownloaded)
+	}
+
+	if *deleteCalls == 0 {
+		t.Error("importer should have removed the completed download from its client after importing it")
+	}
 }
 
 func TestPollOnceAppliesPathMapping(t *testing.T) {
@@ -137,7 +170,7 @@ func TestPollOnceAppliesPathMapping(t *testing.T) {
 	// matched prefix, so "<remote prefix>/Mapped Album" resolves to
 	// "<src>/Mapped Album", i.e. albumDir itself.
 	remotePath := "/storage_1/downloads/torbox/cantinode/Mapped Album"
-	sab := mockSab(t, remotePath, "Completed")
+	sab, _ := mockSab(t, remotePath, "Completed")
 	svc, dlStore, _, destRoot := setup(t, sab)
 	svc.cfg = testConfigWithMapping(t, "/storage_1/downloads/torbox/cantinode", src)
 
@@ -174,11 +207,23 @@ func testConfigWithMapping(t *testing.T, remote, local string) *config.Config {
 }
 
 func TestPollOnceMarksClientReportedFailureAsFailed(t *testing.T) {
-	sab := mockSab(t, "/does/not/matter", "Failed")
-	svc, dlStore, _, _ := setup(t, sab)
+	sab, _ := mockSab(t, "/does/not/matter", "Failed")
+	svc, dlStore, musicStore, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatalf("set wanted album downloading: %v", err)
+	}
 
 	if err := dlStore.AddGrab(&download.GrabRecord{
-		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
 		Protocol: download.ProtocolUsenet, MediaType: "music",
 	}); err != nil {
 		t.Fatalf("seed grab: %v", err)
@@ -195,10 +240,21 @@ func TestPollOnceMarksClientReportedFailureAsFailed(t *testing.T) {
 	if len(grabs) != 1 {
 		t.Fatalf("failed grabs = %+v, want exactly 1", grabs)
 	}
+
+	// A failed grab reverts its wanted album back to "wanted" so the user
+	// can search again and try a different release, instead of it staying
+	// stuck at "downloading" forever.
+	got, err := musicStore.GetWantedAlbum(wanted.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != musiclibrary.WantedStatusWanted {
+		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusWanted)
+	}
 }
 
 func TestPollOnceIgnoresGrabsStillInProgress(t *testing.T) {
-	sab := mockSab(t, "/does/not/matter", "Downloading")
+	sab, _ := mockSab(t, "/does/not/matter", "Downloading")
 	svc, dlStore, _, _ := setup(t, sab)
 
 	if err := dlStore.AddGrab(&download.GrabRecord{
@@ -225,7 +281,7 @@ func TestPollOnceIgnoresGrabsStillInProgress(t *testing.T) {
 }
 
 func TestPollOnceNoGrabsIsANoop(t *testing.T) {
-	sab := mockSab(t, "/does/not/matter", "Completed")
+	sab, _ := mockSab(t, "/does/not/matter", "Completed")
 	svc, _, _, _ := setup(t, sab)
 
 	result := svc.PollOnce(t.Context())

@@ -218,13 +218,13 @@ func (s *server) handleUnblock(w http.ResponseWriter, r *http.Request) {
 
 // handleQueue shows every CantiNode download across all enabled clients.
 // queueItem is a download client item enriched with the pending grab it
-// belongs to, so the UI can link a queue line to its book and show a book's
-// download progress on its own page.
+// belongs to, so the UI can link a queue line to its wanted album and show
+// its download progress on the artist page.
 type queueItem struct {
 	download.Item
-	GrabID    int64  `json:"grabId,omitempty"`
-	BookID    int64  `json:"bookId,omitempty"`
-	MediaType string `json:"mediaType,omitempty"`
+	GrabID        int64  `json:"grabId,omitempty"`
+	WantedAlbumID int64  `json:"wantedAlbumId,omitempty"`
+	MediaType     string `json:"mediaType,omitempty"`
 }
 
 // enrichQueue pairs client items with pending grabs — by client item id
@@ -259,7 +259,7 @@ func (s *server) enrichQueue(items []download.Item) []queueItem {
 		}
 		if g != nil {
 			out[i].GrabID = g.ID
-			out[i].BookID = g.BookID
+			out[i].WantedAlbumID = g.WantedAlbumID
 			out[i].MediaType = g.MediaType
 		}
 	}
