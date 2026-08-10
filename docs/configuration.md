@@ -55,9 +55,9 @@ client-reported path before import touches disk.
 ## Background timings
 
 **Settings → General → Advanced: background timings** tunes the health
-check — the only loop that runs on a schedule today. Search, scan, and
-organize are all triggered by you (from the artist page or Activity), not
-on a timer; see [Acquisition](acquisition.md) and the
+check — the only loop that runs on a schedule today. Search, grab, scan,
+and organize are all triggered by you (from the Music page or an artist's
+own page), not on a timer; see [Acquisition](acquisition.md) and the
 [roadmap](../ROADMAP.md#future-) for bringing an automatic sweep back.
 Blank uses the default; entered values are clamped to the range above so a
 typo can't misconfigure it. Changes apply on the next server start.
@@ -178,5 +178,6 @@ and applies them on the next restart, keeping the replaced ones as
 Provider art — artist photos (TheAudioDB) and album covers (Cover Art
 Archive) — is cached under `<data>/covers/remote/…`, downloaded on
 add/refresh so the UI serves it locally and it survives provider link rot.
-It's disposable and rebuilds on demand; deleting the directory (server
-stopped) is safe, or call `DELETE /api/v1/cache`.
+It's disposable and rebuilds on demand: **Settings → Music → Clear image
+cache**, `DELETE /api/v1/cache` directly, or just delete the directory
+while the server's stopped.

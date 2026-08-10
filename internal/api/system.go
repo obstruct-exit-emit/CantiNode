@@ -97,8 +97,8 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 <title>CantiNode</title>
 <style>body{font-family:system-ui;display:grid;place-items:center;min-height:90vh;background:#14141b;color:#e8e6e3}main{text-align:center}h1{font-size:2.5rem}p{color:#9a97a3}code{background:#22222c;padding:.2em .5em;border-radius:4px}</style>
 <main>
-  <h1>&#128396;&#65039; CantiNode</h1>
-  <p>The written-media automation server is running.</p>
+  <h1>&#127925; CantiNode</h1>
+  <p>The music automation server is running.</p>
   <p>This build has no web UI embedded &mdash; run <code>npm run build</code> in <code>web/</code> and rebuild the binary. The API is fully available: try <code>GET /api/v1/system/status</code> with your API key.</p>
 </main>`))
 }

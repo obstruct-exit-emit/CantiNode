@@ -2,8 +2,8 @@
 
 Notable changes to CantiNode. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
-Tagging began with `v0.9.0-rc.1` and `v0.9.0-rc.2` (release candidates that
-shook out the release CI); `v0.9.0` will be the first stable tag.
+No tags have been cut on this repo yet — `v0.9.0` is planned as the first,
+once the pre-1.0 hardening (see [ROADMAP](ROADMAP.md)) wraps up.
 
 ## [Unreleased]
 
@@ -276,6 +276,12 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **The no-UI-embedded fallback page (`GET /` on a backend-only build)
+  still said "The written-media automation server is running" behind the
+  old LibriNode pen emoji** — missed by both the ebook/comic removal and
+  the rebrand since it's a raw HTML string, not a doc or a `.tsx` file grep
+  would catch. Now says "music" behind the music-note emoji, matching
+  everywhere else.
 - **Three of the four "background timing" settings did nothing.** Wanted
   search, metadata refresh, and import-poll cadences were still exposed in
   `Settings → General → Advanced` and `config.yaml` (`search_interval_hours`,

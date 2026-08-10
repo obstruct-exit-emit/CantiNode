@@ -3,9 +3,9 @@
 A self-hosted **music library** automation server — an alternative to
 Lidarr.
 
-CantiNode monitors artists you want, searches your indexers, sends releases
-to your download client, then matches scanned files against MusicBrainz and
-organizes them — automatically.
+CantiNode monitors artists you want, searches your indexers, and hands
+picked releases to your download client; scanning matches files against
+MusicBrainz and can organize them for you.
 
 > 🚧 CantiNode is **pre-1.0**. The whole loop works end-to-end, but expect
 > rough edges and breaking changes until 1.0.
@@ -31,9 +31,9 @@ add a root folder for it.
   tags resolve it exactly; otherwise whole-folder release matching, then
   fuzzy title search, fill the gap. Matched files can be renamed into a
   configurable layout and have their tags rewritten.
-- Poster-grid browsing with artist detail pages (owned albums grouped by
-  type, a Missing section, a Wanted section), health checks, backups, and a
-  log viewer.
+- Poster-grid browsing with artist detail pages (owned albums, a Missing
+  section grouped by release type, a Wanted section), health checks,
+  backups, and a log viewer.
 - Optional login with **admin/member roles**: members get everyday use,
   admins get the server's configuration and accounts.
 - Artist bio/photo and album art are cached automatically the moment an

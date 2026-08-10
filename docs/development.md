@@ -26,7 +26,7 @@ npm run build    # production build into web/dist
 ## Layout
 
 ```
-cmd/cantinode/         entrypoint, background loops, restore staging
+cmd/cantinode/         entrypoint, background health-check loop, restore staging
 internal/api/          REST handlers, router, auth, backups
 internal/musiclibrary/ domain model + SQLite store (artists/albums/tracks)
 internal/musicscanner/ file scanning, MusicBrainz matching, organize/rename
@@ -36,7 +36,9 @@ internal/coverart/     Cover Art Archive client + local album-art cache
 internal/tagreader/    reads embedded audio tags (MBIDs, title, track#)
 internal/tagwriter/    rewrites embedded audio tags on organize
 internal/indexer/      Newznab/Torznab clients, search fan-out, backoff;
-                       native-source registry (no built-in sources today)
+                       native-source registry
+  prowlarr/            native source: searches a Prowlarr instance's own
+                       API directly instead of per-indexer duplication
 internal/release/      release parsing + scoring
 internal/download/     qBittorrent/SABnzbd/direct clients, grabs, blocklist
 internal/relname/      generic release-name text utilities (used by

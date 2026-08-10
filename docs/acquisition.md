@@ -84,9 +84,10 @@ uploader's own torrent name instead — sometimes wildly different from, or a
 typo of, the release title — so tracking by hash keeps the queue's album
 linking working regardless of what name the bridge shows.
 
-- An artist's **Search wanted** and per-item **Auto grab** run on demand;
-  **Search releases** lists scored candidates for hand-picking. There is no
-  automatic background search sweep today — acquisition is user-triggered.
+- Search and grab are both per-item, from the artist page's **Wanted**
+  section: **Search releases** lists scored candidates, then **Grab** sends
+  the one you pick. There is no automatic background search sweep today —
+  acquisition is user-triggered.
 - Grabbed files land in your download client's output folder like any other
   file. **They aren't imported automatically** — the next **Scan files**
   pass (on the Music page, or an artist's own page) matches them against

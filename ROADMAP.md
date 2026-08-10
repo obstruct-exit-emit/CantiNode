@@ -176,8 +176,9 @@ Turning "works on the dev box" into "trustable release". Done so far:
   audit, and a token-leak sweep with regression tests
 - ✅ Performance pass at ~11,000-book scale (batched scan transactions cut a
   cold scan from 32s to 2.5s; oversized payloads trimmed)
-- ✅ Release hygiene: version-stamped builds, a CHANGELOG, and `v0.9.0-rc`
-  tags proving the release CI end to end
+- ✅ Release hygiene: version-stamped builds, a CHANGELOG, and a release CI
+  (tag `v*` → GitHub release) proven out on the codebase this was forked
+  from — not yet exercised with a tag on this repo, which has none yet
 
 Docker and Windows support (both shipped earlier in this phase — a
 Dockerfile + compose file + published GHCR images, and a Windows
@@ -189,8 +190,6 @@ Remaining — externally gated:
 
 - [ ] ⏳ **Real-world burn-in**: weeks of daily use with real libraries, messy
   release names, and provider rate limits
-- [ ] ⏳ **Live ComicVine verification** (needs an API key; comics run on
-  Hardcover today)
 - [ ] ⏳ **Docs stranger-test**: a fresh person follows the quickstart from
   scratch (the code-audit pass is done; the human walkthrough remains)
 

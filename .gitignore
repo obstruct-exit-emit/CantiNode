@@ -4,9 +4,6 @@
 /dist/
 /bin/
 
-# Old CantiNode source, kept locally for reference during the rewrite
-/exmples/
-
 # Go
 *.test
 *.out

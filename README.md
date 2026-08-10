@@ -4,7 +4,7 @@
 
 **Self-hosted automation for your music library.**
 
-An alternative in the *arr tradition: monitor artists you want, search your indexers, hand releases to your download client, and match/organize everything into a clean, tagged music library — automatically.
+An alternative in the *arr tradition: monitor artists you want, search your indexers, and hand picked releases to your download client; scanning matches everything against MusicBrainz and can organize it into a clean, tagged music library for you.
 
 [![Release](https://img.shields.io/github/v/release/obstruct-exit-emit/CantiNode?include_prereleases&label=release)](https://github.com/obstruct-exit-emit/CantiNode/releases)
 [![CI](https://github.com/obstruct-exit-emit/CantiNode/actions/workflows/ci.yml/badge.svg)](https://github.com/obstruct-exit-emit/CantiNode/actions/workflows/ci.yml)
@@ -13,7 +13,7 @@ An alternative in the *arr tradition: monitor artists you want, search your inde
 
 </div>
 
-> 🚧 **Pre-1.0, but feature-complete.** Metadata search through automatic grabbing to matched, organized imports all work end to end. What remains before 1.0 is hardening: real-world burn-in. See the [roadmap](ROADMAP.md).
+> 🚧 **Pre-1.0, but feature-complete.** Metadata, search, grabbing, and matched, organized imports all work end to end. What remains before 1.0 is hardening: real-world burn-in. See the [roadmap](ROADMAP.md).
 
 ---
 
@@ -44,9 +44,9 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 - Artist bio/photo (TheAudioDB) and album art (Cover Art Archive) are cached automatically the first time an artist is added — never re-fetched just from browsing
 
 **🖥️ A modern web UI**
-- A poster-grid artist library with per-artist detail pages — owned albums (grouped by type: Album/EP/Single/Live/Compilation/…), a **Missing** section for the rest of the discography, and a **Wanted** section for what's queued
+- A poster-grid artist library with per-artist detail pages — owned albums (sortable, with Grid/Compact/List views), a **Missing** section grouped by release type (Album/EP/Single/Live/Compilation/…) for the rest of the discography, and a **Wanted** section for what's queued
 - Multi-user login with **admin/member roles**, enforced by the backend; first-run setup wizard
-- Health checks with self-explaining banners, scheduled backups with staged restore, a built-in log viewer
+- Health checks with self-explaining banners, on-demand backups with staged restore, a built-in log viewer
 
 ## Quick start
 
