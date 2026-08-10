@@ -6,7 +6,7 @@
 #   cp cantinode.service /etc/systemd/system/
 #   systemctl daemon-reload && systemctl enable --now cantinode
 #
-# Data lives in /var/lib/cantinode; the web UI is on http://localhost:7845.
+# Data lives in /var/lib/cantinode; the web UI is on http://localhost:7847.
 
 [Unit]
 Description=CantiNode music automation server

@@ -33,4 +33,4 @@ go build ./cmd/cantinode
 ./cantinode
 ```
 
-Open `http://localhost:7845` when it's running.
+Open `http://localhost:7847` when it's running.

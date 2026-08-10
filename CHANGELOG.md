@@ -610,6 +610,10 @@ in progress. Highlights from the hardening period, newest first:
   (`020_rebrand_cantinode.sql`) updates the column default and re-points
   any existing row still on the untouched default (a customized category
   is left alone). No other behavior changes.
+- **Default port moved from `7845` (LibriNode's) to `7847`** — CantiNode's
+  own convention alongside its sibling apps (LibriNode `7845`, AcerviNode
+  `7846`). An explicit `port:` in `config.yaml` or `CANTINODE_PORT` still
+  overrides it either way.
 - **Library visibility is membership, not monitoring.** A prose title shows up
   in its Ebooks/Audiobooks library exactly when it's a member of that library;
   unmonitoring a book stops it from being auto-grabbed but no longer hides it

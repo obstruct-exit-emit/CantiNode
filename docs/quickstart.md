@@ -1,6 +1,6 @@
 # Quickstart
 
-1. **Connect.** Open `http://localhost:7845`. A brand-new instance greets you
+1. **Connect.** Open `http://localhost:7847`. A brand-new instance greets you
    with a **first-run setup wizard** — create an account (no API key needed)
    and it walks you through your music folder, an indexer, and a download
    client. Otherwise, paste the API key from `config.yaml` in the data

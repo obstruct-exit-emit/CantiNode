@@ -5,7 +5,7 @@ same endpoints, fully scriptable. Authenticate with the `X-Api-Key` header
 (or `?apikey=`), or a login session cookie.
 
 ```sh
-curl -H "X-Api-Key: <key>" http://localhost:7845/api/v1/system/status
+curl -H "X-Api-Key: <key>" http://localhost:7847/api/v1/system/status
 ```
 
 | Area | Endpoints |

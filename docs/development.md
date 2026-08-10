@@ -3,7 +3,7 @@
 Go 1.25+ backend, React 19 + Vite frontend, SQLite (pure Go, no cgo).
 
 ```sh
-go run ./cmd/cantinode     # starts on http://localhost:7845
+go run ./cmd/cantinode     # starts on http://localhost:7847
 go test ./...
 go build ./cmd/cantinode   # embeds web/dist if present
 ```
@@ -13,7 +13,7 @@ Frontend (Node 22+):
 ```sh
 cd web
 npm install
-npm run dev      # Vite dev server, proxies /api to :7845
+npm run dev      # Vite dev server, proxies /api to :7847
 npm run build    # production build into web/dist
 ```
 

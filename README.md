@@ -54,7 +54,7 @@ Grab a binary from [Releases](https://github.com/obstruct-exit-emit/CantiNode/re
 
 > Docker and Windows builds are on hold for now (see the [roadmap](ROADMAP.md)) — planned to return later.
 
-Then open `http://localhost:7845` — a first-run wizard walks you through your account, your music folder, an indexer, and a download client. Full steps: [Installation](docs/installation.md) · [Quickstart](docs/quickstart.md).
+Then open `http://localhost:7847` — a first-run wizard walks you through your account, your music folder, an indexer, and a download client. Full steps: [Installation](docs/installation.md) · [Quickstart](docs/quickstart.md).
 
 ## Documentation
 
@@ -75,7 +75,7 @@ Then open `http://localhost:7845` — a first-run wizard walks you through your 
 - **Frontend:** React (Vite), embedded in the binary, served on one port
 - **Database:** SQLite (pure Go, no cgo) with embedded, tested migrations
 - **API:** versioned REST (`/api/v1`) with API-key auth — the same API the UI uses; Prowlarr-compatible surface for app sync
-- **Default port:** `7845` · **License:** GPL-3.0
+- **Default port:** `7847` · **License:** GPL-3.0
 
 ## Security
 
@@ -86,7 +86,7 @@ Optional login accounts with **admin/member roles** (members get everyday use, n
 ```sh
 cd web && npm install && npm run build && cd ..   # frontend (Node 22+)
 go build ./cmd/cantinode                          # backend  (Go 1.25+)
-./cantinode                                       # http://localhost:7845
+./cantinode                                       # http://localhost:7847
 ```
 
 `go test ./...` runs the full suite. See [Development](docs/development.md) for the package layout, docs preview, and the Windows Smart-App-Control note.

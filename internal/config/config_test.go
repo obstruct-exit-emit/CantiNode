@@ -16,8 +16,8 @@ func TestLoadFirstRunCreatesConfigWithAPIKey(t *testing.T) {
 	if cfg.APIKey == "" {
 		t.Error("expected a generated API key on first run")
 	}
-	if cfg.Port != 7845 {
-		t.Errorf("default port = %d, want 7845", cfg.Port)
+	if cfg.Port != 7847 {
+		t.Errorf("default port = %d, want 7847", cfg.Port)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "config.yaml")); err != nil {
 		t.Errorf("config.yaml not persisted: %v", err)

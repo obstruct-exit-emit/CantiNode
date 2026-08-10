@@ -6,7 +6,7 @@ and UI on one port.
 
 ```sh
 npm install
-npm run dev     # Vite dev server, proxies /api to :7845
+npm run dev     # Vite dev server, proxies /api to :7847
 npm run build   # production build into web/dist (then rebuild the binary)
 ```
 

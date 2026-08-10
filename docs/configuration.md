@@ -6,7 +6,7 @@ Created on first run in the data directory, with a generated API key:
 
 ```yaml
 host: 0.0.0.0
-port: 7845
+port: 7847
 api_key: <generated>
 log_level: info        # debug, info, warn, error
 auth:                  # present once a login account is added
@@ -117,7 +117,7 @@ Caddy makes it a two-liner (automatic certificates):
 
 ```
 cantinode.example.com {
-    reverse_proxy 127.0.0.1:7845
+    reverse_proxy 127.0.0.1:7847
 }
 ```
 
@@ -129,7 +129,7 @@ server {
     server_name cantinode.example.com;
     # ssl_certificate / ssl_certificate_key ...
     location / {
-        proxy_pass http://127.0.0.1:7845;
+        proxy_pass http://127.0.0.1:7847;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;

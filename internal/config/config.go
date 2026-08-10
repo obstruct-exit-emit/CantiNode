@@ -254,7 +254,7 @@ type Config struct {
 func defaults() *Config {
 	return &Config{
 		Host:     "0.0.0.0",
-		Port:     7845,
+		Port:     7847,
 		LogLevel: "info",
 		Naming:   defaultNaming(),
 		Music:    defaultMusic(),
