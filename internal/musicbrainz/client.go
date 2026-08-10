@@ -25,13 +25,19 @@ const defaultBaseURL = "https://musicbrainz.org/ws/2"
 // against the limit.
 const minRequestInterval = 1100 * time.Millisecond
 
+// retryBaseDelay is the first backoff a retried request waits, doubling
+// each further attempt (see Client.get) — separate from minInterval, which
+// paces every request (successful or not) regardless of retries.
+const retryBaseDelay = 500 * time.Millisecond
+
 // Client is a rate-limited MusicBrainz web service client. Safe for
 // concurrent use — every request goes through the same throttle.
 type Client struct {
-	httpClient  *http.Client
-	baseURL     string
-	userAgent   string
-	minInterval time.Duration
+	httpClient     *http.Client
+	baseURL        string
+	userAgent      string
+	minInterval    time.Duration
+	retryBaseDelay time.Duration
 
 	mu          sync.Mutex
 	lastRequest time.Time
@@ -58,10 +64,11 @@ func NewClientWithBaseURL(appVersion, contactEmail, baseURL string) *Client {
 		ua = fmt.Sprintf("CantiNode/%s ( %s )", appVersion, contactEmail)
 	}
 	return &Client{
-		httpClient:  &http.Client{Timeout: 15 * time.Second},
-		baseURL:     baseURL,
-		userAgent:   ua,
-		minInterval: minRequestInterval,
+		httpClient:     &http.Client{Timeout: 15 * time.Second},
+		baseURL:        baseURL,
+		userAgent:      ua,
+		minInterval:    minRequestInterval,
+		retryBaseDelay: retryBaseDelay,
 	}
 }
 
@@ -267,33 +274,80 @@ func escapeQuoted(s string) string {
 	return s
 }
 
-func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
-	if err := c.throttle(ctx); err != nil {
-		return nil, err
-	}
+// maxRetries bounds how many times get retries a transient server-side
+// error (see retryable) before giving up — 2 retries (3 attempts total).
+const maxRetries = 2
 
+// get issues one MusicBrainz request, retrying a transient server-side
+// error (503 "busy", 429, 502, 504 — all observed from the public
+// musicbrainz.org server under normal load, not a sign anything is
+// actually wrong) with a short backoff before surfacing it, instead of
+// bubbling the very first blip straight up as a hard error a user has to
+// notice and manually retry themselves.
+func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	u := c.baseURL + path + "?" + query.Encode()
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := c.retryBaseDelay << (attempt - 1) // e.g. 500ms, 1s
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if err := c.throttle(ctx); err != nil {
+			return nil, err
+		}
+
+		body, status, err := c.doGet(ctx, u, path)
+		if err != nil {
+			return nil, err
+		}
+		if status == http.StatusOK {
+			return body, nil
+		}
+		lastErr = fmt.Errorf("musicbrainz %s: status %d: %s", path, status, truncate(string(body), 300))
+		if !retryableStatus(status) {
+			return nil, lastErr
+		}
+	}
+	return nil, lastErr
+}
+
+// retryableStatus reports whether a MusicBrainz response status is a
+// transient server-side condition worth retrying, rather than something a
+// retry can't fix (a bad request, an unknown MBID, an auth problem).
+func retryableStatus(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Client) doGet(ctx context.Context, u, path string) (body []byte, status int, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, 0, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s: %w", path, err)
+		return nil, 0, fmt.Errorf("request %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response body for %s: %w", path, err)
+		return nil, 0, fmt.Errorf("read response body for %s: %w", path, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("musicbrainz %s: status %d: %s", path, resp.StatusCode, truncate(string(body), 300))
-	}
-	return body, nil
+	return body, resp.StatusCode, nil
 }
 
 // throttle blocks until at least minInterval has passed since the last

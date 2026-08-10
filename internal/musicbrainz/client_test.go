@@ -15,7 +15,8 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 
 	c := NewClient("0.1.0-test", "test@example.com")
 	c.baseURL = srv.URL
-	c.minInterval = time.Millisecond // don't slow down tests with the real 1.1s throttle
+	c.minInterval = time.Millisecond    // don't slow down tests with the real 1.1s throttle
+	c.retryBaseDelay = time.Millisecond // nor the real retry backoff
 	return c
 }
 
@@ -140,6 +141,62 @@ func TestGetNonOKStatusReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "503") {
 		t.Errorf("error = %v, want it to mention status 503", err)
+	}
+}
+
+func TestGetRetriesTransientStatusThenSucceeds(t *testing.T) {
+	var calls int
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":"The MusicBrainz web server is currently busy. Please try again later."}`))
+			return
+		}
+		w.Write([]byte(sampleRecordingJSON))
+	})
+
+	rec, err := c.LookupRecording(t.Context(), "some-mbid")
+	if err != nil {
+		t.Fatalf("expected the third attempt to succeed, got: %v", err)
+	}
+	if rec.Title != "Alpha and Omega" {
+		t.Errorf("Title = %q, want the decoded sample response", rec.Title)
+	}
+	if calls != 3 {
+		t.Errorf("calls = %d, want exactly 3 (2 failures + 1 success)", calls)
+	}
+}
+
+func TestGetGivesUpAfterMaxRetries(t *testing.T) {
+	var calls int
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+
+	_, err := c.LookupRecording(t.Context(), "some-mbid")
+	if err == nil {
+		t.Fatal("expected an error once every retry is exhausted")
+	}
+	if want := maxRetries + 1; calls != want {
+		t.Errorf("calls = %d, want %d (the initial attempt plus every retry)", calls, want)
+	}
+}
+
+func TestGetDoesNotRetryNonTransientStatus(t *testing.T) {
+	var calls int
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	_, err := c.LookupRecording(t.Context(), "some-mbid")
+	if err == nil {
+		t.Fatal("expected an error on 404")
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want exactly 1 — a 404 is never transient, so it must not be retried", calls)
 	}
 }
 
