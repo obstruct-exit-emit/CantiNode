@@ -147,34 +147,16 @@ func TranslatePath(mappings []PathMapping, p string) string {
 // TimingSettings tunes the background loops. Zero values mean "use the
 // default", so existing configs stay on defaults and the file only records
 // deliberate choices. Changes apply on the next server start.
+//
+// Only the health check runs on a schedule today — the wanted-list sweep
+// and metadata/import polling that older *arr-style timing knobs implied
+// were dropped along with the ebook/comic-era packages that ran them
+// (internal/autosearch, internal/refresh, internal/importer); search, grab,
+// scan, and organize are all user-triggered for now (see the roadmap's
+// Future section for bringing an automatic loop back for music).
 type TimingSettings struct {
-	// SearchIntervalHours: automatic wanted-list sweep cadence (default 6).
-	SearchIntervalHours int `yaml:"search_interval_hours,omitempty" json:"searchIntervalHours"`
-	// RefreshIntervalHours: library metadata re-sync cadence (default 720 —
-	// 30 days; metadata rarely changes, and a monthly sweep is kinder to
-	// providers.)
-	RefreshIntervalHours int `yaml:"refresh_interval_hours,omitempty" json:"refreshIntervalHours"`
 	// HealthIntervalMinutes: background health check cadence (default 15).
 	HealthIntervalMinutes int `yaml:"health_interval_minutes,omitempty" json:"healthIntervalMinutes"`
-	// ImportIntervalSeconds: Completed Download Handling poll cadence
-	// (default 60).
-	ImportIntervalSeconds int `yaml:"import_interval_seconds,omitempty" json:"importIntervalSeconds"`
-}
-
-// Resolved intervals, defaults applied.
-
-func (t TimingSettings) SearchInterval() time.Duration {
-	if t.SearchIntervalHours > 0 {
-		return time.Duration(t.SearchIntervalHours) * time.Hour
-	}
-	return 6 * time.Hour
-}
-
-func (t TimingSettings) RefreshInterval() time.Duration {
-	if t.RefreshIntervalHours > 0 {
-		return time.Duration(t.RefreshIntervalHours) * time.Hour
-	}
-	return 720 * time.Hour // 30 days
 }
 
 func (t TimingSettings) HealthInterval() time.Duration {
@@ -182,13 +164,6 @@ func (t TimingSettings) HealthInterval() time.Duration {
 		return time.Duration(t.HealthIntervalMinutes) * time.Minute
 	}
 	return 15 * time.Minute
-}
-
-func (t TimingSettings) ImportInterval() time.Duration {
-	if t.ImportIntervalSeconds > 0 {
-		return time.Duration(t.ImportIntervalSeconds) * time.Second
-	}
-	return time.Minute
 }
 
 // MusicSettings tunes internal/musicscanner's MusicBrainz matching —
@@ -459,10 +434,7 @@ func (c *Config) SetTimings(t TimingSettings) error {
 		}
 		return v
 	}
-	t.SearchIntervalHours = clamp(t.SearchIntervalHours, 1, 168)
-	t.RefreshIntervalHours = clamp(t.RefreshIntervalHours, 6, 2160)
 	t.HealthIntervalMinutes = clamp(t.HealthIntervalMinutes, 5, 1440)
-	t.ImportIntervalSeconds = clamp(t.ImportIntervalSeconds, 30, 3600)
 	c.mu.Lock()
 	c.Timings = t
 	c.mu.Unlock()

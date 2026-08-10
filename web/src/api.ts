@@ -174,12 +174,10 @@ export interface PathMapping {
 }
 
 // TimingSettings: background loop cadences; 0 = use the built-in default.
-// Changes apply on the next server start.
+// Changes apply on the next server start. Health checks are the only
+// background loop today — search/scan/organize are all user-triggered.
 export interface TimingSettings {
-  searchIntervalHours: number;
-  refreshIntervalHours: number;
   healthIntervalMinutes: number;
-  importIntervalSeconds: number;
 }
 
 // UserAccount is one login; the default user is protected from removal.

@@ -29,21 +29,10 @@ music:
                                  #   recommended
   audiodb_api_key: ""            # TheAudioDB key for artist bio/photo lookup;
                                  #   empty uses TheAudioDB's public test key
-import:                          # Completed Download Handling (Settings →
-                                 # Download Clients → Import handling).
-                                 # All default to true.
-  pack_import_all: true          # multi-album packs fill every matching
-                                 #   album, not just monitored ones
-  remove_completed: true         # remove the download from the client once
-                                 #   imported (torrents too, else they seed)
-  delete_completed_files: true   # also delete the downloaded files after
-                                 #   import (implies remove_completed)
 timings:                         # background cadences — omit for defaults
-  search_interval_hours: 6       # wanted sweep (1–168)
-  refresh_interval_hours: 720    # metadata re-sync (6–2160; default 30 days)
-  health_interval_minutes: 15    # health checks (5–1440)
-  import_interval_seconds: 60    # download-client poll (30–3600)
-path_mappings:                   # remote client paths → local paths
+  health_interval_minutes: 15    # health checks (5–1440) — the only loop
+                                 #   that runs on a schedule; see below
+path_mappings:                   # remote client paths → local ones
   - remote: /storage_1           # as the download client reports them
     local: /mnt/media            # where this server sees the same files
 ```
@@ -65,10 +54,38 @@ client-reported path before import touches disk.
 
 ## Background timings
 
-**Settings → General → Advanced: background timings** tunes the four loops
-(wanted search, metadata refresh, health checks, import polling). Blank
-fields use the defaults; entered values are clamped to the ranges above so a
-typo can't hammer your indexers. Changes apply on the next server start.
+**Settings → General → Advanced: background timings** tunes the health
+check — the only loop that runs on a schedule today. Search, scan, and
+organize are all triggered by you (from the artist page or Activity), not
+on a timer; see [Acquisition](acquisition.md) and the
+[roadmap](../ROADMAP.md#future-) for bringing an automatic sweep back.
+Blank uses the default; entered values are clamped to the range above so a
+typo can't misconfigure it. Changes apply on the next server start.
+
+## Music matching
+
+**Settings → Music** tunes how scanning matches files against MusicBrainz
+and where artist bio/photo lookups come from:
+
+- **MusicBrainz contact email** — included in the User-Agent CantiNode
+  sends MusicBrainz, per their
+  [API usage policy](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting),
+  so they can reach you instead of just blocking a misbehaving instance.
+  Optional but recommended.
+- **TheAudioDB API key** — optional; an empty key falls back to TheAudioDB's
+  shared public test key, which can rate-limit under heavier use. A free key
+  removes that limit.
+- **Organize on match** — off by default. When on, a scan moves/renames a
+  file into the naming template immediately once it's matched, instead of
+  waiting for you to review the scan and run Organize yourself.
+- **Minimum match confidence** (default 75%) — how sure a fuzzy MusicBrainz
+  title search has to be before a scan accepts it automatically; anything
+  below is left unmatched for manual review. Has no effect on a direct match
+  from a file's own embedded tags or a whole-folder release match, both
+  always accepted regardless.
+
+The same page has a **Clear image cache** button — see
+[Image cache](#image-cache) below.
 
 ## Naming template
 

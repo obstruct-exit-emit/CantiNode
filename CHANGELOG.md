@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A "Music" settings tab** (`Settings → Music`) wires up MusicBrainz/
+  TheAudioDB configuration that already existed on the backend
+  (`GET/PUT /settings/music`) but had no UI at all: a MusicBrainz contact
+  email (recommended by their API usage policy), a TheAudioDB API key
+  (optional — falls back to their shared public test key), the
+  **organize on match** toggle, and the **minimum match confidence**
+  slider. The same page gets a **Clear image cache** button, wiring up
+  the also-previously-orphaned `DELETE /cache` endpoint.
+- **Quality profiles gained size bounds and a fuller language list.**
+  Min/max release size (in MB) was always scored (`internal/release.Score`
+  rejects releases outside it) but had no form field — a new profile
+  silently inherited the backend's generic 20 KB–500 MB fallback, which
+  rejects most real FLAC albums; the form now shows and edits it directly,
+  defaulting to 1 MB–4 GB (matching the seeded "Standard Music" profile).
+  The language dropdown grew from 5 to the full 10 languages
+  `internal/release.Parse` recognizes.
 - **A "pack" badge on releases in the search browser** flags one that looks
   like it bundles multiple books/volumes — an explicit volume span
   ("v01-v12"), a self-declared complete run/collection ("Complete Series",
@@ -260,6 +276,16 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Three of the four "background timing" settings did nothing.** Wanted
+  search, metadata refresh, and import-poll cadences were still exposed in
+  `Settings → General → Advanced` and `config.yaml` (`search_interval_hours`,
+  `refresh_interval_hours`, `import_interval_seconds`), but their only
+  consumers (`internal/autosearch`, `internal/refresh`, `internal/importer`)
+  were deleted in the ebook/comic removal — the fields quietly saved and
+  clamped without affecting anything. Removed, alongside the dead
+  `import:` config section documenting a `Completed Download Handling`
+  feature that no longer exists. Only the health-check cadence remains,
+  since it's the only loop still on a schedule.
 - **A series with a messy bibliography (duplicate rows, split-edition
   entries, or a stray title that's just the author's own name) could flag
   nearly every one of its releases as a "pack" and could make a real ebook

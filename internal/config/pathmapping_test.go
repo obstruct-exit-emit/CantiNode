@@ -40,17 +40,8 @@ func TestTranslatePath(t *testing.T) {
 }
 
 func TestTimingDefaults(t *testing.T) {
-	var ts TimingSettings // all zero = all defaults
-	if got := ts.SearchInterval(); got != 6*time.Hour {
-		t.Errorf("search default = %v, want 6h", got)
-	}
-	if got := ts.RefreshInterval(); got != 720*time.Hour {
-		t.Errorf("refresh default = %v, want 720h (30 days)", got)
-	}
+	var ts TimingSettings // zero = default
 	if got := ts.HealthInterval(); got != 15*time.Minute {
 		t.Errorf("health default = %v, want 15m", got)
-	}
-	if got := ts.ImportInterval(); got != time.Minute {
-		t.Errorf("import default = %v, want 1m", got)
 	}
 }

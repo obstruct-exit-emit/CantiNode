@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import FolderBrowser from "../components/FolderBrowser";
+import { formatBytes } from "../format";
 import {
   api,
   getApiKey,
@@ -7,6 +8,7 @@ import {
   type AuthStatus,
   type DownloadClient,
   type Indexer,
+  type MusicSettings,
   type NamingSettings,
   type NativeIndexer,
   type PathMapping,
@@ -23,6 +25,7 @@ import { useUi } from "../ui";
 // user lands on always explains itself. Order matches the README spec.
 const settingsGroups = [
   { name: "Media Management", icon: "📁", blurb: "Where your library lives on disk, and how organized files are named." },
+  { name: "Music", icon: "🎵", blurb: "MusicBrainz/TheAudioDB matching behavior, and the image cache." },
   { name: "Quality Profiles", icon: "⭐", blurb: "Which release formats are acceptable and preferred." },
   { name: "Indexers", icon: "🔎", blurb: "Newznab and Torznab search sources — added by hand or synced from Prowlarr." },
   { name: "Download Clients", icon: "⬇️", blurb: "Where grabbed releases are sent, and how finished downloads are handled." },
@@ -142,6 +145,7 @@ export default function SettingsView({
           <NamingCard onError={onError} />
         </>
       )}
+      {group === "Music" && <MusicCard onError={onError} />}
       {group === "Quality Profiles" && (
         <QualityProfilesCard onError={onError} activeTypes={activeTypes} />
       )}
@@ -319,16 +323,14 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
   return (
     <>
       <p className="muted">
-        How often the background loops run. Blank fields use the defaults;
-        out-of-range values are clamped. Changes apply on the next server
-        start. Keep the search sweep conservative — your indexers will thank
-        you.
+        How often the background health check runs — the only loop on a
+        schedule today. Search, scan, and organize are all triggered by you
+        (from the artist page or Activity), not on a timer. Blank uses the
+        default; out-of-range values are clamped. Changes apply on the next
+        server start.
       </p>
       <div className="settings-form">
-        {field("Wanted search (hours)", "searchIntervalHours", "default 6", "1–168")}
-        {field("Metadata refresh (hours)", "refreshIntervalHours", "default 720 (30 days)", "6–2160")}
         {field("Health checks (minutes)", "healthIntervalMinutes", "default 15", "5–1440")}
-        {field("Import poll (seconds)", "importIntervalSeconds", "default 60", "30–3600")}
       </div>
       <div className="settings-actions">
         <button disabled={busy} onClick={save}>
@@ -337,6 +339,200 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
         {notice && <span className="notice ok">{notice}</span>}
       </div>
     </>
+  );
+}
+
+// MusicCard tunes internal/musicscanner's MusicBrainz matching and
+// TheAudioDB lookups, plus the cached provider-image store both (and Cover
+// Art Archive) fill.
+function MusicCard({ onError }: { onError: (message: string) => void }) {
+  const [settings, setSettings] = useState<MusicSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    api
+      .getMusicSettings()
+      .then(setSettings)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  }, [onError]);
+
+  if (!settings) return <p className="muted">Loading…</p>;
+
+  const save = () => {
+    setBusy(true);
+    setNotice("");
+    api
+      .saveMusicSettings(settings)
+      .then((s) => {
+        setSettings(s);
+        setNotice("✓ Saved");
+      })
+      .catch((err: unknown) =>
+        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="card">
+      <h2>Music Matching</h2>
+      <p className="muted">
+        How CantiNode talks to MusicBrainz and TheAudioDB, and how confident
+        a scan's fuzzy match has to be before it's accepted automatically.
+      </p>
+      <div className="settings-form">
+        <Section
+          title="MusicBrainz"
+          help={
+            <>
+              Included in the User-Agent CantiNode sends MusicBrainz, per
+              their{" "}
+              <a
+                href="https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting"
+                target="_blank"
+                rel="noreferrer"
+              >
+                API usage policy
+              </a>
+              , so they can reach you instead of just blocking a misbehaving
+              instance. Optional, but recommended.
+            </>
+          }
+        >
+          <label>
+            Contact email
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={settings.musicbrainzContactEmail}
+              onChange={(e) =>
+                setSettings({ ...settings, musicbrainzContactEmail: e.target.value })
+              }
+            />
+          </label>
+        </Section>
+
+        <Section
+          title="TheAudioDB"
+          help="Powers artist bio/photo lookups. Optional — an empty key falls back to TheAudioDB's shared public test key, which is fine for light use but can rate-limit under heavier use. A free key removes that limit."
+        >
+          <label>
+            API key
+            <input
+              type="text"
+              placeholder="(using the shared public test key)"
+              value={settings.audioDbApiKey}
+              onChange={(e) => setSettings({ ...settings, audioDbApiKey: e.target.value })}
+            />
+          </label>
+        </Section>
+
+        <Section title="Matching">
+          <label>
+            <span>
+              <input
+                type="checkbox"
+                checked={settings.organizeOnMatch}
+                onChange={(e) =>
+                  setSettings({ ...settings, organizeOnMatch: e.target.checked })
+                }
+              />{" "}
+              Organize a file immediately once a scan matches it
+            </span>
+          </label>
+          <p className="muted field-note">
+            Off by default: a first scan of an existing library can match
+            hundreds of files at once, and moving files on disk is much
+            harder to casually undo than a database row. Leave this off to
+            review a scan's matches, then run Organize yourself when ready.
+          </p>
+          <label>
+            Minimum match confidence:{" "}
+            {Math.round(settings.minMatchConfidence * 100)}%
+            <input
+              type="range"
+              min={0.5}
+              max={1}
+              step={0.01}
+              value={settings.minMatchConfidence}
+              onChange={(e) =>
+                setSettings({ ...settings, minMatchConfidence: Number(e.target.value) })
+              }
+            />
+          </label>
+          <p className="muted field-note">
+            How sure a fuzzy MusicBrainz title search has to be before a scan
+            accepts it automatically — anything below is left unmatched for
+            manual review instead. Has no effect on a direct match from a
+            file's own embedded tags or a whole-folder release match; both
+            are always accepted. Default 75%.
+          </p>
+        </Section>
+
+        <div className="settings-actions">
+          <button disabled={busy} onClick={save}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          {notice && (
+            <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>
+              {notice}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <ImageCacheSection />
+    </section>
+  );
+}
+
+// ImageCacheSection clears the cached artist/album provider art (TheAudioDB
+// bios/photos, Cover Art Archive covers) — rebuilds on demand, so this is
+// always safe; useful after a lot of churn or to reclaim disk space.
+function ImageCacheSection() {
+  const { confirmDlg } = useUi();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  const clear = async () => {
+    const ok = await confirmDlg({
+      title: "Clear image cache",
+      message:
+        "Clear the cached artist photos and album art? They're re-downloaded from the provider the next time they're needed.",
+      confirmLabel: "Clear cache",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    setNotice("");
+    api
+      .clearAllCache()
+      .then((r) =>
+        setNotice(`✓ Cleared ${r.removed} file(s), ${formatBytes(r.freedBytes)} freed`),
+      )
+      .catch((err: unknown) =>
+        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <Section
+      title="Image cache"
+      help="Artist photos and album covers, downloaded once and served locally so the UI never re-fetches them just from browsing. Safe to clear — it rebuilds on demand."
+    >
+      <div className="settings-actions">
+        <button className="danger" disabled={busy} onClick={clear}>
+          Clear image cache
+        </button>
+        {notice && (
+          <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>
+            {notice}
+          </span>
+        )}
+      </div>
+    </Section>
   );
 }
 
@@ -1139,12 +1335,20 @@ function QualityProfilesCard({
   const defaultFormats: Record<string, string[]> = {
     music: ["flac", "mp3", "m4a"],
   };
+  // Music releases range from a single lossy track to a many-GB lossless
+  // discography pack, so the size bounds default wide (1 MB–4 GB, matching
+  // the seeded "Standard Music" profile) rather than the backend's generic
+  // fallback (20 KB–500 MB), which would silently reject most FLAC albums.
+  const defaultMinSizeMB = 1;
+  const defaultMaxSizeMB = 4096;
   const [profiles, setProfiles] = useState<QualityProfile[]>([]);
   const [name, setName] = useState("");
   const [profileType, setProfileType] = useState("music");
   const [formats, setFormats] = useState<string[]>(defaultFormats.music);
   const [language, setLanguage] = useState("english");
   const [upgrades, setUpgrades] = useState(false);
+  const [minSizeMB, setMinSizeMB] = useState(defaultMinSizeMB);
+  const [maxSizeMB, setMaxSizeMB] = useState(defaultMaxSizeMB);
   // Edit-in-place: the saved profile loaded into the form, or null when adding.
   const [editing, setEditing] = useState<QualityProfile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1177,6 +1381,8 @@ function QualityProfilesCard({
     setFormats(p.formats);
     setLanguage(p.language);
     setUpgrades(p.upgradesAllowed);
+    setMinSizeMB(p.minSize > 0 ? p.minSize / (1 << 20) : defaultMinSizeMB);
+    setMaxSizeMB(p.maxSize > 0 ? p.maxSize / (1 << 20) : defaultMaxSizeMB);
     setNotice("");
   };
 
@@ -1185,6 +1391,8 @@ function QualityProfilesCard({
     setName("");
     setFormats(defaultFormats[profileType] ?? []);
     setUpgrades(false);
+    setMinSizeMB(defaultMinSizeMB);
+    setMaxSizeMB(defaultMaxSizeMB);
     setNotice("");
   };
 
@@ -1195,6 +1403,8 @@ function QualityProfilesCard({
       formats,
       language,
       upgradesAllowed: upgrades,
+      minSize: Math.round(minSizeMB * (1 << 20)),
+      maxSize: Math.round(maxSizeMB * (1 << 20)),
     };
     if (editing) {
       run(() =>
@@ -1232,6 +1442,8 @@ function QualityProfilesCard({
                 <span className="muted saved-sub">
                   {p.formats.join(" › ")}
                   {p.language ? ` · ${p.language}` : " · any language"}
+                  {" · "}
+                  {formatBytes(p.minSize)}–{formatBytes(p.maxSize)}
                 </span>
               </span>
               <span className="row-actions">
@@ -1320,12 +1532,48 @@ function QualityProfilesCard({
         <label>
           Language
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="english">English only</option>
             <option value="">Any language</option>
+            <option value="english">English</option>
             <option value="german">German</option>
             <option value="french">French</option>
             <option value="spanish">Spanish</option>
+            <option value="italian">Italian</option>
+            <option value="dutch">Dutch</option>
+            <option value="russian">Russian</option>
+            <option value="portuguese">Portuguese</option>
+            <option value="polish">Polish</option>
+            <option value="japanese">Japanese</option>
           </select>
+          <p className="muted field-note">
+            Rejects a release whose name states a different language than
+            this; a release that states none always passes.
+          </p>
+        </label>
+        <label>
+          Size bounds (MB)
+          <span className="token-row">
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={minSizeMB}
+              onChange={(e) => setMinSizeMB(Number(e.target.value) || 0)}
+            />
+            <span className="muted">to</span>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={maxSizeMB}
+              onChange={(e) => setMaxSizeMB(Number(e.target.value) || 0)}
+            />
+          </span>
+          <p className="muted field-note">
+            Rejects a release outside this range — catches spam/sample-sized
+            fakes on the low end and runaway packs on the high end. A single
+            lossless album often runs 200–500 MB; a multi-disc or
+            discography pack can run several GB.
+          </p>
         </label>
         <div className="settings-actions">
           <button disabled={busy || !name.trim() || formats.length === 0} onClick={add}>
