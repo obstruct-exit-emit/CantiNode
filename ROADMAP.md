@@ -208,9 +208,12 @@ Under consideration, in no particular order:
 - [ ] **External notifications**: Discord/webhook/email on grab, import,
   upgrade, and failure
 - [ ] **Player integrations**: notify Navidrome/Plex on import
-- [ ] **Automatic acquisition loop**: a periodic wanted-list sweep and
-  Completed Download Handling (both dropped in the ebook/comic removal —
-  search, grab, and import are user-triggered only today)
+- [ ] **Automatic wanted-list sweep**: a periodic search of the wanted list
+  (dropped in the ebook/comic removal — search and grab are user-triggered
+  only today). Completed Download Handling — the other half of that same
+  removal — is back: `internal/importer` polls in-flight grabs and, once
+  one finishes, copies its files into the library and scans them in, no
+  manual step needed.
 - [ ] **Accessibility, the systematic pass**: focus trapping, full keyboard
   paths, a screen-reader walk of the main flows
 - [ ] **Localization** — and with it, language/date preferences

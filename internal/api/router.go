@@ -20,6 +20,7 @@ import (
 	"github.com/cantinode/cantinode/internal/download"
 	"github.com/cantinode/cantinode/internal/health"
 	"github.com/cantinode/cantinode/internal/imagecache"
+	"github.com/cantinode/cantinode/internal/importer"
 	"github.com/cantinode/cantinode/internal/indexer"
 	"github.com/cantinode/cantinode/internal/library"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
@@ -54,7 +55,8 @@ type server struct {
 
 // Background bundles the services main runs on periodic loops.
 type Background struct {
-	Health *health.Service
+	Health   *health.Service
+	Importer *importer.Service
 }
 
 // NewRouter builds the API handler and returns the background services the
@@ -208,7 +210,9 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 
 	mux.HandleFunc("/", s.handleIndex)
 
-	return logRequests(mux), &Background{Health: s.health}
+	imp := importer.New(downloads, musicScanner, musicStore, cfg)
+
+	return logRequests(mux), &Background{Health: s.health, Importer: imp}
 }
 
 // handleHealth returns the cached result of the last background health run

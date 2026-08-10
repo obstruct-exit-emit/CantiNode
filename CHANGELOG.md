@@ -11,6 +11,23 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Completed Download Handling is back** (`internal/importer`): a background
+  loop polls every in-flight grab against its download client every 2
+  minutes (immediately on startup too), and once one reports done, copies
+  its files into the music library and scans them in — no more manually
+  remembering to re-scan after a grab finishes. A release's remote path
+  (as its download client reports it) is translated through **Settings →
+  Download Clients → Remote path mappings** first, so a debrid bridge or a
+  client on another machine resolves correctly; a client-reported failure,
+  or a grab that vanishes from its client's queue outright (removed there,
+  or lost to a restart), is recorded failed instead of left stuck. Files
+  are copied, never moved — the download client keeps its own copy under
+  its own retention policy. Live-verified against a real TorBox/SABnzbd
+  bridge: a genuine grabbed album was imported and matched into the
+  library with no manual step. This restores the half of Completed
+  Download Handling dropped in the ebook/comic removal that doesn't need
+  an automatic search sweep to be useful on its own; see the
+  [roadmap](ROADMAP.md#future-) for the other half.
 - **A "Music" settings tab** (`Settings → Music`) wires up MusicBrainz/
   TheAudioDB configuration that already existed on the backend
   (`GET/PUT /settings/music`) but had no UI at all: a MusicBrainz contact
