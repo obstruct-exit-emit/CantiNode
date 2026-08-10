@@ -12,6 +12,7 @@ import SetupWizard from "./components/SetupWizard";
 import { getThemePref, setThemePref, type ThemePref } from "./theme";
 import { UiProvider, useUi } from "./ui";
 import ActivityView from "./views/ActivityView";
+import AlbumDetailView from "./views/AlbumDetailView";
 import ArtistDetailView from "./views/ArtistDetailView";
 import AuthorDetailView from "./views/AuthorDetailView";
 import BookDetailView from "./views/BookDetailView";
@@ -35,6 +36,7 @@ type Page =
   | { name: "book"; id: number; library: "ebook"; authorId: number }
   | { name: "series-detail"; id: number; mediaType: string }
   | { name: "artist"; id: number }
+  | { name: "album"; id: number; artistId: number }
   | { name: "search"; q: string }
   | { name: "calendar" }
   | { name: "activity" }
@@ -69,6 +71,8 @@ function pageToHash(p: Page): string {
       return `#/series/${p.id}?type=${p.mediaType}`;
     case "artist":
       return `#/artist/${p.id}`;
+    case "album":
+      return `#/album/${p.id}?artist=${p.artistId}`;
     case "search":
       return `#/search?q=${encodeURIComponent(p.q)}`;
     default:
@@ -99,6 +103,10 @@ function hashToPage(hash: string): Page {
         : { name: "home" };
     case "artist":
       return id > 0 ? { name: "artist", id } : { name: "home" };
+    case "album":
+      return id > 0
+        ? { name: "album", id, artistId: Number(q.get("artist")) || 0 }
+        : { name: "home" };
     case "search":
       return { name: "search", q: q.get("q") ?? "" };
     case "calendar":
@@ -421,6 +429,19 @@ function AppInner() {
             id={page.id}
             onError={onError}
             onBack={() => go({ name: "library", mediaType: "music" })}
+            onOpenAlbum={(albumId) => go({ name: "album", id: albumId, artistId: page.id })}
+          />
+        )}
+        {connected && page.name === "album" && (
+          <AlbumDetailView
+            key={page.id}
+            id={page.id}
+            onError={onError}
+            onBack={() =>
+              page.artistId > 0
+                ? go({ name: "artist", id: page.artistId })
+                : go({ name: "library", mediaType: "music" })
+            }
           />
         )}
         {connected && page.name === "search" && (

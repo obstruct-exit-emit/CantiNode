@@ -529,6 +529,23 @@ export interface MusicReleaseGroup {
   firstReleaseDate: string;
 }
 
+// ReleaseGroupTrack/ReleaseGroupTracklist preview a release group's tracks
+// straight from MusicBrainz — used by the Missing section, where there's no
+// local album/track row yet (nothing owned, nothing wanted-and-matched).
+export interface ReleaseGroupTrack {
+  discNumber: number;
+  position: number;
+  title: string;
+  durationMs: number;
+  recordingMbid: string;
+}
+
+export interface ReleaseGroupTracklist {
+  releaseMbid: string;
+  releaseTitle: string;
+  tracks: ReleaseGroupTrack[];
+}
+
 export interface WantedAlbum {
   id: number;
   artistId: number;
@@ -1063,6 +1080,10 @@ export const api = {
     request<void>(`/api/v1/music/artist/${id}/refresh`, { method: "POST" }),
   listMissingMusicReleaseGroups: (id: number) =>
     request<MusicReleaseGroup[]>(`/api/v1/music/artist/${id}/missing`),
+  getReleaseGroupTracks: (releaseGroupMbid: string) =>
+    request<ReleaseGroupTracklist>(
+      `/api/v1/music/releasegroup/${encodeURIComponent(releaseGroupMbid)}/tracks`,
+    ),
   removeMusicArtist: (id: number, deleteFiles = false) =>
     request<{ deleted: boolean }>(
       `/api/v1/music/artist/${id}${deleteFiles ? "?deleteFiles=true" : ""}`,
@@ -1070,6 +1091,7 @@ export const api = {
     ),
   listMusicAlbums: (artistId: number) =>
     request<MusicAlbum[]>(`/api/v1/music/artist/${artistId}/albums`),
+  getMusicAlbum: (id: number) => request<MusicAlbum>(`/api/v1/music/album/${id}`),
   listMusicTracks: (albumId: number) =>
     request<MusicTrack[]>(`/api/v1/music/album/${albumId}/tracks`),
   listMusicTrackFiles: (trackId: number) =>

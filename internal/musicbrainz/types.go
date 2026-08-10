@@ -150,9 +150,15 @@ type artistSearchResponse struct {
 // only on whichever single one the caller ends up picking (see
 // internal/scanner's folder-level matching).
 type ReleaseSearchResult struct {
-	ID           string         `json:"id"`
-	Title        string         `json:"title"`
-	Date         string         `json:"date"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Date  string `json:"date"`
+	// Status is MusicBrainz's release status ("Official", "Promotion",
+	// "Bootleg", "Pseudo-Release") — populated by both a search and a
+	// browse-by-release-group request. Used to prefer an official release
+	// as the representative tracklist for a release group CantiNode
+	// doesn't own yet (see pickRepresentativeRelease).
+	Status       string         `json:"status"`
 	ArtistCredit []ArtistCredit `json:"artist-credit"`
 	ReleaseGroup ReleaseGroup   `json:"release-group"`
 	TrackCount   int            `json:"track-count"` // aggregate across every medium

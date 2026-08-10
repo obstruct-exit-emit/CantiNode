@@ -1,4 +1,4 @@
-import type { Book, HomeItem } from "../api";
+import type { Book, HomeItem, MusicAlbum, MusicReleaseGroup } from "../api";
 
 // groupBySeries splits an already series-sorted list into consecutive runs by
 // series title, so a caller can render a heading before each run. Items with no
@@ -15,6 +15,62 @@ export function groupBySeries<T>(
     else groups.push({ title, items: [it] });
   }
   return groups;
+}
+
+// RELEASE_CATEGORY_ORDER is the fixed display order for grouping a music
+// release by type — albums always lead, everything else follows in this
+// same order regardless of the active sort key/direction (only the items
+// *within* a category move when sorting changes). "Live"/"Compilation"/
+// "Soundtrack" come from MusicBrainz's secondary types and take priority
+// over the primary type (a live album's primaryType is still "Album") since
+// that's the distinction a listener actually cares about when browsing.
+export const RELEASE_CATEGORY_ORDER = [
+  "Album",
+  "EP",
+  "Single",
+  "Live",
+  "Compilation",
+  "Soundtrack",
+  "Broadcast",
+  "Other",
+] as const;
+export type ReleaseCategory = (typeof RELEASE_CATEGORY_ORDER)[number];
+
+export function releaseCategory(primaryType: string, secondaryTypes: string[] = []): ReleaseCategory {
+  const secondary = new Set(secondaryTypes.map((t) => t.toLowerCase()));
+  if (secondary.has("live")) return "Live";
+  if (secondary.has("compilation")) return "Compilation";
+  if (secondary.has("soundtrack")) return "Soundtrack";
+  switch (primaryType) {
+    case "Album":
+    case "EP":
+    case "Single":
+    case "Broadcast":
+      return primaryType;
+    default:
+      return "Other";
+  }
+}
+
+// groupByReleaseCategory buckets an already-sorted list by releaseCategory,
+// in RELEASE_CATEGORY_ORDER — a stable partition, so each bucket keeps the
+// incoming (sorted) relative order of its items. Categories with no items
+// are omitted entirely.
+export function groupByReleaseCategory<T>(
+  items: T[],
+  categoryOf: (t: T) => ReleaseCategory,
+): { category: ReleaseCategory; items: T[] }[] {
+  const buckets = new Map<ReleaseCategory, T[]>();
+  for (const it of items) {
+    const cat = categoryOf(it);
+    const bucket = buckets.get(cat);
+    if (bucket) bucket.push(it);
+    else buckets.set(cat, [it]);
+  }
+  return RELEASE_CATEGORY_ORDER.filter((c) => buckets.has(c)).map((c) => ({
+    category: c,
+    items: buckets.get(c)!,
+  }));
 }
 
 export type SortDir = "asc" | "desc";
@@ -117,6 +173,44 @@ export function sortBooks(books: Book[], key: string, dir: SortDir = defaultDirF
       break;
     case "rating": // ascending = lowest first
       by.sort((a, b) => a.rating - b.rating);
+      break;
+    default:
+      break;
+  }
+  return dir === "desc" ? by.reverse() : by;
+}
+
+// sortAlbums is the MusicAlbum equivalent of sortBooks, for an artist's
+// owned-albums grid.
+export function sortAlbums(albums: MusicAlbum[], key: string, dir: SortDir = defaultDirFor(key)): MusicAlbum[] {
+  const by = [...albums];
+  switch (key) {
+    case "title":
+      by.sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    case "date": // ascending = oldest first
+      by.sort((a, b) => (a.releaseDate || "").localeCompare(b.releaseDate || ""));
+      break;
+    default:
+      break;
+  }
+  return dir === "desc" ? by.reverse() : by;
+}
+
+// sortReleaseGroups is the MusicReleaseGroup equivalent, for an artist's
+// Missing-albums section (cached discography gaps).
+export function sortReleaseGroups(
+  groups: MusicReleaseGroup[],
+  key: string,
+  dir: SortDir = defaultDirFor(key),
+): MusicReleaseGroup[] {
+  const by = [...groups];
+  switch (key) {
+    case "title":
+      by.sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    case "date": // ascending = oldest first
+      by.sort((a, b) => (a.firstReleaseDate || "").localeCompare(b.firstReleaseDate || ""));
       break;
     default:
       break;

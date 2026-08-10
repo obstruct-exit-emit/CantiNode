@@ -6,11 +6,28 @@ import {
   type MusicAlbum,
   type MusicArtist,
   type MusicReleaseGroup,
+  type ReleaseGroupTracklist,
   type RenameMove,
   type WantedAlbum,
 } from "../api";
 import RemovePanel from "../components/RemovePanel";
 import { DetailSkeleton } from "../components/Skeleton";
+import {
+  SortSelect,
+  DirectionButtons,
+  sortAlbums,
+  sortReleaseGroups,
+  releaseCategory,
+  groupByReleaseCategory,
+  defaultDirFor,
+  type SortDir,
+} from "../components/SortControl";
+import { formatDuration } from "../format";
+
+// Albums section display: "grid" (current default, large covers), "compact"
+// (same grid, smaller covers), or "list" (a plain title + status row) —
+// same three modes as the ebook author page's Books section.
+type AlbumsView = "grid" | "compact" | "list";
 
 // Full-page artist detail, mirroring the author page: header with portrait,
 // bio and artist-level actions, then owned albums as a cover grid, a
@@ -20,10 +37,12 @@ export default function ArtistDetailView({
   id,
   onError,
   onBack,
+  onOpenAlbum,
 }: {
   id: number;
   onError: (message: string) => void;
   onBack: () => void;
+  onOpenAlbum: (albumId: number) => void;
 }) {
   const [artist, setArtist] = useState<MusicArtist | null>(null);
   const [albums, setAlbums] = useState<MusicAlbum[]>([]);
@@ -32,6 +51,13 @@ export default function ArtistDetailView({
   const [notice, setNotice] = useState("");
   const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+  const [albumsSort, setAlbumsSort] = useState("date");
+  const [albumsDir, setAlbumsDir] = useState<SortDir>(defaultDirFor("date"));
+  const [albumsView, setAlbumsView] = useState<AlbumsView>("grid");
+  const changeAlbumsSort = (key: string) => {
+    setAlbumsSort(key);
+    setAlbumsDir(defaultDirFor(key));
+  };
 
   const reload = useCallback(() => {
     Promise.all([api.getMusicArtist(id), api.listMusicAlbums(id)])
@@ -190,16 +216,61 @@ export default function ArtistDetailView({
       </section>
 
       <section className="card">
-        <h2>Albums ({albums.length})</h2>
+        <div className="card-head">
+          <h2>Albums ({albums.length})</h2>
+          <span className="row-actions">
+            <span className="view-toggle">
+              {(["grid", "compact", "list"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={albumsView === v ? "toggle on" : "toggle"}
+                  onClick={() => setAlbumsView(v)}
+                  title={v === "grid" ? "Covers" : v === "compact" ? "Smaller covers" : "List"}
+                >
+                  {v === "grid" ? "Grid" : v === "compact" ? "Compact" : "List"}
+                </button>
+              ))}
+            </span>
+            {albums.length > 1 && (
+              <>
+                <SortSelect
+                  value={albumsSort}
+                  onChange={changeAlbumsSort}
+                  options={[
+                    ["date", "Release date"],
+                    ["title", "Title"],
+                  ]}
+                />
+                <DirectionButtons value={albumsDir} onChange={setAlbumsDir} />
+              </>
+            )}
+          </span>
+        </div>
         {albums.length === 0 ? (
           <p className="muted">
             Nothing owned yet — pick albums to want from <strong>Missing</strong>{" "}
             below, or scan a root folder with their files.
           </p>
+        ) : albumsView === "list" ? (
+          <ul className="rows">
+            {sortAlbums(albums, albumsSort, albumsDir).map((al) => (
+              <li key={al.id}>
+                <div className="row">
+                  <button className="link" onClick={() => onOpenAlbum(al.id)}>
+                    {al.title}
+                  </button>
+                  <span className="muted">
+                    {al.releaseDate ? al.releaseDate.slice(0, 4) : al.primaryType}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <div className="poster-grid">
-            {albums.map((al) => (
-              <div key={al.id} className="poster-card">
+          <div className={albumsView === "compact" ? "poster-grid compact" : "poster-grid"}>
+            {sortAlbums(albums, albumsSort, albumsDir).map((al) => (
+              <button key={al.id} className="poster-card" onClick={() => onOpenAlbum(al.id)}>
                 {al.mbid ? (
                   <img className="poster" src={musicAlbumCoverUrl(al.id)} alt="" loading="lazy" />
                 ) : (
@@ -209,7 +280,7 @@ export default function ArtistDetailView({
                 <span className="poster-sub">
                   {al.releaseDate ? al.releaseDate.slice(0, 4) : al.primaryType}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -235,6 +306,7 @@ function WantedAlbumsCard({
   const [wanted, setWanted] = useState<WantedAlbum[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [releases, setReleases] = useState<Record<number, { title: string; downloadUrl: string; guid: string; protocol: string; indexer: string; size: number }[]>>({});
+  const [openMbid, setOpenMbid] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     api
@@ -282,7 +354,13 @@ function WantedAlbumsCard({
           <li key={w.id}>
             <div className="row">
               <span>
-                {w.title}
+                <button
+                  className="link"
+                  onClick={() => setOpenMbid(openMbid === w.releaseGroupMbid ? null : w.releaseGroupMbid)}
+                  title="Show this album's tracklist"
+                >
+                  {openMbid === w.releaseGroupMbid ? "▾" : "▸"} {w.title}
+                </button>
                 <span className="muted"> · {w.status}</span>
               </span>
               <span className="row-actions">
@@ -294,6 +372,11 @@ function WantedAlbumsCard({
                 </button>
               </span>
             </div>
+            {openMbid === w.releaseGroupMbid && (
+              <div className="missing-detail">
+                <ReleaseTracklistPreview releaseGroupMbid={w.releaseGroupMbid} />
+              </div>
+            )}
             {releases[w.id] && (
               <ul className="rows nested">
                 {releases[w.id].length === 0 && <li className="muted">No releases found.</li>}
@@ -333,6 +416,14 @@ function MissingAlbumsCard({
 }) {
   const [missing, setMissing] = useState<MusicReleaseGroup[] | null>(null);
   const [busyMbid, setBusyMbid] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState("date");
+  const [dir, setDir] = useState<SortDir>(defaultDirFor("date"));
+  const [openMbid, setOpenMbid] = useState<string | null>(null);
+  const changeSort = (key: string) => {
+    setSort(key);
+    setDir(defaultDirFor(key));
+  };
 
   useEffect(() => {
     api
@@ -352,48 +443,158 @@ function MissingAlbumsCard({
       .finally(() => setBusyMbid(null));
   };
 
+  const filtered = missing.filter((rg) => rg.title.toLowerCase().includes(filter.toLowerCase()));
+  // Grouped by release type (Album on top, then EP/Single/Live/...) —
+  // sorting only reorders items *within* a group, never the groups
+  // themselves, since sortReleaseGroups runs before the stable partition.
+  const groups = groupByReleaseCategory(sortReleaseGroups(filtered, sort, dir), (rg) =>
+    releaseCategory(rg.primaryType, rg.secondaryTypes),
+  );
+
   return (
     <section className="card">
-      <h2>Missing ({missing.length})</h2>
+      <div className="card-head">
+        <h2>Missing ({missing.length})</h2>
+        {missing.length > 1 && (
+          <span className="row-actions">
+            <SortSelect
+              value={sort}
+              onChange={changeSort}
+              options={[
+                ["date", "Release date"],
+                ["title", "Title"],
+              ]}
+            />
+            <DirectionButtons value={dir} onChange={setDir} />
+          </span>
+        )}
+      </div>
       {missing.length === 0 ? (
         <p className="muted">
           No gaps — every cached release group is owned or already wanted. Try{" "}
           <strong>Refresh metadata</strong> above to pick up new releases.
         </p>
       ) : (
-        <ul className="rows">
-          {missing.map((rg) => (
-            <li key={rg.releaseGroupMbid}>
-              <div className="row">
-                <span>
-                  {rg.title}
-                  <span className="muted">
-                    {" "}
-                    {rg.primaryType}
-                    {rg.firstReleaseDate ? ` · ${rg.firstReleaseDate.slice(0, 4)}` : ""}
-                  </span>
-                </span>
-                <span className="row-actions">
-                  <button
-                    disabled={busyMbid !== null}
-                    title="Want this album without monitoring the artist further"
-                    onClick={() => add(rg, false)}
-                  >
-                    + Add
-                  </button>
-                  <button
-                    disabled={busyMbid !== null}
-                    title="Want this album and monitor the artist"
-                    onClick={() => add(rg, true)}
-                  >
-                    + Add &amp; Monitor
-                  </button>
-                </span>
-              </div>
-            </li>
+        <>
+          {missing.length > 10 && (
+            <input
+              className="grid-filter"
+              placeholder="Filter missing albums…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          )}
+          {filtered.length === 0 && <p className="muted">No missing albums match the filter.</p>}
+          {groups.map((g) => (
+            <div key={g.category}>
+              {groups.length > 1 && (
+                <h3 className="group-heading">
+                  {g.category} ({g.items.length})
+                </h3>
+              )}
+              <ul className="rows">
+                {g.items.map((rg) => (
+                  <li key={rg.releaseGroupMbid}>
+                    <div className="row">
+                      <span>
+                        <button
+                          className="link"
+                          onClick={() =>
+                            setOpenMbid(openMbid === rg.releaseGroupMbid ? null : rg.releaseGroupMbid)
+                          }
+                          title="Show this album's tracklist"
+                        >
+                          {openMbid === rg.releaseGroupMbid ? "▾" : "▸"} {rg.title}
+                        </button>
+                        <span className="muted">
+                          {" "}
+                          {rg.primaryType}
+                          {rg.firstReleaseDate ? ` · ${rg.firstReleaseDate.slice(0, 4)}` : ""}
+                        </span>
+                      </span>
+                      <span className="row-actions">
+                        <button
+                          disabled={busyMbid !== null}
+                          title="Want this album without monitoring the artist further"
+                          onClick={() => add(rg, false)}
+                        >
+                          + Add
+                        </button>
+                        <button
+                          disabled={busyMbid !== null}
+                          title="Want this album and monitor the artist"
+                          onClick={() => add(rg, true)}
+                        >
+                          + Add &amp; Monitor
+                        </button>
+                      </span>
+                    </div>
+                    {openMbid === rg.releaseGroupMbid && (
+                      <div className="missing-detail">
+                        <ReleaseTracklistPreview releaseGroupMbid={rg.releaseGroupMbid} />
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </>
       )}
     </section>
+  );
+}
+
+// ReleaseTracklistPreview fetches and shows a release group's tracklist
+// straight from MusicBrainz — used by both Missing and Wanted rows, which
+// have no local album/track rows to read from yet (nothing scanned, so
+// nothing to slot a track file into). Self-contained: owns its own
+// loading/error state rather than bubbling errors up to the page's toast,
+// since a failed preview here shouldn't interrupt anything else in progress.
+function ReleaseTracklistPreview({ releaseGroupMbid }: { releaseGroupMbid: string }) {
+  const [data, setData] = useState<ReleaseGroupTracklist | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    setData(null);
+    api
+      .getReleaseGroupTracks(releaseGroupMbid)
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(String(err instanceof Error ? err.message : err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [releaseGroupMbid]);
+
+  if (loading) return <p className="muted">Loading tracklist…</p>;
+  if (error) return <p className="muted">Couldn't load tracklist: {error}</p>;
+  if (!data || data.tracks.length === 0) return <p className="muted">No tracklist available.</p>;
+
+  const multiDisc = data.tracks.some((t) => t.discNumber > 1);
+  return (
+    <ul className="rows nested">
+      {data.tracks.map((t) => (
+        <li key={`${t.discNumber}-${t.position}`}>
+          <div className="row">
+            <span>
+              {multiDisc ? `${t.discNumber}.` : ""}
+              {String(t.position).padStart(2, "0")} — {t.title}
+            </span>
+            <span className="muted">{formatDuration(t.durationMs)}</span>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

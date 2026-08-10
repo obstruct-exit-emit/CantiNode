@@ -234,6 +234,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, providers *metadata.Manager, vers
 	mux.HandleFunc("POST /api/v1/music/artist/{id}/wanted", s.auth(s.handleWantMusicAlbum))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/wanted", s.auth(s.handleListWantedMusicAlbums))
 	mux.HandleFunc("DELETE /api/v1/music/artist/{id}", s.auth(s.handleRemoveMusicArtist))
+	mux.HandleFunc("GET /api/v1/music/album/{id}", s.auth(s.handleGetMusicAlbum))
 	mux.HandleFunc("GET /api/v1/music/album/{id}/tracks", s.auth(s.handleListMusicTracksByAlbum))
 	// Not requireAdmin/plain auth header only: an <img src> can't attach a
 	// header, so covers ride the API key via ?apikey= — handled by s.auth
@@ -248,6 +249,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, providers *metadata.Manager, vers
 	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/write-tags", s.auth(s.handleWriteMusicTags))
 	mux.HandleFunc("DELETE /api/v1/music/trackfile/{id}", s.auth(s.handleDeleteTrackFile))
 	mux.HandleFunc("GET /api/v1/music/musicbrainz/search", s.auth(s.handleSearchMusicBrainzRecordings))
+	mux.HandleFunc("GET /api/v1/music/releasegroup/{mbid}/tracks", s.auth(s.handleGetReleaseGroupTracklist))
 	mux.HandleFunc("POST /api/v1/music/scan", s.auth(s.handleTriggerMusicScan))
 	mux.HandleFunc("GET /api/v1/music/scan/status", s.auth(s.handleMusicScanStatus))
 	mux.HandleFunc("POST /api/v1/music/wanted/{id}/ignore", s.auth(s.handleIgnoreWantedMusicAlbum))

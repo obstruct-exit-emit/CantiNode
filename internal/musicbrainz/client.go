@@ -186,6 +186,28 @@ func (c *Client) SearchReleases(ctx context.Context, artist, release string) ([]
 	return resp.Releases, nil
 }
 
+// BrowseReleaseGroupReleases lists every release belonging to release group
+// releaseGroupMBID — a MusicBrainz "browse" request (filtered by relation,
+// not full-text relevance), used to preview an album's tracklist before
+// CantiNode owns any file of it: the Missing/Wanted sections have a release
+// group from an artist's cached discography, but no scanned file to resolve
+// a specific release from the way folder-level matching does.
+func (c *Client) BrowseReleaseGroupReleases(ctx context.Context, releaseGroupMBID string) ([]ReleaseSearchResult, error) {
+	body, err := c.get(ctx, "/release/", url.Values{
+		"release-group": {releaseGroupMBID},
+		"fmt":           {"json"},
+		"limit":         {"25"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp releaseSearchResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decode release-group %s releases: %w", releaseGroupMBID, err)
+	}
+	return resp.Releases, nil
+}
+
 // buildReleaseQuery mirrors buildRecordingQuery's scoping, just without a
 // title field — a release search has no per-track title to scope by.
 func buildReleaseQuery(artist, release string) string {

@@ -9,6 +9,18 @@ export function formatBytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KiB`;
 }
 
+// formatDuration renders a millisecond duration as "m:ss" (or "h:mm:ss" past
+// an hour). Unknown/zero durations render as "".
+export function formatDuration(ms: number): string {
+  if (!ms || ms <= 0 || !Number.isFinite(ms)) return "";
+  const totalSeconds = Math.round(ms / 1000);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
 // relativeTime renders how long ago an ISO timestamp was ("3h ago",
 // "2d ago"); future or unparseable input renders as "".
 export function relativeTime(iso?: string): string {

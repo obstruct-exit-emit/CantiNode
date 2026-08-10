@@ -132,3 +132,21 @@ CREATE TABLE wanted_albums (
 
 CREATE INDEX idx_wanted_albums_artist_id ON wanted_albums (artist_id);
 CREATE INDEX idx_wanted_albums_status ON wanted_albums (status);
+
+-- Release-group tracklist cache: the Missing/Wanted sections' "preview the
+-- tracks" action needs a full tracklist for an album CantiNode doesn't own
+-- yet, which isn't part of the artist-level metadata cache (that only
+-- stores each release group's title/type/date — a real tracklist means
+-- picking one specific release out of the group and fetching its full
+-- medium/track breakdown, two more MusicBrainz requests). Fetched lazily,
+-- once, the first time a given release group's tracks are previewed by
+-- anyone; a tracklist essentially never changes once released, so there's
+-- no freshness expiry — same "cache once, never poll" policy as the rest
+-- of CantiNode's MusicBrainz data.
+CREATE TABLE release_group_tracklist_cache (
+    release_group_mbid TEXT PRIMARY KEY,
+    release_mbid        TEXT NOT NULL,
+    release_title       TEXT NOT NULL,
+    tracks_json         TEXT NOT NULL,
+    fetched_at          TIMESTAMP NOT NULL DEFAULT (datetime('now'))
+);
