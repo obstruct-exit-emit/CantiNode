@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🖋️ CantiNode
+# 🎵 CantiNode
 
 **Self-hosted automation for your music library.**
 

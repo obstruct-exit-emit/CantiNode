@@ -122,7 +122,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
       {step === 0 && (
         <>
-          <h2>Welcome to CantiNode 🖋️</h2>
+          <h2>Welcome to CantiNode 🎵</h2>
           <p className="muted">
             Let's get you set up in a couple of minutes. First, create the
             account you'll sign in with — no digging for API keys.

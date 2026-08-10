@@ -1,4 +1,4 @@
-# 🖋️ CantiNode Roadmap
+# 🎵 CantiNode Roadmap
 
 Where the project has been and where it's going. Phases 0–5 are **complete**;
 Phase 6 (hardening) is nearly done, with the remaining work gated on things

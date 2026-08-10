@@ -195,7 +195,7 @@ function AppInner() {
     <div className={connected ? "app with-sidebar" : "app"}>
       {connected && (
         <aside className="sidebar">
-          <h1 className="brand">🖋️ CantiNode</h1>
+          <h1 className="brand">🎵 CantiNode</h1>
           <SidebarSearch onSearch={(q) => go({ name: "search", q })} />
           <nav>
             {hasMusicRoot && <div className="nav-group">Libraries</div>}
@@ -223,7 +223,7 @@ function AppInner() {
       )}
 
       <main className="content">
-        {!connected && <h1 className="brand">🖋️ CantiNode</h1>}
+        {!connected && <h1 className="brand">🎵 CantiNode</h1>}
 
         {setupNeeded && !connected && (
           <SetupWizard
