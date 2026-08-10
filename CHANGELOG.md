@@ -622,6 +622,26 @@ in progress. Highlights from the hardening period, newest first:
   covering clients that ignore the delete-files flag.
 
 ### Changed
+- **Prowlarr integration no longer pretends to be a Readarr application.**
+  The old model added CantiNode to Prowlarr as an "application" — Prowlarr
+  would push its indexers into CantiNode via a Readarr-v1-shaped API
+  CantiNode had to emulate (fake metadata-profile/tag/schema endpoints,
+  arr-shaped root-folder/quality-profile/download-client resources served
+  only to Prowlarr's own User-Agent, a spoofed Readarr version number).
+  All of that (`internal/api/prowlarr.go` and every `isProwlarr()` branch
+  elsewhere) is gone. In its place: a new native indexer source,
+  **Prowlarr**, selectable under Settings → Indexers like any other
+  indexer type — point it at a Prowlarr instance's URL and API key, and
+  CantiNode calls Prowlarr's own `GET /api/v1/search` directly (the same
+  call Prowlarr's own search page makes), which fans out to every indexer
+  Prowlarr has configured. One connection instead of duplicating each
+  indexer in CantiNode's own settings, and no application-sync handshake.
+  Results ride the exact same scoring/blocklist/grab pipeline as any other
+  indexer's — Prowlarr's own search has no quality-profile concept, but
+  going through CantiNode's now applies one. `internal/indexer.NativeDef`
+  gained a `NeedsBaseURL` flag (Prowlarr has no sensible default URL,
+  unlike a scraped site with a fixed domain) so the Settings form knows to
+  require one.
 - **Renamed LibriNode → CantiNode.** This codebase was rebuilt on top of a
   fork of [LibriNode](https://github.com/obstruct-exit-emit/LibriNode)
   (see the [roadmap](ROADMAP.md) for the fuller lineage); now that it's

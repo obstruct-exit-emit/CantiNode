@@ -18,6 +18,11 @@ const (
 	ProtocolUsenet  = "usenet"
 	ProtocolTorrent = "torrent"
 	ProtocolDirect  = "direct"
+	// ProtocolMixed marks a source (like Prowlarr) that aggregates both
+	// torrent and usenet indexers — its own NativeDef.Protocol is purely
+	// informational (shown in the Settings "add indexer" dropdown); each
+	// of its actual search results carries its own real Release.Protocol.
+	ProtocolMixed = "mixed"
 )
 
 // Indexer is one configured indexer endpoint.

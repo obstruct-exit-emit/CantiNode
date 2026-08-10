@@ -188,15 +188,11 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 
 	mux.HandleFunc("GET /api/v1/indexer", s.requireAdmin(s.handleListIndexers))
 	mux.HandleFunc("POST /api/v1/indexer", s.requireAdmin(s.handleAddIndexer))
-	mux.HandleFunc("GET /api/v1/indexer/schema", s.requireAdmin(s.handleIndexerSchema))
 	mux.HandleFunc("GET /api/v1/indexer/native", s.requireAdmin(s.handleListNativeIndexers))
 	mux.HandleFunc("GET /api/v1/indexer/{id}", s.requireAdmin(s.handleGetIndexer))
 	mux.HandleFunc("PUT /api/v1/indexer/{id}", s.requireAdmin(s.handleUpdateIndexer))
 	mux.HandleFunc("DELETE /api/v1/indexer/{id}", s.requireAdmin(s.handleDeleteIndexer))
 	mux.HandleFunc("POST /api/v1/indexer/test", s.requireAdmin(s.handleTestIndexer))
-	mux.HandleFunc("GET /api/v1/tag", s.requireAdmin(s.handleListTags))
-	// Readarr-only capability Prowlarr reads during app sync (see handler).
-	mux.HandleFunc("GET /api/v1/metadataprofile", s.requireAdmin(s.handleListMetadataProfiles))
 
 	mux.HandleFunc("GET /api/v1/downloadclient", s.requireAdmin(s.handleListDownloadClients))
 	mux.HandleFunc("POST /api/v1/downloadclient", s.requireAdmin(s.handleAddDownloadClient))
@@ -228,8 +224,8 @@ func (s *server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 
 // refreshHealth re-runs the health checks in the background after a change
 // that can raise or resolve an issue (indexer/download-client/root-folder
-// edits — including Prowlarr's sync writes), so the warning banner updates
-// without waiting for the 15-minute tick.
+// edits), so the warning banner updates without waiting for the 15-minute
+// tick.
 func (s *server) refreshHealth() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -238,7 +234,7 @@ func (s *server) refreshHealth() {
 	}()
 }
 
-// auth admits requests carrying the API key (scripts, Prowlarr) or a valid
+// auth admits requests carrying the API key (scripts) or a valid
 // login session cookie (the web UI once authentication is enabled) — either
 // role. Use requireAdmin instead for the server's own configuration.
 func (s *server) auth(next http.HandlerFunc) http.HandlerFunc {
@@ -252,8 +248,8 @@ func (s *server) auth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // requireAdmin is auth, plus a role check: the API key always passes (it's
-// the instance owner's master credential — scripts and Prowlarr authenticate
-// this way, and have no narrower role to check), but a session belonging to
+// the instance owner's master credential — scripts authenticate this way,
+// and have no narrower role to check), but a session belonging to
 // a member account is turned away. Everything that touches the server's own
 // configuration — settings, indexers, download clients, backups, logs, user
 // management — sits behind this instead of auth.

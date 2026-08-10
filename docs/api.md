@@ -20,7 +20,7 @@ curl -H "X-Api-Key: <key>" http://localhost:7847/api/v1/system/status
 | Scanning & matching | `POST /music/scan` (scans the root folders), `GET /music/scan/status`, `GET /music/trackfile/unmatched`, `POST /music/trackfile/{id}/match` `{"recordingMbid": "...", "releaseMbid": "..."}`, `DELETE /music/trackfile/{id}/match`, `GET /music/trackfile/{id}/organize/preview`, `POST /music/trackfile/{id}/organize`, `POST /music/trackfile/{id}/write-tags`, `DELETE /music/trackfile/{id}` (`?deleteFiles=true`) |
 | Search & grab | `GET /music/musicbrainz/search?term=` (raw recording search), `GET /music/releasegroup/{mbid}/tracks`, `POST /music/wanted/{id}/ignore`, `GET /music/wanted/{id}/search` (scored release candidates), `POST /music/wanted/{id}/grab` |
 | Quality | `GET/POST /qualityprofile`, `PUT/DELETE /qualityprofile/{id}`, `PUT /qualityprofile/{id}/default` |
-| Indexers | `GET/POST /indexer` (native rows are hidden when the caller is Prowlarr), `GET/PUT/DELETE /indexer/{id}`, `POST /indexer/test`, `GET /indexer/schema`, `GET /indexer/native` (built-in native source catalog — empty by default) |
+| Indexers | `GET/POST /indexer` (type `newznab`\|`torznab`\|a native source name — `prowlarr` ships built in: search a self-hosted Prowlarr instance directly instead of duplicating each of its indexers here), `GET/PUT/DELETE /indexer/{id}`, `POST /indexer/test`, `GET /indexer/native` (native source catalog: name, protocol, media types, URL/key requirements) |
 | Downloads | `GET/POST /downloadclient` (types: `qbittorrent`, `sabnzbd`, `direct` — the built-in HTTP fetcher, whose `host` is a local download folder), `PUT/DELETE /downloadclient/{id}`, `POST /downloadclient/test`, `GET /queue` (each item enriched with its grab and live progress), `DELETE /queue/{clientId}/{itemId}` (remove one download + its data, no blocklist), `POST /grab/{id}/cancel` (manually resolve a stuck "pending" grab, without touching any client), `GET /history?search=&limit=&offset=` (paged: `{"records": […], "total": N}`), `GET /blocklist`, `DELETE /blocklist/{id}` |
 | Settings | `GET/PUT /settings/naming` (the music path template), `GET/PUT /settings/music` (organize-on-match, match confidence, MusicBrainz/TheAudioDB keys), `GET/PUT /settings/timings` (background cadences; 0 = default, clamped, applied at startup), `GET/PUT /settings/pathmappings` (remote→local download-path prefixes) |
 
@@ -30,21 +30,13 @@ Notes:
   metadata only — nothing is auto-monitored, so every release starts in
   that artist's Missing section (`GET /music/artist/{id}/missing`) until
   you `POST /music/artist/{id}/wanted` it individually.
-- The Prowlarr-facing surface emulates Readarr v1 (`/api/v1/indexer` accepts
-  Readarr resources; `/system/status` reports a Readarr-compatible
-  `version`, CantiNode's own in `appVersion`). During application sync
-  Prowlarr also reads `/api/v1/rootfolder`, `/qualityprofile`,
-  `/metadataprofile` (Readarr-only), `/tag`, and `/downloadclient` — these
-  return Readarr-shaped resources (download clients carry `protocol` so
-  torrent indexers sync) when the caller's User-Agent is Prowlarr, native
-  JSON otherwise.
 - **Admin vs. member**: every server-configuration and account-management route
   (all `/settings/*`, `/indexer*`, `/downloadclient*`, `/qualityprofile*`,
   `/rootfolder*`, `/backup*`, `/log`, `/filesystem`, `/cache`, and the
   `/auth/users` management endpoints) requires an **admin** session and
   returns 403 for a member. Content routes (search, grab, scan, library
   browsing) are open to any authenticated user. A valid API key is
-  admin-equivalent, so scripts and Prowlarr are unaffected. `PUT
+  admin-equivalent, so scripts are unaffected. `PUT
   /auth/users/{username}/password` is the one exception — a member may
   change their own password.
 - There is no background acquisition or import loop — search, grab, scan,

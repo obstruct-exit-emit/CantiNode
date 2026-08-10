@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -61,35 +60,6 @@ func (a *testAPI) call(method, path string, body any, out any) *http.Response {
 		a.t.Fatalf("building request: %v", err)
 	}
 	req.Header.Set("X-Api-Key", a.apiKey)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		a.t.Fatalf("%s %s: %v", method, path, err)
-	}
-	defer resp.Body.Close()
-	if out != nil && resp.StatusCode != http.StatusNoContent {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			a.t.Fatalf("%s %s: decoding response: %v", method, path, err)
-		}
-	}
-	return resp
-}
-
-// callUA is call with a custom User-Agent — Prowlarr identifies itself in the
-// UA, so the capability endpoints serve Readarr-shaped resources to it.
-func (a *testAPI) callUA(userAgent, method, path string, body, out any) *http.Response {
-	a.t.Helper()
-	var buf bytes.Buffer
-	if body != nil {
-		if err := json.NewEncoder(&buf).Encode(body); err != nil {
-			a.t.Fatalf("encoding body: %v", err)
-		}
-	}
-	req, err := http.NewRequest(method, a.srv.URL+path, &buf)
-	if err != nil {
-		a.t.Fatalf("building request: %v", err)
-	}
-	req.Header.Set("X-Api-Key", a.apiKey)
-	req.Header.Set("User-Agent", userAgent)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		a.t.Fatalf("%s %s: %v", method, path, err)
@@ -371,163 +341,6 @@ func TestDownloadClientsCRUD(t *testing.T) {
 	client.Enabled = false
 	a.want(a.call("PUT", fmt.Sprintf("/api/v1/downloadclient/%d", client.ID), client, nil), http.StatusOK)
 	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/downloadclient/%d", client.ID), nil, nil), http.StatusNoContent)
-}
-
-// TestProwlarrSyncFlow simulates the conversation Prowlarr has with a
-// TestProwlarrCapabilityResources: the endpoints Prowlarr's Readarr proxy
-// reads during application sync must return Readarr-shaped resources. A null
-// field (or a 404 on Readarr's metadataprofile endpoint) made Prowlarr throw
-// a NullReferenceException in BuildReadarrIndexer and refuse to sync torrent
-// indexers — the browser UI keeps its native shape.
-func TestProwlarrCapabilityResources(t *testing.T) {
-	a := newTestAPI(t)
-	const ua = "Prowlarr/1.30.2.4939 (windows 10.0)"
-
-	// metadataprofile is Readarr-only; a 404 here was the NRE root cause.
-	var mps []map[string]any
-	a.want(a.call("GET", "/api/v1/metadataprofile", nil, &mps), http.StatusOK)
-	if len(mps) == 0 || mps[0]["name"] == "" || mps[0]["id"] == nil {
-		t.Fatalf("metadataprofile = %+v (want a named default profile)", mps)
-	}
-
-	// A torrent download client so Prowlarr can detect torrent support — the
-	// resource must carry protocol=torrent (without it Prowlarr syncs usenet
-	// indexers only).
-	a.want(a.call("POST", "/api/v1/downloadclient", map[string]any{
-		"name": "qbit", "type": "qbittorrent", "host": "http://localhost:8080",
-		"username": "u", "password": "p",
-	}, nil), http.StatusCreated)
-	var dcs []map[string]any
-	a.want(a.callUA(ua, "GET", "/api/v1/downloadclient", nil, &dcs), http.StatusOK)
-	if len(dcs) != 1 || dcs[0]["protocol"] != "torrent" || dcs[0]["implementation"] != "QBittorrent" {
-		t.Fatalf("prowlarr download client = %+v (want protocol torrent)", dcs)
-	}
-	// The browser UI keeps the native shape (no arr protocol/implementation).
-	var nativeDcs []map[string]any
-	a.want(a.call("GET", "/api/v1/downloadclient", nil, &nativeDcs), http.StatusOK)
-	if _, leaked := nativeDcs[0]["implementation"]; leaked {
-		t.Fatalf("native download client leaked the arr shape: %+v", nativeDcs[0])
-	}
-
-	// Root folders as Readarr resources: non-null name and defaultTags.
-	a.want(a.call("POST", "/api/v1/rootfolder",
-		map[string]any{"mediaType": "music", "path": t.TempDir()}, nil), http.StatusCreated)
-	var rfs []map[string]any
-	a.want(a.callUA(ua, "GET", "/api/v1/rootfolder", nil, &rfs), http.StatusOK)
-	if len(rfs) != 1 || rfs[0]["name"] == "" || rfs[0]["defaultTags"] == nil {
-		t.Fatalf("prowlarr root folder = %+v (want name + defaultTags)", rfs)
-	}
-
-	// The Torznab schema entry must exist (its absence in Prowlarr's cache was
-	// what BuildReadarrIndexer dereferenced as null).
-	var schema []map[string]any
-	a.want(a.call("GET", "/api/v1/indexer/schema", nil, &schema), http.StatusOK)
-	var torznab map[string]any
-	for _, e := range schema {
-		if e["implementation"] == "Torznab" {
-			torznab = e
-		}
-	}
-	if torznab == nil || torznab["protocol"] != "torrent" {
-		t.Fatalf("schema missing a usable Torznab entry: %+v", schema)
-	}
-}
-
-// Readarr-type application: status check, schema fetch, then indexer
-// add/list/update/delete using arr-style resources with fields[].
-func TestProwlarrSyncFlow(t *testing.T) {
-	a := newTestAPI(t)
-
-	// 1. Test: status must expose a dotted parseable version.
-	var status struct {
-		Version    string `json:"version"`
-		AppVersion string `json:"appVersion"`
-	}
-	a.want(a.call("GET", "/api/v1/system/status", nil, &status), http.StatusOK)
-	for _, part := range strings.Split(status.Version, ".") {
-		if _, err := strconv.Atoi(part); err != nil {
-			t.Fatalf("version %q is not a dotted number", status.Version)
-		}
-	}
-	if status.AppVersion == "" {
-		t.Error("real app version missing")
-	}
-
-	// 2. Schema: both implementations offered.
-	var schema []struct {
-		Implementation string `json:"implementation"`
-		ConfigContract string `json:"configContract"`
-	}
-	a.want(a.call("GET", "/api/v1/indexer/schema", nil, &schema), http.StatusOK)
-	if len(schema) != 2 || schema[0].Implementation != "Newznab" || schema[1].ConfigContract != "TorznabSettings" {
-		t.Fatalf("schema = %+v", schema)
-	}
-
-	// 3. Tags resolve (empty).
-	a.want(a.call("GET", "/api/v1/tag", nil, nil), http.StatusOK)
-
-	// 4. Push an indexer the way Prowlarr does.
-	payload := map[string]any{
-		"name":                    "MyIndexer (Prowlarr)",
-		"implementation":          "Torznab",
-		"configContract":          "TorznabSettings",
-		"enableRss":               true,
-		"enableAutomaticSearch":   true,
-		"enableInteractiveSearch": true,
-		"priority":                20,
-		"fields": []map[string]any{
-			{"name": "baseUrl", "value": "http://prowlarr:9696/1/"},
-			{"name": "apiPath", "value": "/api"},
-			{"name": "apiKey", "value": "prowlarr-key"},
-			{"name": "categories", "value": []int{7000, 7010, 7020}},
-		},
-	}
-	var created map[string]any
-	a.want(a.call("POST", "/api/v1/indexer", payload, &created), http.StatusCreated)
-	id := int64(created["id"].(float64))
-
-	// Stored natively and correctly.
-	if created["type"] != "torznab" || created["baseUrl"] != "http://prowlarr:9696/1" ||
-		created["audioCategories"] != "7000,7010,7020" || created["apiKey"] != "prowlarr-key" {
-		t.Fatalf("created = %+v", created)
-	}
-	// And the arr view round-trips for Prowlarr's diffing.
-	if created["implementation"] != "Torznab" || created["protocol"] != "torrent" {
-		t.Fatalf("arr view = %+v", created)
-	}
-	fields, ok := created["fields"].([]any)
-	if !ok || len(fields) == 0 {
-		t.Fatalf("fields missing from response: %+v", created)
-	}
-
-	// 5. List and get-by-id include both dialects.
-	var list []map[string]any
-	a.want(a.call("GET", "/api/v1/indexer", nil, &list), http.StatusOK)
-	if len(list) != 1 || list[0]["implementation"] != "Torznab" || list[0]["name"] != "MyIndexer (Prowlarr)" {
-		t.Fatalf("list = %+v", list)
-	}
-	var got map[string]any
-	a.want(a.call("GET", fmt.Sprintf("/api/v1/indexer/%d", id), nil, &got), http.StatusOK)
-	if got["implementation"] != "Torznab" {
-		t.Fatalf("get = %+v", got)
-	}
-
-	// 6. Prowlarr updates (e.g. disables) the indexer.
-	payload["enableRss"] = false
-	payload["enableAutomaticSearch"] = false
-	payload["enableInteractiveSearch"] = false
-	var updated map[string]any
-	a.want(a.call("PUT", fmt.Sprintf("/api/v1/indexer/%d", id), payload, &updated), http.StatusOK)
-	if updated["enabled"] != false || updated["enableRss"] != false {
-		t.Fatalf("updated = %+v", updated)
-	}
-
-	// 7. And removes it.
-	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/indexer/%d", id), nil, nil), http.StatusNoContent)
-
-	// Unsupported implementations are rejected cleanly.
-	payload["implementation"] = "Omgwtfnzbs"
-	a.want(a.call("POST", "/api/v1/indexer", payload, nil), http.StatusBadRequest)
 }
 
 func TestQualityProfiles(t *testing.T) {

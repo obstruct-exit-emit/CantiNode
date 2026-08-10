@@ -25,7 +25,7 @@ export default function SystemView({
         <h2>System</h2>
         <dl className="status-grid">
           <dt>Version</dt>
-          <dd>{status.appVersion ?? status.version}</dd>
+          <dd>{status.appVersion}</dd>
           <dt>Platform</dt>
           <dd>
             {status.os}/{status.arch}

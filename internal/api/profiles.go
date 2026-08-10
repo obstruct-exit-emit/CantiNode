@@ -15,17 +15,6 @@ func (s *server) handleListProfiles(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	// Prowlarr reads quality profiles as Readarr resources during app sync;
-	// serve it the Readarr-shaped view (the browser UI keeps its native
-	// shape — notably cutoff stays a format string, not a Readarr quality id).
-	if isProwlarr(r) {
-		out := make([]map[string]any, 0, len(profiles))
-		for _, p := range profiles {
-			out = append(out, readarrQualityProfile(p))
-		}
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
 	writeJSON(w, http.StatusOK, profiles)
 }
 

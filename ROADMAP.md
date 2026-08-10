@@ -19,6 +19,11 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
 > the codebase entirely, and later **ebooks, audiobooks, and comics were
 > removed outright** — CantiNode is now a **music-only** server. The phase
 > write-ups below are left as delivered-at-the-time history.
+>
+> **Since changed:** Phase 2's "Prowlarr application sync" (add CantiNode to
+> Prowlarr as a fake Readarr app, which pushes its indexers into CantiNode)
+> was replaced with a direct connection — CantiNode searches Prowlarr's own
+> `GET /api/v1/search` instead. See the [CHANGELOG](CHANGELOG.md#changed).
 
 ## At a glance
 

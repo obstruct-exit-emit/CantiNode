@@ -211,10 +211,11 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
           <h2>Where to search</h2>
           <p className="muted">
             Add a <strong>Newznab</strong> (usenet) or <strong>Torznab</strong>{" "}
-            (torrent) indexer — Prowlarr/Jackett per-indexer feed URLs work
-            too. Running <strong>Prowlarr</strong>? You can skip this and add
-            CantiNode there as a <em>Readarr</em> application later; it syncs
-            all your indexers automatically.
+            (torrent) indexer — a Jackett per-indexer feed URL works too.
+            Running <strong>Prowlarr</strong>? Skip this step — add it
+            afterward from Settings → Indexers (type <strong>Prowlarr</strong>
+            ), one connection that searches everything Prowlarr already has
+            configured.
           </p>
           <div className="settings-form">
             <label>

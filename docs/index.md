@@ -21,7 +21,8 @@ add a root folder for it.
 
 ## Highlights
 
-- One acquisition pipeline: Newznab/Torznab indexers (or Prowlarr sync),
+- One acquisition pipeline: Newznab/Torznab indexers, or a single Prowlarr
+  connection that searches everything Prowlarr already has configured,
   release parsing and scoring, quality profiles with upgrades, qBittorrent
   and SABnzbd.
 - A built-in **direct** HTTP fetcher for plain-HTTP sources, alongside

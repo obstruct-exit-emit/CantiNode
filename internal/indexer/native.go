@@ -6,18 +6,19 @@ import (
 	"sort"
 )
 
-// Native indexers are built-in Go sources for sites that speak no
-// Newznab/Torznab API — scraped or bespoke sources Prowlarr structurally can't
-// reach. Each registered implementation is selectable as an indexer "type" (its
-// registry name is stored in the same `type` column as newznab/torznab), is
-// configured in-app, and — crucially — is kept off the Readarr-facing surface
-// so Prowlarr never sees, syncs, or collides with it. A native searcher feeds
-// the very same SearchAll merge, scoring, and grab pipeline as the API clients:
-// it returns ordinary Releases (a torrent source hands back a magnet, which
-// rides the existing qBittorrent path untouched).
+// Native indexers are built-in Go sources with no Newznab/Torznab endpoint
+// of their own — a bespoke API (Prowlarr's own search, queried directly
+// rather than through a Newznab-shaped proxy) or a scraped/bespoke site.
+// Each registered implementation is selectable as an indexer "type" (its
+// registry name is stored in the same `type` column as newznab/torznab)
+// and configured in-app. A native searcher feeds the very same SearchAll
+// merge, scoring, and grab pipeline as the API clients: it returns
+// ordinary Releases (a torrent source hands back a magnet, which rides the
+// existing qBittorrent path untouched).
 //
-// These are dual-use shadow-library sources: nothing is bundled or enabled out
-// of the box — a user adds one deliberately and is responsible for its use.
+// A scraped source specifically is dual-use: nothing like that is bundled
+// or enabled out of the box — a user would add one deliberately and be
+// responsible for its use.
 
 // Searcher is one native source's capability.
 type Searcher interface {
@@ -47,8 +48,13 @@ type NativeDef struct {
 	Protocol    string   // ProtocolTorrent | ProtocolUsenet
 	MediaTypes  []string // media types served; empty means all
 	// DefaultBaseURL is a starting site URL for sources whose domain rotates
-	// (the user may override it on the indexer); "" means the source needs no URL.
+	// (the user may override it on the indexer); "" means the source has no
+	// built-in default — see NeedsBaseURL for whether one must be entered.
 	DefaultBaseURL string
+	// NeedsBaseURL marks sources with no default of their own that still
+	// require a URL (e.g. Prowlarr — every instance lives at an address only
+	// its own user knows, unlike a scraped site with a well-known domain).
+	NeedsBaseURL bool
 	// NeedsAPIKey marks sources that require a key (e.g. a membership token).
 	NeedsAPIKey bool
 	// WIP flags an experimental source — scraped sites that are fragile and

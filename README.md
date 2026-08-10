@@ -30,7 +30,7 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 | Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a, opus, wav |
 
 **🔍 One acquisition pipeline**
-- **Prowlarr application sync** — add CantiNode as a *Readarr* app and Prowlarr pushes its indexers automatically; manual Newznab/Torznab entry works too
+- **A Prowlarr connection** — one indexer that searches everything a self-hosted Prowlarr instance already has configured, no per-indexer duplication and no pretending to be a Readarr app; manual Newznab/Torznab entry works too
 - Release parsing and scoring that understands formats and retail editions
 - Quality profiles with upgrade handling, a failed-release blocklist, and per-indexer failure backoff
 
@@ -74,7 +74,7 @@ Then open `http://localhost:7847` — a first-run wizard walks you through your 
 - **Backend:** Go — one self-contained binary per OS, no runtime dependencies
 - **Frontend:** React (Vite), embedded in the binary, served on one port
 - **Database:** SQLite (pure Go, no cgo) with embedded, tested migrations
-- **API:** versioned REST (`/api/v1`) with API-key auth — the same API the UI uses; Prowlarr-compatible surface for app sync
+- **API:** versioned REST (`/api/v1`) with API-key auth — the same API the UI uses
 - **Default port:** `7847` · **License:** GPL-3.0
 
 ## Security

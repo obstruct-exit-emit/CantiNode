@@ -71,18 +71,6 @@ func (s *server) handleListDownloadClients(w http.ResponseWriter, r *http.Reques
 		writeDownloadError(w, err)
 		return
 	}
-	// Prowlarr reads download clients during app sync to learn which release
-	// protocols the app handles (it only syncs torrent indexers to an app
-	// with a torrent client). Serve it the Readarr shape with `protocol`; the
-	// browser UI keeps its native shape.
-	if isProwlarr(r) {
-		out := make([]map[string]any, 0, len(configs))
-		for _, c := range configs {
-			out = append(out, readarrDownloadClient(c))
-		}
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
 	writeJSON(w, http.StatusOK, configs)
 }
 

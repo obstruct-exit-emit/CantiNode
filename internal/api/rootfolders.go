@@ -40,16 +40,6 @@ func (s *server) handleListRootFolders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Prowlarr's app sync reads root folders as Readarr resources; serve it
-	// the Readarr-shaped view (the browser UI keeps its native shape).
-	if isProwlarr(r) {
-		out := make([]map[string]any, 0, len(folders))
-		for _, f := range folders {
-			out = append(out, readarrRootFolder(f))
-		}
-		writeJSON(w, http.StatusOK, out)
-		return
-	}
 	writeJSON(w, http.StatusOK, folders)
 }
 

@@ -45,12 +45,8 @@ func localIPs() []string {
 }
 
 func (s *server) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
-	resp := map[string]any{
-		"appName": "CantiNode",
-		// Prowlarr's Readarr application sync parses "version" as a dotted
-		// .NET Version and enforces a minimum, so this reports a
-		// Readarr-compatible number; CantiNode's real version is appVersion.
-		"version":     "0.4.18.2805",
+	writeJSON(w, http.StatusOK, map[string]any{
+		"appName":     "CantiNode",
 		"appVersion":  s.version,
 		"os":          runtime.GOOS,
 		"arch":        runtime.GOARCH,
@@ -59,45 +55,7 @@ func (s *server) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
 		"startTime":   startTime.UTC().Format(time.RFC3339),
 		"ipAddresses": localIPs(),
 		"port":        s.cfg.Port,
-	}
-	// Prowlarr's Readarr proxy reads several more status fields and can
-	// dereference them; provide the full Readarr shape so none are null.
-	if isProwlarr(r) {
-		readarrStatus := map[string]any{
-			"instanceName":           "Readarr",
-			"buildTime":              startTime.UTC().Format(time.RFC3339),
-			"isDebug":                false,
-			"isProduction":           true,
-			"isAdmin":                false,
-			"isUserInteractive":      false,
-			"startupPath":            s.cfg.DataDir(),
-			"appData":                s.cfg.DataDir(),
-			"osName":                 runtime.GOOS,
-			"osVersion":              "",
-			"isNetCore":              true,
-			"isLinux":                runtime.GOOS == "linux",
-			"isOsx":                  runtime.GOOS == "darwin",
-			"isWindows":              runtime.GOOS == "windows",
-			"isDocker":               false,
-			"mode":                   "console",
-			"branch":                 "master",
-			"authentication":         "none",
-			"sqliteVersion":          "3.0.0",
-			"migrationVersion":       1,
-			"urlBase":                "",
-			"runtimeVersion":         "6.0.0",
-			"runtimeName":            "netCore",
-			"packageVersion":         s.version,
-			"packageAuthor":          "CantiNode",
-			"packageUpdateMechanism": "builtIn",
-			"databaseVersion":        "3.0.0",
-			"databaseType":           "sqLite",
-		}
-		for k, v := range readarrStatus {
-			resp[k] = v
-		}
-	}
-	writeJSON(w, http.StatusOK, resp)
+	})
 }
 
 // handleIndex serves the embedded web UI: real files directly, anything else

@@ -244,7 +244,7 @@ function GeneralCard({ onError }: { onError: (message: string) => void }) {
         {status ? (
           <dl>
             <dt>Version</dt>
-            <dd>{status.appVersion ?? status.version}</dd>
+            <dd>{status.appVersion}</dd>
             <dt>Platform</dt>
             <dd>
               {status.os}/{status.arch}
@@ -1712,8 +1712,9 @@ function IndexersCard({
   const draftValid = nativeDef
     ? draft.name.trim() !== "" &&
       (!nativeDef.needsApiKey || draft.apiKey.trim() !== "") &&
-      // Site URLs are optional, but every entered one (primary + fallbacks,
-      // comma-separated) must be a real http(s) URL.
+      (!nativeDef.needsBaseUrl || draft.baseUrl.trim() !== "") &&
+      // Site URLs are optional otherwise, but every entered one (primary +
+      // fallbacks, comma-separated) must be a real http(s) URL.
       draft.baseUrl
         .split(",")
         .map((s) => s.trim())
@@ -1725,11 +1726,13 @@ function IndexersCard({
     <section className="card">
       <h2>Indexers</h2>
       <p className="muted">
-        Newznab (usenet) and Torznab (torrents — Prowlarr/Jackett feeds work)
-        endpoints. Add them here by hand, or add CantiNode to Prowlarr as a{" "}
-        <strong>Readarr</strong> application and Prowlarr keeps them in sync.
-        Categories default to audio (<code>3010,3040</code>); change only for
-        an unusual indexer.
+        Newznab (usenet) and Torznab (torrents — Jackett feeds work too)
+        endpoints, added here by hand. Categories default to audio (
+        <code>3010,3040</code>); change only for an unusual indexer.
+        Run <strong>Prowlarr</strong>? Add it once as a <strong>Prowlarr</strong>{" "}
+        source below (under Type) instead of duplicating each of its
+        indexers here — CantiNode asks Prowlarr's own search API directly,
+        which fans out to everything Prowlarr already has configured.
       </p>
 
       {indexers.length > 0 && (
@@ -1827,7 +1830,7 @@ function IndexersCard({
             <option value="torznab">Torznab (torrents)</option>
             <option value="newznab">Newznab (usenet)</option>
             {natives.length > 0 && (
-              <optgroup label="Native sources (no API — scraped)">
+              <optgroup label="Built-in sources">
                 {natives.map((n) => (
                   <option key={n.name} value={n.name}>
                     {n.displayName}
@@ -1849,15 +1852,17 @@ function IndexersCard({
               </p>
             )}
             <p className="muted field-note">
-              <strong>{nativeDef.displayName}</strong> is a built-in scraped
-              source — no Newznab/Torznab endpoint. It's off until you enable it,
-              user-configured, and yours to use responsibly; it stays hidden from
-              Prowlarr. Serves: {nativeDef.mediaTypes.join(", ") || "all media"}.
+              <strong>{nativeDef.displayName}</strong> is a built-in source —
+              no separate Newznab/Torznab endpoint to configure. It's off
+              until you enable it, user-configured, and yours to use
+              responsibly. Serves: {nativeDef.mediaTypes.join(", ") || "all media"}.
             </p>
-            {nativeDef.defaultBaseUrl !== "" &&
+            {(nativeDef.defaultBaseUrl !== "" || nativeDef.needsBaseUrl) &&
               (() => {
                 // The base-URL field stores "primary,fallback"; the form edits
-                // them as two inputs (the site runs mirror domains).
+                // them as two inputs (a rotating-domain site runs mirrors). A
+                // source with no default of its own (e.g. Prowlarr) has
+                // nothing to fall back to, so only the primary field applies.
                 const parts = draft.baseUrl.split(",").map((s) => s.trim());
                 const primary = parts[0] ?? "";
                 const fallback = parts[1] ?? "";
@@ -1866,21 +1871,25 @@ function IndexersCard({
                 return (
                   <>
                     <label>
-                      Site URL (its domain rotates — override when it moves)
+                      {nativeDef.defaultBaseUrl !== ""
+                        ? "Site URL (its domain rotates — override when it moves)"
+                        : `${nativeDef.displayName} URL`}
                       <input
-                        placeholder={nativeDef.defaultBaseUrl}
+                        placeholder={nativeDef.defaultBaseUrl || "https://prowlarr.example:9696"}
                         value={primary}
                         onChange={(e) => join(e.target.value, fallback)}
                       />
                     </label>
-                    <label>
-                      Fallback site URL (optional — a mirror, tried when the main site fails)
-                      <input
-                        placeholder="https://mirror.example"
-                        value={fallback}
-                        onChange={(e) => join(primary, e.target.value)}
-                      />
-                    </label>
+                    {nativeDef.defaultBaseUrl !== "" && (
+                      <label>
+                        Fallback site URL (optional — a mirror, tried when the main site fails)
+                        <input
+                          placeholder="https://mirror.example"
+                          value={fallback}
+                          onChange={(e) => join(primary, e.target.value)}
+                        />
+                      </label>
+                    )}
                   </>
                 );
               })()}

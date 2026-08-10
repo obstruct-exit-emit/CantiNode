@@ -3,8 +3,7 @@
 
 export interface SystemStatus {
   appName: string;
-  version: string;
-  appVersion?: string;
+  appVersion: string;
   os: string;
   arch: string;
   uptime: string;
@@ -42,6 +41,7 @@ export interface NativeIndexer {
   protocol: string;
   mediaTypes: string[];
   defaultBaseUrl: string;
+  needsBaseUrl: boolean;
   needsApiKey: boolean;
   // Experimental scraped source — the UI shows a work-in-progress warning.
   wip: boolean;

@@ -4,17 +4,26 @@ Acquisition serves the **Music** library.
 
 ## Indexers
 
-Two ways in:
+Two ways in, both under **Settings → Indexers**, both feeding the same
+search/scoring/grab pipeline:
 
-- **Manually** under **Settings → Indexers**: any Newznab (usenet) or
-  Torznab (torrent) endpoint, including per-indexer feed URLs from Prowlarr
-  or Jackett. Test buttons on the form and on every saved indexer.
-- **Prowlarr sync**: in Prowlarr, add an application of type **Readarr**
-  with CantiNode's URL and API key. Prowlarr pushes its indexers into
-  CantiNode and keeps them in sync (CantiNode emulates the Readarr v1 API).
+- **Manually**: any Newznab (usenet) or Torznab (torrent) endpoint,
+  including per-indexer feed URLs from Jackett. Test buttons on the form
+  and on every saved indexer.
+- **A Prowlarr connection**: add one indexer of type **Prowlarr** with your
+  Prowlarr instance's URL and API key. CantiNode calls Prowlarr's own
+  `GET /api/v1/search` — the same call Prowlarr's own search page makes —
+  so one connection searches everything Prowlarr already has configured,
+  with no per-indexer duplication and no application-sync dance (CantiNode
+  doesn't pretend to be a Readarr application Prowlarr pushes indexers
+  into). Each result names which of Prowlarr's own indexers actually
+  answered, and rides the exact same scoring/grab path as a directly-added
+  indexer's results — Prowlarr's own search has no quality-profile concept,
+  but going through CantiNode's still applies one.
 
 Each indexer carries an **audio category list** (default `3010,3040`) —
-adjust per indexer if yours differ.
+adjust per indexer if yours differ. (The Prowlarr connection uses this too,
+passed as its search categories; there's no per-connection override yet.)
 
 An indexer that keeps failing **rests with exponential backoff** (5 minutes
 doubling up to 6 hours) instead of being retried every sweep; one success
@@ -22,13 +31,12 @@ clears it.
 
 ### Native indexers
 
-Some sites speak no Newznab/Torznab API, so Prowlarr structurally can't reach
-them. A **native** indexer is a built-in source, selected as the indexer's
-*type* under **Settings → Indexers** (no URL to paste) — it feeds the same
-search, scoring, and grab pipeline as everything else. Native indexers are
-CantiNode-managed only and are hidden from Prowlarr, so it never treats them as
-indexers it owns. No native sources ship built in today; the framework stays
-in the tree for a future source to register against.
+Some sources speak no Newznab/Torznab API — the Prowlarr connection above is
+one; a scraped site with no API at all would be another. A **native**
+indexer is a built-in source, selected as the indexer's *type* under
+**Settings → Indexers** — it feeds the same search, scoring, and grab
+pipeline as everything else. Prowlarr is the only one that ships today; the
+framework stays in the tree for a future source to register against.
 
 ### The `direct` protocol
 
@@ -83,7 +91,7 @@ linking working regardless of what name the bridge shows.
   file. **They aren't imported automatically** — the next **Scan files**
   pass (on the Music page, or an artist's own page) matches them against
   MusicBrainz and, if **Organize on match** is enabled (**Settings →
-  General**, off by default), moves them into the naming-template layout
+  Music**, off by default), moves them into the naming-template layout
   right away; otherwise run **Organize…** yourself once you've reviewed the
   scan.
 - **Failed and junk downloads** are blocklisted (never grabbed again; a

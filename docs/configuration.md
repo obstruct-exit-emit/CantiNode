@@ -115,14 +115,14 @@ is always an admin, so an instance can't be locked out of administration, and
 changing a role (or password, or removing a user) revokes that account's other
 sessions immediately. Accounts created before roles existed load as admins, so
 nothing changes until you deliberately restrict someone. The API key stays
-admin-equivalent for Prowlarr and scripts.
+admin-equivalent for scripts.
 
 A brand-new instance offers a **first-run setup wizard** instead (no API key
 needed): it creates the first account — which becomes the default — and walks
 through your root folder, an indexer, and a download client.
 
-The API key keeps working for Prowlarr and scripts regardless, and can be
-regenerated from the same page. For HTTPS, see the next section.
+The API key keeps working for scripts regardless, and can be regenerated
+from the same page. For HTTPS, see the next section.
 
 ## HTTPS & reverse proxies
 

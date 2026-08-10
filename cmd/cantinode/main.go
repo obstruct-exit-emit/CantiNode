@@ -18,6 +18,8 @@ import (
 	"github.com/cantinode/cantinode/internal/api"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/indexer/prowlarr"
 	"github.com/cantinode/cantinode/internal/logging"
 )
 
@@ -131,6 +133,14 @@ func run(dataDir string) error {
 		return fmt.Errorf("opening database: %w", err)
 	}
 	defer db.Close()
+
+	// Native indexer sources — selectable as an indexer "type" with no
+	// Newznab/Torznab endpoint of their own. Prowlarr is registered here
+	// (not scraped, unlike the framework's usual dual-use sources): it
+	// searches a self-hosted Prowlarr instance directly through its own
+	// API rather than CantiNode pretending to be a Readarr application
+	// Prowlarr pushes indexers into.
+	indexer.RegisterNative(prowlarr.Def())
 
 	// Background loops: currently just the periodic health check — music's
 	// own acquisition (search/grab) and metadata refresh are triggered from
