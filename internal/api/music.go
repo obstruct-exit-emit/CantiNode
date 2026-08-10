@@ -18,9 +18,11 @@ import (
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/indexer"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/release"
 )
 
 // musicNotFoundStatus maps musiclibrary.ErrNotFound to 404, anything else
@@ -845,7 +847,11 @@ func (s *server) handleIgnoreWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 // handleSearchWantedMusicAlbum searches every enabled indexer for a wanted
 // album — the query is the artist's name plus the album's own title, which
 // in practice finds the right release across arbitrary indexer naming
-// conventions far more reliably than either alone.
+// conventions far more reliably than either alone. Results are scored
+// against the default quality profile and filtered to the ones actually
+// worth grabbing (right format, sane size, not spam, not already
+// blocklisted from a past failure) — SearchAll itself has no opinion on
+// any of that, it just fans a query out across indexers.
 func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -870,7 +876,29 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"releases": found, "errors": errs})
+
+	blocked, err := s.downloads.Store().BlockedKeys()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	prefs := release.PreferencesFor(s.store, "music")
+	candidates := make([]release.Candidate, 0, len(found))
+	for _, rel := range found {
+		if download.IsBlocked(blocked, rel.GUID, rel.Title) {
+			continue
+		}
+		candidates = append(candidates, release.Score(rel, prefs))
+	}
+	release.Rank(candidates)
+
+	releases := make([]indexer.Release, 0, len(candidates))
+	for _, c := range candidates {
+		if c.Approved {
+			releases = append(releases, c.Release)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"releases": releases, "errors": errs})
 }
 
 // handleGrabWantedMusicAlbum sends a release (a result from a prior

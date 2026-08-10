@@ -276,6 +276,24 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Quality-profile scoring and the blocklist were never actually applied
+  to a music search — found while auditing the repo for dead files.**
+  `internal/release` (format preferences, size bounds, spam/executable
+  rejection, dead-torrent rejection) had no caller anywhere in the
+  codebase outside its own tests; `download.Store.BlockedKeys`/`IsBlocked`
+  were the same. `handleSearchWantedMusicAlbum` was returning
+  `indexer.Service.SearchAll`'s raw, unranked results straight to the
+  caller — every quality-profile setting in `Settings → Quality Profiles`
+  (and the whole "results ride the same scoring pipeline" claim made
+  about the Prowlarr connection above) was cosmetic. Root cause: both were
+  presumably wired in through `internal/autosearch`/`internal/importer`
+  before those were deleted in the ebook/comic removal, and the
+  music-specific search handler that replaced them was never updated to
+  call either. Fixed: search results are now scored against the default
+  quality profile and ranked, spam/dead-torrent/wrong-format releases are
+  rejected, and anything already blocklisted is filtered out before the
+  results ever reach the UI. New regression tests
+  (`internal/api/music_test.go`) cover both.
 - **The no-UI-embedded fallback page (`GET /` on a backend-only build)
   still said "The written-media automation server is running" behind the
   old LibriNode pen emoji** — missed by both the ebook/comic removal and
