@@ -88,10 +88,12 @@ func seedWantedAlbum(t *testing.T, a *testAPI) int64 {
 // real bug: handleSearchWantedMusicAlbum used to return SearchAll's raw,
 // unranked results straight to the caller — internal/release's scoring
 // engine (quality profiles, spam rejection, dead-torrent rejection) had no
-// caller anywhere in the codebase at all. A release naming an executable,
-// a torrent with zero seeders, and a release with no recognized format
-// must all be filtered out; only the one legitimate FLAC release should
-// come back.
+// caller anywhere in the codebase at all. A release naming an executable
+// and a torrent with zero seeders must be filtered out; the legitimate FLAC
+// release and the format-less one (real music release titles routinely
+// name the source — "SHM-CD", "24-96 hdtracks" — rather than the codec, so
+// an unstated format must not be an automatic rejection; see
+// internal/release.PreferencesFor) both come back, best-scored first.
 func TestSearchWantedMusicAlbumScoresAndFilters(t *testing.T) {
 	a := newTestAPI(t)
 	mock := mockTorznabIndexer(t, musicSearchXML)
@@ -111,11 +113,14 @@ func TestSearchWantedMusicAlbumScoresAndFilters(t *testing.T) {
 	}
 	a.want(a.call("GET", fmt.Sprintf("/api/v1/music/wanted/%d/search", wantedID), nil, &resp), http.StatusOK)
 
-	if len(resp.Releases) != 1 {
-		t.Fatalf("releases = %+v, want exactly 1 (spam/dead/unknown-format all rejected)", resp.Releases)
+	if len(resp.Releases) != 2 {
+		t.Fatalf("releases = %+v, want exactly 2 (spam/dead rejected; format-less approved)", resp.Releases)
 	}
 	if resp.Releases[0].GUID != "https://mock/torrent/good" {
-		t.Errorf("survivor = %+v, want the good release", resp.Releases[0])
+		t.Errorf("best-scored survivor = %+v, want the good (FLAC) release first", resp.Releases[0])
+	}
+	if resp.Releases[1].GUID != "https://mock/torrent/unknown" {
+		t.Errorf("second survivor = %+v, want the format-less release", resp.Releases[1])
 	}
 }
 

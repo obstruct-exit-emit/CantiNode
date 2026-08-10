@@ -276,6 +276,16 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **"Search releases" was coming back empty against real indexers** —
+  found immediately after the quality-profile scoring fix below actually
+  started running. Real-world music release titles routinely name the
+  *source* rather than the codec ("SHM-CD", "24-96 hdtracks", "4CD Box" —
+  confirmed against a live Prowlarr search, where every single result
+  omitted flac/mp3/m4a/opus/wav outright), but scoring treated an unstated
+  format as an automatic rejection — so once scoring actually ran, it
+  rejected nearly every real candidate. `PreferencesFor` now always allows
+  an unstated format (scored below a release that does state a preferred
+  one, never rejected for it).
 - **"Ignore" on a wanted album could strand it forever, showing in neither
   Wanted nor Missing** — reported after a real album got lost this way.
   Ignoring set `wanted_albums.status = 'ignored'`, but

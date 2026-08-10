@@ -38,11 +38,21 @@ const unknownFormatScore = 30
 
 // PreferencesFor resolves the active scoring rules for a media type: its
 // default quality profile when one exists, built-in defaults otherwise.
+// AllowUnknownFormat is forced on regardless of source: real-world music
+// release titles routinely name the source rather than the codec ("SHM-CD",
+// "24-96 hdtracks", "4CD Box") — confirmed against a live Prowlarr search,
+// where every result omitted flac/mp3/etc. outright — so treating a
+// format-less title as an automatic rejection would reject nearly
+// everything real indexers actually return.
 func PreferencesFor(store *library.Store, mediaType string) Preferences {
+	var prefs Preferences
 	if p, err := store.DefaultProfile(mediaType); err == nil {
-		return PreferencesFromProfile(*p)
+		prefs = PreferencesFromProfile(*p)
+	} else {
+		prefs = DefaultMusicPreferences()
 	}
-	return DefaultMusicPreferences()
+	prefs.AllowUnknownFormat = true
+	return prefs
 }
 
 // DefaultMusicPreferences prefers lossless FLAC, then space-efficient lossy

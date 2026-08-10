@@ -1,9 +1,11 @@
 package release
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/indexer"
 	"github.com/cantinode/cantinode/internal/library"
 )
@@ -142,6 +144,33 @@ func TestPreferencesFromProfile(t *testing.T) {
 	})
 	if many.FormatScores["opus"] != 20 || many.FormatScores["aac"] != 20 {
 		t.Errorf("floored scores = %v", many.FormatScores)
+	}
+}
+
+// TestPreferencesForAllowsUnstatedFormat is the regression case for a real
+// bug: real-world music release titles routinely name the source rather
+// than the codec ("SHM-CD", "24-96 hdtracks", "4CD Box" — all observed
+// directly from a live Prowlarr search, none of them containing
+// flac/mp3/m4a/opus/wav), so PreferencesFor must not leave AllowUnknownFormat
+// at its zero value — every real search was coming back with zero approved
+// results before this was fixed.
+func TestPreferencesForAllowsUnstatedFormat(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("opening test database: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	store := library.NewStore(db)
+
+	prefs := PreferencesFor(store, "music")
+	if !prefs.AllowUnknownFormat {
+		t.Fatal("PreferencesFor(music) must allow an unstated format")
+	}
+
+	real := Score(rel("Derek and the Dominos-Layla and Other Assorted Love Songs-REMASTERED SHM-CD-2013-JRP",
+		indexer.ProtocolUsenet, 163060320, -1), prefs)
+	if !real.Approved {
+		t.Errorf("real-world format-less release should approve: %+v", real)
 	}
 }
 
