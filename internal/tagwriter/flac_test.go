@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/librinode/librinode/internal/tagreader"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 // buildFLACFile writes a minimal but structurally real FLAC file: a

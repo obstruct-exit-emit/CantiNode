@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/librinode/librinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/indexer"
 )
 
 type testNativeSearcher struct{}

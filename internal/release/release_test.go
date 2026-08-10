@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/library"
+	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/library"
 )
 
 func TestParse(t *testing.T) {

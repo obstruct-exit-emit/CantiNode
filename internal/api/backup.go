@@ -15,7 +15,7 @@ import (
 // *.restore next to the live ones; the next server start swaps them in
 // (the previous files are kept as *.pre-restore).
 
-var backupName = regexp.MustCompile(`^librinode-backup-\d{8}-\d{6}\.zip$`)
+var backupName = regexp.MustCompile(`^cantinode-backup-\d{8}-\d{6}\.zip$`)
 
 func (s *server) backupsDir() string {
 	return filepath.Join(s.cfg.DataDir(), "backups")
@@ -74,7 +74,7 @@ func (s *server) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	defer os.Remove(snap)
 
-	name := "librinode-backup-" + time.Now().UTC().Format("20060102-150405") + ".zip"
+	name := "cantinode-backup-" + time.Now().UTC().Format("20060102-150405") + ".zip"
 	path := filepath.Join(dir, name)
 	f, err := os.Create(path)
 	if err != nil {
@@ -95,7 +95,7 @@ func (s *server) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		_, err = io.Copy(out, in)
 		return err
 	}
-	err = add("librinode.db", snap)
+	err = add("cantinode.db", snap)
 	if err == nil {
 		err = add("config.yaml", filepath.Join(s.cfg.DataDir(), "config.yaml"))
 	}
@@ -171,7 +171,7 @@ func (s *server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	staged := 0
 	for _, entry := range zr.File {
-		if entry.Name != "librinode.db" && entry.Name != "config.yaml" {
+		if entry.Name != "cantinode.db" && entry.Name != "config.yaml" {
 			continue
 		}
 		in, err := entry.Open()
@@ -204,6 +204,6 @@ func (s *server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"staged":  staged,
-		"message": "Restore staged — restart LibriNode to apply. The replaced files are kept as *.pre-restore.",
+		"message": "Restore staged — restart CantiNode to apply. The replaced files are kept as *.pre-restore.",
 	})
 }

@@ -67,7 +67,7 @@ export default function ActivityView({
   const cancelGrab = async (g: GrabRecord) => {
     const ok = await confirmDlg({
       title: "Cancel pending grab",
-      message: `Stop tracking "${g.title}" as pending?\n\nThis only clears LibriNode's own record — it does not touch the download client. Use this when the download is gone from Activity above but a new search still says one is already pending.`,
+      message: `Stop tracking "${g.title}" as pending?\n\nThis only clears CantiNode's own record — it does not touch the download client. Use this when the download is gone from Activity above but a new search still says one is already pending.`,
       confirmLabel: "Cancel grab",
       danger: true,
     });

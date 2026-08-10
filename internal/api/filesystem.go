@@ -11,7 +11,7 @@ import (
 
 // handleBrowseFilesystem powers the UI's folder picker (root folders in
 // Settings and the setup wizard): it lists the directories under a path on
-// the machine running LibriNode. Authenticated like everything else; only
+// the machine running CantiNode. Authenticated like everything else; only
 // directories are returned — the picker chooses folders, never reads files.
 //
 // An empty path starts at the filesystem root ("/", or the drive list on

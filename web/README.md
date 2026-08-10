@@ -1,7 +1,7 @@
-# LibriNode Web UI
+# CantiNode Web UI
 
 The React 19 + Vite SPA. `go build` embeds `web/dist` into the binary
-(via `web.go`), so LibriNode ships as a single executable serving the API
+(via `web.go`), so CantiNode ships as a single executable serving the API
 and UI on one port.
 
 ```sh

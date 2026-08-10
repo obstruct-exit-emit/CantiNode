@@ -16,7 +16,7 @@ func (s *server) handlePing(w http.ResponseWriter, r *http.Request) {
 }
 
 // localIPs lists the machine's non-loopback IPv4 addresses — what a user
-// puts in another device's browser to reach LibriNode on the LAN.
+// puts in another device's browser to reach CantiNode on the LAN.
 func localIPs() []string {
 	ips := []string{}
 	ifaces, err := net.Interfaces()
@@ -46,10 +46,10 @@ func localIPs() []string {
 
 func (s *server) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{
-		"appName": "LibriNode",
+		"appName": "CantiNode",
 		// Prowlarr's Readarr application sync parses "version" as a dotted
 		// .NET Version and enforces a minimum, so this reports a
-		// Readarr-compatible number; LibriNode's real version is appVersion.
+		// Readarr-compatible number; CantiNode's real version is appVersion.
 		"version":     "0.4.18.2805",
 		"appVersion":  s.version,
 		"os":          runtime.GOOS,
@@ -88,7 +88,7 @@ func (s *server) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
 			"runtimeVersion":         "6.0.0",
 			"runtimeName":            "netCore",
 			"packageVersion":         s.version,
-			"packageAuthor":          "LibriNode",
+			"packageAuthor":          "CantiNode",
 			"packageUpdateMechanism": "builtIn",
 			"databaseVersion":        "3.0.0",
 			"databaseType":           "sqLite",
@@ -136,10 +136,10 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(`<!doctype html>
-<title>LibriNode</title>
+<title>CantiNode</title>
 <style>body{font-family:system-ui;display:grid;place-items:center;min-height:90vh;background:#14141b;color:#e8e6e3}main{text-align:center}h1{font-size:2.5rem}p{color:#9a97a3}code{background:#22222c;padding:.2em .5em;border-radius:4px}</style>
 <main>
-  <h1>&#128396;&#65039; LibriNode</h1>
+  <h1>&#128396;&#65039; CantiNode</h1>
   <p>The written-media automation server is running.</p>
   <p>This build has no web UI embedded &mdash; run <code>npm run build</code> in <code>web/</code> and rebuild the binary. The API is fully available: try <code>GET /api/v1/system/status</code> with your API key.</p>
 </main>`))

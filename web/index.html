@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LibriNode</title>
+    <title>CantiNode</title>
     <script>
       // Apply the saved theme before the bundle loads so the first paint is
       // already the right color (no dark-to-light flash). Kept in sync by
       // src/theme.ts afterwards.
       (function () {
         try {
-          var pref = localStorage.getItem("librinode-theme") || "auto";
+          var pref = localStorage.getItem("cantinode-theme") || "auto";
           var light =
             pref === "light" ||
             (pref === "auto" &&

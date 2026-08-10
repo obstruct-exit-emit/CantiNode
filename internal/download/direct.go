@@ -18,10 +18,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/librinode/librinode/internal/redact"
+	"github.com/cantinode/cantinode/internal/redact"
 )
 
-// The direct client is LibriNode's own downloader — a third protocol beside
+// The direct client is CantiNode's own downloader — a third protocol beside
 // torrent and usenet for sources that hand out plain HTTP file links instead
 // of a magnet/NZB. There is no external program: Add streams the file into
 // the configured download folder itself; the next library scan picks up the
@@ -41,7 +41,7 @@ const (
 	// directTimeout bounds one download end to end.
 	directTimeout = 2 * time.Hour
 	// directUA is sent on every request; some file hosts refuse blank agents.
-	directUA = "LibriNode"
+	directUA = "CantiNode"
 )
 
 type directItem struct {
@@ -82,7 +82,7 @@ func (d *direct) Test(ctx context.Context) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating download folder: %w", err)
 	}
-	probe := filepath.Join(dir, ".librinode-write-test")
+	probe := filepath.Join(dir, ".cantinode-write-test")
 	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
 		return fmt.Errorf("download folder not writable: %w", err)
 	}
@@ -479,7 +479,7 @@ func sniffExt(b []byte) string {
 }
 
 // looksLikeWebPage reports whether a downloaded body is really an HTML/XML
-// error or landing page rather than a real file. No format LibriNode accepts
+// error or landing page rather than a real file. No format CantiNode accepts
 // begins with '<', so a leading angle bracket (after optional whitespace or a
 // BOM) is a reliable tell — and it catches pages a mirror serves as
 // octet-stream, which the Content-Type guard misses.

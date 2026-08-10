@@ -10,8 +10,8 @@ Two ways in:
   Torznab (torrent) endpoint, including per-indexer feed URLs from Prowlarr
   or Jackett. Test buttons on the form and on every saved indexer.
 - **Prowlarr sync**: in Prowlarr, add an application of type **Readarr**
-  with LibriNode's URL and API key. Prowlarr pushes its indexers into
-  LibriNode and keeps them in sync (LibriNode emulates the Readarr v1 API).
+  with CantiNode's URL and API key. Prowlarr pushes its indexers into
+  CantiNode and keeps them in sync (CantiNode emulates the Readarr v1 API).
 
 Each indexer carries an **audio category list** (default `3010,3040`) —
 adjust per indexer if yours differ.
@@ -26,13 +26,13 @@ Some sites speak no Newznab/Torznab API, so Prowlarr structurally can't reach
 them. A **native** indexer is a built-in source, selected as the indexer's
 *type* under **Settings → Indexers** (no URL to paste) — it feeds the same
 search, scoring, and grab pipeline as everything else. Native indexers are
-LibriNode-managed only and are hidden from Prowlarr, so it never treats them as
+CantiNode-managed only and are hidden from Prowlarr, so it never treats them as
 indexers it owns. No native sources ship built in today; the framework stays
 in the tree for a future source to register against.
 
 ### The `direct` protocol
 
-Some sources hand out plain HTTP links, not torrents or NZBs, so LibriNode has
+Some sources hand out plain HTTP links, not torrents or NZBs, so CantiNode has
 its own **direct** download client — add it under **Settings → Download
 Clients** with a local download folder as its "host". It streams the file
 itself, **failing over across a `|`-separated mirror list**, following a
@@ -60,10 +60,10 @@ until the profile's cutoff; upgrade grabs must be strictly better.
 ## Download clients
 
 qBittorrent (torrents) and SABnzbd (usenet), under **Settings → Download
-Clients** — category-scoped so LibriNode only ever touches its own
+Clients** — category-scoped so CantiNode only ever touches its own
 downloads.
 
-LibriNode resolves each release on **its own side** before handing it off:
+CantiNode resolves each release on **its own side** before handing it off:
 it fetches the NZB and uploads the file (SABnzbd `addfile`), and follows a
 torrent to its magnet or downloads the `.torrent` and uploads the bytes. So a
 download client behind NAT — or a SABnzbd/qBittorrent-compatible **debrid
@@ -71,7 +71,7 @@ bridge** (Real-Debrid, TorBox) whose cloud side can't reach your LAN
 indexers — still works. Adds to a slow debrid bridge are confirmed against the
 client's list so a slow response never loses the grab. A torrent grab is
 tracked by the **magnet's own info hash**, not by name: some bridges (TorBox
-included) ignore LibriNode's rename request and always report the
+included) ignore CantiNode's rename request and always report the
 uploader's own torrent name instead — sometimes wildly different from, or a
 typo of, the release title — so tracking by hash keeps the queue's album
 linking working regardless of what name the bridge shows.
@@ -96,5 +96,5 @@ linking working regardless of what name the bridge shows.
   release can be grabbed again right away. If a grab is ever stuck reporting
   "pending" with no matching entry left in the queue above (its download is
   already gone from the client), **Activity → History** shows a **cancel**
-  button on that entry: it clears LibriNode's own record directly, unblocking
+  button on that entry: it clears CantiNode's own record directly, unblocking
   a new search or grab for that album.

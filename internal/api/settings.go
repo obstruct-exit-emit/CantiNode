@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"path/filepath"
 
-	"github.com/librinode/librinode/internal/config"
-	"github.com/librinode/librinode/internal/musiclibrary"
-	"github.com/librinode/librinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/musicscanner"
 )
 
 // --- Naming settings ---

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/librinode/librinode/internal/redact"
+	"github.com/cantinode/cantinode/internal/redact"
 )
 
 // Client speaks the Newznab/Torznab API. One instance serves all indexers;
@@ -49,7 +49,7 @@ func (c *Client) get(ctx context.Context, rawURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "LibriNode")
+	req.Header.Set("User-Agent", "CantiNode")
 	resp, err := c.httpc.Do(req)
 	if err != nil {
 		return nil, redact.URLError(err)

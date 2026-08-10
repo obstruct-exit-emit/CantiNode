@@ -1,4 +1,4 @@
-// Package web embeds the built frontend (web/dist) into the LibriNode binary.
+// Package web embeds the built frontend (web/dist) into the CantiNode binary.
 //
 // dist/ is produced by `npm run build` and is not committed; only a .gitkeep
 // placeholder is. The `all:` prefix makes go:embed accept that placeholder,

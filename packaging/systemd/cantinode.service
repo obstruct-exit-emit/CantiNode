@@ -1,0 +1,32 @@
+# CantiNode systemd unit.
+#
+# Install (as root):
+#   useradd --system --home /var/lib/cantinode --create-home cantinode
+#   cp cantinode /usr/local/bin/
+#   cp cantinode.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now cantinode
+#
+# Data lives in /var/lib/cantinode; the web UI is on http://localhost:7845.
+
+[Unit]
+Description=CantiNode music automation server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cantinode
+Group=cantinode
+ExecStart=/usr/local/bin/cantinode --data /var/lib/cantinode
+Restart=on-failure
+RestartSec=5
+
+# Hardening — relax ReadWritePaths to cover your media folders.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cantinode
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

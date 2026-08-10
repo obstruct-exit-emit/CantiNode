@@ -195,7 +195,7 @@ function AppInner() {
     <div className={connected ? "app with-sidebar" : "app"}>
       {connected && (
         <aside className="sidebar">
-          <h1 className="brand">🖋️ LibriNode</h1>
+          <h1 className="brand">🖋️ CantiNode</h1>
           <SidebarSearch onSearch={(q) => go({ name: "search", q })} />
           <nav>
             {hasMusicRoot && <div className="nav-group">Libraries</div>}
@@ -223,7 +223,7 @@ function AppInner() {
       )}
 
       <main className="content">
-        {!connected && <h1 className="brand">🖋️ LibriNode</h1>}
+        {!connected && <h1 className="brand">🖋️ CantiNode</h1>}
 
         {setupNeeded && !connected && (
           <SetupWizard
@@ -237,7 +237,7 @@ function AppInner() {
         {setupNeeded === false && auth?.authEnabled && !auth.authenticated && (
           <section className="card auth-card">
             <h2>Sign in</h2>
-            <p className="muted">Welcome back — sign in to your LibriNode.</p>
+            <p className="muted">Welcome back — sign in to your CantiNode.</p>
             <LoginForm
               onLoggedIn={() =>
                 api.authStatus().then(setAuth).catch(() => setAuth({ authEnabled: true, authenticated: true }))
@@ -250,7 +250,7 @@ function AppInner() {
           <section className="card auth-card">
             <h2>Connect</h2>
             <p className="muted">
-              Paste the API key from <code>config.yaml</code> in your LibriNode
+              Paste the API key from <code>config.yaml</code> in your CantiNode
               data directory. (You can set up a login account later under
               Settings → General → Security.)
             </p>

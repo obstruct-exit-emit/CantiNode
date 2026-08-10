@@ -1,9 +1,10 @@
--- The direct download client (LibriNode's own HTTP fetcher, the third
+-- The direct download client (the app's own HTTP fetcher, the third
 -- protocol beside torrent/usenet) is stored with type 'direct', which the
 -- original CHECK constraint rejects. SQLite can't alter a CHECK, so the table
 -- is rebuilt without it (foreign keys are off during migrations — grabs'
 -- client_config_id reference survives untouched); the API validates the type
--- instead.
+-- instead. (The 'librinode' category default below is historical — see
+-- 020_rebrand_cantinode.sql for the CantiNode-branded default.)
 
 CREATE TABLE download_clients_new (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,

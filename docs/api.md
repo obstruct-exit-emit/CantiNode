@@ -32,7 +32,7 @@ Notes:
   you `POST /music/artist/{id}/wanted` it individually.
 - The Prowlarr-facing surface emulates Readarr v1 (`/api/v1/indexer` accepts
   Readarr resources; `/system/status` reports a Readarr-compatible
-  `version`, LibriNode's own in `appVersion`). During application sync
+  `version`, CantiNode's own in `appVersion`). During application sync
   Prowlarr also reads `/api/v1/rootfolder`, `/qualityprofile`,
   `/metadataprofile` (Readarr-only), `/tag`, and `/downloadclient` — these
   return Readarr-shaped resources (download clients carry `protocol` so

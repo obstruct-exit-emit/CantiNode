@@ -1,13 +1,13 @@
 <div align="center">
 
-# 🖋️ LibriNode
+# 🖋️ CantiNode
 
 **Self-hosted automation for your music library.**
 
 An alternative in the *arr tradition: monitor artists you want, search your indexers, hand releases to your download client, and match/organize everything into a clean, tagged music library — automatically.
 
-[![Release](https://img.shields.io/github/v/release/obstruct-exit-emit/LibriNode?include_prereleases&label=release)](https://github.com/obstruct-exit-emit/LibriNode/releases)
-[![CI](https://github.com/obstruct-exit-emit/LibriNode/actions/workflows/ci.yml/badge.svg)](https://github.com/obstruct-exit-emit/LibriNode/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/obstruct-exit-emit/CantiNode?include_prereleases&label=release)](https://github.com/obstruct-exit-emit/CantiNode/releases)
+[![CI](https://github.com/obstruct-exit-emit/CantiNode/actions/workflows/ci.yml/badge.svg)](https://github.com/obstruct-exit-emit/CantiNode/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
 
@@ -17,9 +17,9 @@ An alternative in the *arr tradition: monitor artists you want, search your inde
 
 ---
 
-## Why LibriNode?
+## Why CantiNode?
 
-LibriNode is an **alternative** to tools like Lidarr, in the familiar *arr style, focused entirely on music. It sits alongside players/servers like Navidrome and Plex — it feeds them a matched, tagged, organized library rather than replacing them.
+CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style, focused entirely on music. It sits alongside players/servers like Navidrome and Plex — it feeds them a matched, tagged, organized library rather than replacing them.
 
 ## Features
 
@@ -30,7 +30,7 @@ LibriNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 | Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a, opus, wav |
 
 **🔍 One acquisition pipeline**
-- **Prowlarr application sync** — add LibriNode as a *Readarr* app and Prowlarr pushes its indexers automatically; manual Newznab/Torznab entry works too
+- **Prowlarr application sync** — add CantiNode as a *Readarr* app and Prowlarr pushes its indexers automatically; manual Newznab/Torznab entry works too
 - Release parsing and scoring that understands formats and retail editions
 - Quality profiles with upgrade handling, a failed-release blocklist, and per-indexer failure backoff
 
@@ -50,7 +50,7 @@ LibriNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 
 ## Quick start
 
-Grab a binary from [Releases](https://github.com/obstruct-exit-emit/LibriNode/releases) (Linux amd64/arm64) — it's a single self-contained file, UI included. A systemd unit ships in the archive.
+Grab a binary from [Releases](https://github.com/obstruct-exit-emit/CantiNode/releases) (Linux amd64/arm64) — it's a single self-contained file, UI included. A systemd unit ships in the archive.
 
 > Docker and Windows builds are on hold for now (see the [roadmap](ROADMAP.md)) — planned to return later.
 
@@ -85,8 +85,8 @@ Optional login accounts with **admin/member roles** (members get everyday use, n
 
 ```sh
 cd web && npm install && npm run build && cd ..   # frontend (Node 22+)
-go build ./cmd/librinode                          # backend  (Go 1.25+)
-./librinode                                       # http://localhost:7845
+go build ./cmd/cantinode                          # backend  (Go 1.25+)
+./cantinode                                       # http://localhost:7845
 ```
 
 `go test ./...` runs the full suite. See [Development](docs/development.md) for the package layout, docs preview, and the Windows Smart-App-Control note.

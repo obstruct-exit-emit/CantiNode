@@ -1,10 +1,10 @@
 package api
 
 // Prowlarr application sync: Prowlarr only pushes indexers to *arr apps it
-// recognizes, so LibriNode speaks Readarr's v1 API dialect on the indexer
-// endpoints — add LibriNode to Prowlarr as a "Readarr" application and it
+// recognizes, so CantiNode speaks Readarr's v1 API dialect on the indexer
+// endpoints — add CantiNode to Prowlarr as a "Readarr" application and it
 // manages indexers here automatically. The same endpoints keep accepting
-// LibriNode's native JSON; the payloads are distinguished by the arr-style
+// CantiNode's native JSON; the payloads are distinguished by the arr-style
 // "implementation" marker.
 
 import (
@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/library"
+	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/library"
 )
 
 // arrField is the name/value pair *arr resources use for provider settings.
@@ -61,7 +61,7 @@ func (r *arrIndexerResource) stringField(name string) string {
 	return ""
 }
 
-// toIndexer maps an arr resource onto LibriNode's indexer model.
+// toIndexer maps an arr resource onto CantiNode's indexer model.
 func (r *arrIndexerResource) toIndexer() (*indexer.Indexer, error) {
 	ind := &indexer.Indexer{
 		ID:       r.ID,
@@ -146,7 +146,7 @@ func toArrResource(ind *indexer.Indexer) arrIndexerResource {
 	}
 }
 
-// mergedIndexerResource serves both consumers from one endpoint: LibriNode's
+// mergedIndexerResource serves both consumers from one endpoint: CantiNode's
 // UI reads the flat native keys, Prowlarr reads the arr keys.
 func mergedIndexerResource(ind *indexer.Indexer) map[string]any {
 	merged := map[string]any{}
@@ -199,7 +199,7 @@ func (s *server) handleIndexerSchema(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleListTags exists because *arr clients resolve tags during sync;
-// LibriNode has no tag system yet.
+// CantiNode has no tag system yet.
 func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []any{})
 }
@@ -208,7 +208,7 @@ func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 // books-only concept Prowlarr's Readarr proxy reads during application sync.
 // Without it Prowlarr got a 404 where it expected a profile array and threw
 // a NullReferenceException (which is why Sonarr/Radarr synced but the Readarr
-// app didn't). LibriNode has no metadata profiles, so one static default is
+// app didn't). CantiNode has no metadata profiles, so one static default is
 // enough for Prowlarr to reference.
 func (s *server) handleListMetadataProfiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, []map[string]any{{
@@ -229,16 +229,16 @@ func (s *server) handleListMetadataProfiles(w http.ResponseWriter, r *http.Reque
 //
 // During an application sync Prowlarr reads the target's root folders,
 // quality profiles, and download clients (its Readarr proxy deserializes
-// them into Readarr resources and dereferences fields). LibriNode's native
+// them into Readarr resources and dereferences fields). CantiNode's native
 // JSON lacks those fields, so Prowlarr threw a NullReferenceException and
 // aborted before syncing any indexer. These endpoints merge the Readarr
-// fields onto the native ones — LibriNode's own UI keeps reading its native
+// fields onto the native ones — CantiNode's own UI keeps reading its native
 // keys, Prowlarr gets a shape it can parse. Crucially, download clients
 // carry a `protocol`, so Prowlarr sees the torrent client and will sync
 // torrent (Torznab) indexers, not just usenet.
 
 // isProwlarr reports whether a request comes from Prowlarr (its HTTP client
-// sends a "Prowlarr/…" User-Agent). LibriNode's own web UI is a browser, so
+// sends a "Prowlarr/…" User-Agent). CantiNode's own web UI is a browser, so
 // this cleanly separates the two consumers — the capability endpoints serve
 // Readarr-shaped resources to Prowlarr and native JSON to everything else,
 // avoiding field-type clashes (e.g. quality-profile cutoff: string vs int).

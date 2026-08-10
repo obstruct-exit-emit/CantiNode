@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/librinode/librinode/internal/download"
+	"github.com/cantinode/cantinode/internal/download"
 )
 
 // TestCancelGrabResolvesStuckPendingGrab covers the manual escape hatch for a

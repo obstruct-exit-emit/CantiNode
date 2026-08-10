@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/relname"
+	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/relname"
 )
 
 // downloadTimeout bounds a grab/import request. It's generous because a debrid
@@ -44,7 +44,7 @@ func decodeDownloadClient(r *http.Request) (*download.ClientConfig, string) {
 			return nil, "host must be an http(s) URL"
 		}
 	case download.TypeDirect:
-		// The direct client is LibriNode's own fetcher: its "host" is the
+		// The direct client is CantiNode's own fetcher: its "host" is the
 		// local folder downloads land in, not a URL.
 		if c.Host == "" {
 			return nil, "a download folder is required"
@@ -57,7 +57,7 @@ func decodeDownloadClient(r *http.Request) (*download.ClientConfig, string) {
 	// need no key. Real SABnzbd will reject unauthenticated calls, which the
 	// connection Test surfaces — so we let it be entered without one.
 	if c.Category == "" {
-		c.Category = "librinode"
+		c.Category = "cantinode"
 	}
 	if c.Priority <= 0 || c.Priority > 50 {
 		c.Priority = 1
@@ -228,7 +228,7 @@ func (s *server) handleUnblock(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleQueue shows every LibriNode download across all enabled clients.
+// handleQueue shows every CantiNode download across all enabled clients.
 // queueItem is a download client item enriched with the pending grab it
 // belongs to, so the UI can link a queue line to its book and show a book's
 // download progress on its own page.

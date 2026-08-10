@@ -1,10 +1,10 @@
 // Package musicscanner walks CantiNode's music root folders, reads each
 // audio file's tags (internal/tagreader), matches it against MusicBrainz
 // (internal/musicbrainz), and organizes matched files on disk into a
-// consistent layout. Ported from CantiNode's own original (pre-LibriNode-
-// fork) scanner package, whose parse-filename-then-lookup-metadata-provider
-// matching model didn't fit the audio-tag/whole-album matching this domain
-// needs.
+// consistent layout. Ported from CantiNode's own original, from-scratch
+// scanner package (before this codebase was rebuilt on top of a fork of
+// LibriNode), whose parse-filename-then-lookup-metadata-provider matching
+// model didn't fit the audio-tag/whole-album matching this domain needs.
 package musicscanner
 
 import (
@@ -18,9 +18,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/librinode/librinode/internal/musicbrainz"
-	"github.com/librinode/librinode/internal/musiclibrary"
-	"github.com/librinode/librinode/internal/tagreader"
+	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 // Scanner ties the database, MusicBrainz client, and tag reader together

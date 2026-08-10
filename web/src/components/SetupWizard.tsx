@@ -44,7 +44,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     username: "",
     password: "",
     apiKey: "",
-    category: "librinode",
+    category: "cantinode",
     enabled: true,
     priority: 1,
   });
@@ -122,7 +122,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
       {step === 0 && (
         <>
-          <h2>Welcome to LibriNode 🖋️</h2>
+          <h2>Welcome to CantiNode 🖋️</h2>
           <p className="muted">
             Let's get you set up in a couple of minutes. First, create the
             account you'll sign in with — no digging for API keys.
@@ -156,9 +156,9 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         <>
           <h2>Where does your music live?</h2>
           <p className="muted">
-            A <strong>root folder</strong> creates your library — LibriNode
+            A <strong>root folder</strong> creates your library — CantiNode
             scans it for files you own and organizes new downloads into it
-            (paths are on the machine running LibriNode; under WSL, Windows
+            (paths are on the machine running CantiNode; under WSL, Windows
             drives are at <code>/mnt/c/…</code>).
           </p>
           <div className="settings-form">
@@ -213,7 +213,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
             Add a <strong>Newznab</strong> (usenet) or <strong>Torznab</strong>{" "}
             (torrent) indexer — Prowlarr/Jackett per-indexer feed URLs work
             too. Running <strong>Prowlarr</strong>? You can skip this and add
-            LibriNode there as a <em>Readarr</em> application later; it syncs
+            CantiNode there as a <em>Readarr</em> application later; it syncs
             all your indexers automatically.
           </p>
           <div className="settings-form">
@@ -339,11 +339,11 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
           </p>
           <p className="muted">
             Everything here — and much more — lives in <strong>Settings</strong>.
-            Add an artist from the Music page and LibriNode takes it from
+            Add an artist from the Music page and CantiNode takes it from
             there: search, grab, download, import, organize.
           </p>
           <div className="settings-actions">
-            <button onClick={onDone}>Enter LibriNode</button>
+            <button onClick={onDone}>Enter CantiNode</button>
           </div>
         </>
       )}

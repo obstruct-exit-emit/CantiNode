@@ -26,7 +26,7 @@ func allMigrations(t *testing.T) []string {
 // a clean no-op (idempotent). If a new migration is malformed or the recording
 // logic regresses, this fails first.
 func TestFreshDatabaseAppliesEveryMigration(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "librinode.db")
+	path := filepath.Join(t.TempDir(), "cantinode.db")
 
 	db, err := Open(path)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestFreshDatabaseAppliesEveryMigration(t *testing.T) {
 	}
 }
 
-// seedThroughV009 writes a database that looks like an older LibriNode build
+// seedThroughV009 writes a database that looks like an older CantiNode build
 // left it: migrations applied only through 009 (media_type columns exist, but
 // before the 011+ backfills, and long before 019 removed ebook/comic
 // support), then a handful of representative rows — both prose/comic data
@@ -122,11 +122,12 @@ func seedThroughV009(t *testing.T, path string) {
 
 // TestMigrationChainDropsEbookComicKeepsMusic is the real upgrade drill: seed
 // an old-schema fixture with both prose/comic data and music data, run every
-// remaining migration (through 019, which removes ebook/comic support)
-// against it, and assert prose/comic data is gone while music data and
-// generic rows (grabs, download-client-agnostic tables) survive intact.
+// remaining migration (through 019, which removes ebook/comic support, and
+// 020, the LibriNode->CantiNode rebrand) against it, and assert prose/comic
+// data is gone while music data and generic rows (grabs,
+// download-client-agnostic tables) survive intact.
 func TestMigrationChainDropsEbookComicKeepsMusic(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "librinode.db")
+	path := filepath.Join(t.TempDir(), "cantinode.db")
 	seedThroughV009(t, path)
 
 	db, err := Open(path) // applies 011..latest over the fixture

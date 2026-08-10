@@ -1,6 +1,6 @@
-// Package config loads and persists LibriNode's server configuration.
+// Package config loads and persists CantiNode's server configuration.
 //
-// Precedence (highest wins): environment variables (LIBRINODE_*),
+// Precedence (highest wins): environment variables (CANTINODE_*),
 // values in <dataDir>/config.yaml, built-in defaults. The config file is
 // created with defaults (including a freshly generated API key) on first run.
 package config
@@ -99,7 +99,7 @@ func (a AuthSettings) Find(username string) *UserAccount {
 }
 
 // PathMapping translates a download client's reported path prefix into the
-// path where LibriNode actually sees those files — for setups where the
+// path where CantiNode actually sees those files — for setups where the
 // client runs on another machine or in a container and reports its own
 // filesystem ("/storage_1/…") while the same share is mounted here somewhere
 // else ("/mnt/media/…"). The longest matching prefix wins.
@@ -192,9 +192,10 @@ func (t TimingSettings) ImportInterval() time.Duration {
 }
 
 // MusicSettings tunes internal/musicscanner's MusicBrainz matching —
-// ported from CantiNode's own original (pre-LibriNode-fork) Config fields.
+// ported from CantiNode's own original, from-scratch build (before this
+// codebase was rebuilt on top of a fork of LibriNode) Config fields.
 // Prowlarr/qBittorrent/SABnzbd fields from that original are deliberately
-// not carried over: acquisition rides LibriNode's existing indexer/
+// not carried over: acquisition rides CantiNode's existing indexer/
 // download-client pipeline instead of a second one.
 type MusicSettings struct {
 	// OrganizeOnMatch, if true, has the scanner move/rename a file
@@ -210,7 +211,7 @@ type MusicSettings struct {
 	// no effect on a direct MBID match (from the file's own tags) or a
 	// whole-folder release match, both always accepted regardless.
 	MinMatchConfidence float64 `yaml:"min_match_confidence" json:"minMatchConfidence"`
-	// MusicBrainzContactEmail is included in the User-Agent LibriNode sends
+	// MusicBrainzContactEmail is included in the User-Agent CantiNode sends
 	// MusicBrainz, as required by its API usage policy
 	// (https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting) so MB can
 	// reach an operator whose instance is misbehaving instead of just
@@ -261,15 +262,15 @@ func defaults() *Config {
 }
 
 // DefaultDataDir returns the OS-appropriate data directory:
-// %AppData%\LibriNode on Windows, ~/.config/librinode on Linux.
+// %AppData%\CantiNode on Windows, ~/.config/cantinode on Linux.
 func DefaultDataDir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	name := "librinode"
+	name := "cantinode"
 	if runtime.GOOS == "windows" {
-		name = "LibriNode"
+		name = "CantiNode"
 	}
 	return filepath.Join(base, name), nil
 }
@@ -343,18 +344,18 @@ func Load(dataDir string) (*Config, error) {
 }
 
 func applyEnvOverrides(cfg *Config) {
-	if v := os.Getenv("LIBRINODE_HOST"); v != "" {
+	if v := os.Getenv("CANTINODE_HOST"); v != "" {
 		cfg.Host = v
 	}
-	if v := os.Getenv("LIBRINODE_PORT"); v != "" {
+	if v := os.Getenv("CANTINODE_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.Port = p
 		}
 	}
-	if v := os.Getenv("LIBRINODE_API_KEY"); v != "" {
+	if v := os.Getenv("CANTINODE_API_KEY"); v != "" {
 		cfg.APIKey = v
 	}
-	if v := os.Getenv("LIBRINODE_LOG_LEVEL"); v != "" {
+	if v := os.Getenv("CANTINODE_LOG_LEVEL"); v != "" {
 		cfg.LogLevel = v
 	}
 }
@@ -651,8 +652,8 @@ func (c *Config) save() error {
 
 func (c *Config) filePath() string     { return filepath.Join(c.dataDir, "config.yaml") }
 func (c *Config) DataDir() string      { return c.dataDir }
-func (c *Config) DatabasePath() string { return filepath.Join(c.dataDir, "librinode.db") }
-func (c *Config) LogPath() string      { return filepath.Join(c.dataDir, "logs", "librinode.log") }
+func (c *Config) DatabasePath() string { return filepath.Join(c.dataDir, "cantinode.db") }
+func (c *Config) LogPath() string      { return filepath.Join(c.dataDir, "logs", "cantinode.log") }
 
 func (c *Config) ListenAddr() string {
 	return net.JoinHostPort(c.Host, strconv.Itoa(c.Port))

@@ -1,4 +1,4 @@
-# 🖋️ LibriNode Roadmap
+# 🖋️ CantiNode Roadmap
 
 Where the project has been and where it's going. Phases 0–5 are **complete**;
 Phase 6 (hardening) is nearly done, with the remaining work gated on things
@@ -7,12 +7,18 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
 
 **Legend:** ✅ complete · 🔄 in progress · ⏳ externally gated · 💡 under consideration
 
+> **Lineage:** CantiNode began as its own from-scratch music organizer, was
+> then rebuilt on top of a fork of [LibriNode](https://github.com/obstruct-exit-emit/LibriNode)
+> (a books/*arr server, hence phases 0–2/4–6 below reading like a book app's
+> history — they describe that shared codebase before it narrowed back to
+> music), and has since had every non-music feature removed. See the
+> [CHANGELOG](CHANGELOG.md#removed).
+>
 > **Since removed:** manga and magazines (media types, Phase 3) and the
 > AudioBook Bay / Library Genesis native indexers (Phase 5) were pulled from
 > the codebase entirely, and later **ebooks, audiobooks, and comics were
-> removed outright** — LibriNode is now a **music-only** server (see the
-> [CHANGELOG](CHANGELOG.md#removed)). The phase write-ups below are left as
-> delivered-at-the-time history.
+> removed outright** — CantiNode is now a **music-only** server. The phase
+> write-ups below are left as delivered-at-the-time history.
 
 ## At a glance
 
@@ -33,7 +39,7 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
 
 - Go backend + React frontend, compiled into **one self-contained binary** per OS
 - SQLite (pure Go, no cgo) with an embedded, tested migrations framework
-- Config file + `LIBRINODE_*` env overrides, rotating logs, cross-platform data dirs
+- Config file + `CANTINODE_*` env overrides, rotating logs, cross-platform data dirs
 - Versioned REST API (`/api/v1`) with API-key auth — the same API the UI uses
 - CI building and testing on Windows and Linux; GPL-3.0
 
@@ -54,13 +60,13 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
   **preview-then-apply** organize — library-, author-, series-, and book-scoped
 - Scheduled + manual metadata refresh (per-record, per-library, global),
   honoring per-record provider overrides
-- Local image cache: provider art served by LibriNode, surviving link rot
+- Local image cache: provider art served by CantiNode, surviving link rot
 
 ## Phase 2 — Acquisition ✅
 
 - **Newznab/Torznab** indexer framework: per-type categories, Test buttons,
   per-indexer exponential failure backoff
-- **Prowlarr application sync** (live-verified) — add LibriNode as a *Readarr*
+- **Prowlarr application sync** (live-verified) — add CantiNode as a *Readarr*
   application and Prowlarr pushes both usenet and torrent indexers automatically
 - Release parsing + scoring: formats, retail, language, year, narrators,
   bitrate, volume ranges, issue dates — book-aware search rejects wrong matches
@@ -68,7 +74,7 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
 - Quality profiles per media type: ordered formats, language, size bounds, and
   **upgrade handling** with cutoffs; upgrades replace the old file
 - **qBittorrent** and **SABnzbd** clients (live-verified through a debrid
-  bridge): LibriNode resolves releases on its own side (magnet / `.torrent` /
+  bridge): CantiNode resolves releases on its own side (magnet / `.torrent` /
   NZB upload), so NAT'd clients and Real-Debrid/TorBox bridges just work
 - Completed Download Handling: automatic import, rename, clean-up, seed-goal
   awareness, and a failed-release blocklist with instant replacement search
@@ -139,8 +145,8 @@ Extending past what the standard *arr APIs can see:
   author, year, language, and format, so search keeps only the book you asked
   for in the language and format your quality profile wants. (Anna's Archive
   was tried and dropped: it renders search behind a JS/anti-bot wall that needs
-  a browser/bypasser LibriNode doesn't ship — and Libgen is what it aggregates.)
-- **`direct` download protocol**: LibriNode's own HTTP fetcher — mirror-list
+  a browser/bypasser CantiNode doesn't ship — and Libgen is what it aggregates.)
+- **`direct` download protocol**: CantiNode's own HTTP fetcher — mirror-list
   failover, landing-page awareness (follows `ads.php` → `get.php` to the file),
   progress in the queue, imported like any other grab; any direct-link source
   can ride it

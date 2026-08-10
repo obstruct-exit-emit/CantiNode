@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to LibriNode. Format loosely follows
+Notable changes to CantiNode. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow semver.
 Tagging began with `v0.9.0-rc.1` and `v0.9.0-rc.2` (release candidates that
 shook out the release CI); `v0.9.0` will be the first stable tag.
@@ -86,7 +86,7 @@ in progress. Highlights from the hardening period, newest first:
   unwanted format is filtered out; the release scorer's author check is now
   order-independent so "Last, First" listings match). Off by default,
   user-added, user-responsible. (Anna's Archive was evaluated and dropped — it
-  renders search behind a JS/anti-bot wall needing a browser/bypasser LibriNode
+  renders search behind a JS/anti-bot wall needing a browser/bypasser CantiNode
   doesn't ship, and Libgen is the catalog it aggregates.)
 - **Light theme** with a sidebar theme control: Auto (follows your OS, live),
   Light, or Dark — a per-browser preference applied before first paint, so
@@ -100,7 +100,7 @@ in progress. Highlights from the hardening period, newest first:
   breakpoint instead of disappearing.
 - A general **`direct` download protocol** — a third release protocol beside
   torrent and usenet: a built-in download client (type `direct`, its "host" a
-  local download folder) where **LibriNode streams the file itself** —
+  local download folder) where **CantiNode streams the file itself** —
   mirror-list failover, following an open-mirror landing page (or a membership
   API's JSON answer) one hop to the real file, live progress in the queue, and
   Completed Download Handling importing the result like any other grab. Library
@@ -108,7 +108,7 @@ in progress. Highlights from the hardening period, newest first:
 - Native indexer framework + **AudioBook Bay**. A new `type: native` indexer
   kind sits beside Newznab/Torznab: a built-in Go source, selected as the
   indexer's type (no URL), feeding the same search/scoring/grab pipeline as the
-  API clients. Native sources are LibriNode-managed only and hidden from
+  API clients. Native sources are CantiNode-managed only and hidden from
   Prowlarr, so it never treats them as indexers it owns. The first source is
   AudioBook Bay: it has no API, so it scrapes the listings and **assembles the
   magnet from the on-page info hash + tracker list**, yielding an ordinary
@@ -252,7 +252,7 @@ in progress. Highlights from the hardening period, newest first:
 - Import handling options (Settings → Download Clients), all on by default:
   import whole packs, remove completed downloads from the client, delete the
   downloaded files after import.
-- Debrid-bridge support (Real-Debrid/TorBox style): LibriNode resolves
+- Debrid-bridge support (Real-Debrid/TorBox style): CantiNode resolves
   releases on its own side — NZB fetched and uploaded via SABnzbd `addfile`,
   torrents passed as magnets or uploaded `.torrent` bytes — and tolerates
   slow bridge adds by confirming against the client's list.
@@ -363,7 +363,7 @@ in progress. Highlights from the hardening period, newest first:
   serialized: a pass already running is waited out instead of raced.
 - **Torrent downloads through a debrid bridge (TorBox) could never import,
   and never showed a status on their book's page either** — the bridge
-  ignores LibriNode's rename request outright and always reports the
+  ignores CantiNode's rename request outright and always reports the
   uploader's own torrent name instead, which is routinely differently
   formatted from (or an outright typo of) the release title stored at grab
   time ("theq last emperox john scalzi" for "The Last Emperox"). Every
@@ -378,7 +378,7 @@ in progress. Highlights from the hardening period, newest first:
   downloading was invisible. SABnzbd names a download's category field
   differently between its two endpoints — `cat` in the live queue, `category`
   in history — and the queue side was read with the wrong key, so every
-  in-progress item failed LibriNode's own-downloads filter and was silently
+  in-progress item failed CantiNode's own-downloads filter and was silently
   dropped. Only history (correctly keyed) ever showed anything, so a download
   only appeared once it was already done.
 - **Torrent grabs could become permanently unmatchable at import — "cannot
@@ -406,7 +406,7 @@ in progress. Highlights from the hardening period, newest first:
   find the grab by its real id instead. This only prevents the problem going
   forward — a grab already stuck this way from before the fix stays stuck, so
   Activity → History now has a "cancel" button on any entry still reporting
-  "grabbed": it manually clears LibriNode's own pending record without
+  "grabbed": it manually clears CantiNode's own pending record without
   touching the download client, unblocking a new search or grab for that book.
 - **Switching an author or book's metadata provider override and refreshing
   always failed with "not found at metadata provider"** — reproduced live with
@@ -426,10 +426,10 @@ in progress. Highlights from the hardening period, newest first:
   too instead of duplicating alongside the fresh set.
 - **Activity/queue could show another app's downloads.** A qBittorrent or
   SABnzbd instance shared with another *arr app (common with debrid-service
-  bridges like TorBox) sometimes doesn't honor the category filter LibriNode
+  bridges like TorBox) sometimes doesn't honor the category filter CantiNode
   already requests server-side, returning every app's items regardless. Both
   clients now also filter client-side by each item's own reported category, so
-  another app's downloads never show up as LibriNode's.
+  another app's downloads never show up as CantiNode's.
 - **An owned audiobook upgraded to a different-shaped format (e.g. a multi-file
   mp3 set upgraded by a single m4b) could end up "owned" with no file at all.**
   Multi-file audiobooks are recorded by their whole book folder; a single-file
@@ -596,6 +596,20 @@ in progress. Highlights from the hardening period, newest first:
   covering clients that ignore the delete-files flag.
 
 ### Changed
+- **Renamed LibriNode → CantiNode.** This codebase was rebuilt on top of a
+  fork of [LibriNode](https://github.com/obstruct-exit-emit/LibriNode)
+  (see the [roadmap](ROADMAP.md) for the fuller lineage); now that it's
+  music-only, every "LibriNode" reference — the Go module
+  (`github.com/librinode/librinode` → `github.com/cantinode/cantinode`),
+  the binary (`cmd/librinode` → `cmd/cantinode`), the `LIBRINODE_*` env
+  vars (→ `CANTINODE_*`), the default data directory (`%AppData%\LibriNode`
+  / `~/.config/librinode` → `CantiNode` / `cantinode`), the database/log
+  filenames, the systemd unit, the MusicBrainz User-Agent, and all UI/doc
+  text — is renamed to CantiNode. The download-client `category` default
+  moves from `librinode` to `cantinode` too; a new migration
+  (`020_rebrand_cantinode.sql`) updates the column default and re-points
+  any existing row still on the untouched default (a customized category
+  is left alone). No other behavior changes.
 - **Library visibility is membership, not monitoring.** A prose title shows up
   in its Ebooks/Audiobooks library exactly when it's a member of that library;
   unmonitoring a book stops it from being auto-grabbed but no longer hides it
@@ -617,7 +631,7 @@ in progress. Highlights from the hardening period, newest first:
   versions via ldflags.
 
 ### Removed
-- **Ebooks, audiobooks, and comics are gone — LibriNode is now a music-only
+- **Ebooks, audiobooks, and comics are gone — CantiNode is now a music-only
   server.** Authors, books, editions, series, and every book-format library
   are removed, along with the metadata-provider subsystem that served them
   (Hardcover, ComicVine, Open Library, Google Books, AniList) and the

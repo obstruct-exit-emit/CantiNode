@@ -1,8 +1,9 @@
 // Music: artists/albums/tracks browsing, monitoring, scanning, manual
-// matching, and organizing — ported from CantiNode's own original
-// (pre-LibriNode-fork) API, adapted to musiclibrary/musicscanner and to
-// LibriNode's existing indexer/download-client pipeline instead of the old
-// standalone Prowlarr/qBittorrent/SABnzbd clients.
+// matching, and organizing — ported from CantiNode's own original,
+// from-scratch API (before this codebase was rebuilt on top of a fork of
+// LibriNode), adapted to musiclibrary/musicscanner and to CantiNode's
+// existing indexer/download-client pipeline instead of the old standalone
+// Prowlarr/qBittorrent/SABnzbd clients.
 package api
 
 import (
@@ -14,12 +15,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/librinode/librinode/internal/config"
-	"github.com/librinode/librinode/internal/coverart"
-	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/musicbrainz"
-	"github.com/librinode/librinode/internal/musiclibrary"
-	"github.com/librinode/librinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/coverart"
+	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/musicscanner"
 )
 
 // musicNotFoundStatus maps musiclibrary.ErrNotFound to 404, anything else

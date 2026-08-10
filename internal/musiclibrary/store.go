@@ -1,7 +1,8 @@
 // Package musiclibrary holds CantiNode's music domain model — artists,
 // albums, tracks, and the track files matched against them — and the
-// SQLite persistence layer for it, ported from CantiNode's own original
-// (pre-LibriNode-fork) schema (see migrations/018_music.sql). Kept as its
+// SQLite persistence layer for it, ported from CantiNode's own original,
+// from-scratch schema (before this codebase was rebuilt on top of a fork
+// of LibriNode; see migrations/018_music.sql). Kept as its
 // own package rather than folded into internal/library: track-level
 // matching (disc/track position, per-file MusicBrainz recording IDs,
 // embedded-tag confidence) doesn't fit the prose book/edition shape, and

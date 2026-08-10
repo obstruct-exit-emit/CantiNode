@@ -9,8 +9,8 @@ import (
 	"sync"
 )
 
-// RotatingFile appends to path and rotates by size: librinode.log becomes
-// librinode.log.1 (older files shift up), keeping `keep` rotated files.
+// RotatingFile appends to path and rotates by size: cantinode.log becomes
+// cantinode.log.1 (older files shift up), keeping `keep` rotated files.
 type RotatingFile struct {
 	mu      sync.Mutex
 	path    string
@@ -58,7 +58,7 @@ func (r *RotatingFile) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// rotate shifts librinode.log.(n) → .(n+1), the live file → .1, and reopens.
+// rotate shifts cantinode.log.(n) → .(n+1), the live file → .1, and reopens.
 func (r *RotatingFile) rotate() error {
 	if err := r.f.Close(); err != nil {
 		return err

@@ -1,4 +1,4 @@
-// Package health runs LibriNode's background health checks: root folders
+// Package health runs CantiNode's background health checks: root folders
 // still reachable, indexers answering, download clients up. Results are
 // cached; the UI shows them as a warning banner and the System page lists
 // them with a re-check button.
@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/library"
+	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/library"
 )
 
 // Issue levels: errors mean something configured is broken; warnings flag a
-// gap that limits what LibriNode can do.
+// gap that limits what CantiNode can do.
 const (
 	LevelError   = "error"
 	LevelWarning = "warning"

@@ -51,7 +51,7 @@ func (q *qbitStub) server() *httptest.Server {
 
 func newTestQBittorrent(t *testing.T, srv *httptest.Server) *qbittorrent {
 	t.Helper()
-	q := newQBittorrent(&ClientConfig{ID: 1, Name: "qBit", Type: TypeQBittorrent, Host: srv.URL, Category: "librinode"})
+	q := newQBittorrent(&ClientConfig{ID: 1, Name: "qBit", Type: TypeQBittorrent, Host: srv.URL, Category: "cantinode"})
 	t.Cleanup(srv.Close)
 	return q
 }
@@ -65,7 +65,7 @@ func newTestQBittorrent(t *testing.T, srv *httptest.Server) *qbittorrent {
 // match.
 func TestQBittorrentAddReturnsHash(t *testing.T) {
 	stub := &qbitStub{
-		pendingAdd: &qbitTorrent{Hash: "abc123", Name: "Dune Messiah", State: "downloading", Progress: 0.1, Category: "librinode"},
+		pendingAdd: &qbitTorrent{Hash: "abc123", Name: "Dune Messiah", State: "downloading", Progress: 0.1, Category: "cantinode"},
 	}
 	q := newTestQBittorrent(t, stub.server())
 
@@ -84,7 +84,7 @@ func TestQBittorrentAddReturnsHash(t *testing.T) {
 // resolves the hash rather than giving up and leaving the grab untraceable.
 func TestQBittorrentAddFindsHashOnSubstringMatch(t *testing.T) {
 	stub := &qbitStub{
-		pendingAdd: &qbitTorrent{Hash: "def456", Name: "Dune Messiah [FL] {Narrator} 2023", State: "downloading", Category: "librinode"},
+		pendingAdd: &qbitTorrent{Hash: "def456", Name: "Dune Messiah [FL] {Narrator} 2023", State: "downloading", Category: "cantinode"},
 	}
 	q := newTestQBittorrent(t, stub.server())
 
@@ -109,7 +109,7 @@ func TestQBittorrentAddFindsHashOnSubstringMatch(t *testing.T) {
 func TestQBittorrentAddIgnoresPreexistingSubstringMatch(t *testing.T) {
 	stub := &qbitStub{
 		torrents: []qbitTorrent{
-			{Hash: "existing1", Name: "Dune Messiah", State: "downloading", Progress: 0.5, Category: "librinode"},
+			{Hash: "existing1", Name: "Dune Messiah", State: "downloading", Progress: 0.5, Category: "cantinode"},
 		},
 		// pendingAdd left nil: the new "Dune" torrent never becomes visible in
 		// this test, simulating an add that landed but hasn't shown up yet.
@@ -137,7 +137,7 @@ func TestQBittorrentAddIgnoresPreexistingSubstringMatch(t *testing.T) {
 func TestQBittorrentAddUsesMagnetHashDirectly(t *testing.T) {
 	hash := "1234567890abcdef1234567890abcdef12345678" // 40 hex chars
 	stub := &qbitStub{
-		pendingAdd: &qbitTorrent{Hash: hash, Name: "theq last emperox john scalzi", State: "downloading", Category: "librinode"},
+		pendingAdd: &qbitTorrent{Hash: hash, Name: "theq last emperox john scalzi", State: "downloading", Category: "cantinode"},
 	}
 	q := newTestQBittorrent(t, stub.server())
 

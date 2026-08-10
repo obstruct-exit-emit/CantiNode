@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/librinode/librinode/internal/api"
-	"github.com/librinode/librinode/internal/config"
-	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/logging"
+	"github.com/cantinode/cantinode/internal/api"
+	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/logging"
 )
 
 // Background cadences (wanted search, metadata refresh, health checks,
@@ -76,12 +76,12 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("LibriNode", version)
+		fmt.Println("CantiNode", version)
 		return
 	}
 
 	if err := run(*dataDir); err != nil {
-		slog.Error("librinode exited with error", "error", err)
+		slog.Error("cantinode exited with error", "error", err)
 		os.Exit(1)
 	}
 }
@@ -120,7 +120,7 @@ func run(dataDir string) error {
 	}))
 	slog.SetDefault(logger)
 
-	logger.Info("starting LibriNode",
+	logger.Info("starting CantiNode",
 		"version", version,
 		"dataDir", cfg.DataDir(),
 		"listen", cfg.ListenAddr(),
@@ -175,7 +175,7 @@ func run(dataDir string) error {
 // applyPendingRestore swaps staged *.restore files (written by the backup
 // restore endpoint) into place, keeping the replaced files as *.pre-restore.
 func applyPendingRestore(dataDir string) error {
-	for _, name := range []string{"config.yaml", "librinode.db"} {
+	for _, name := range []string{"config.yaml", "cantinode.db"} {
 		staged := filepath.Join(dataDir, name+".restore")
 		if _, err := os.Stat(staged); err != nil {
 			continue

@@ -18,7 +18,7 @@ import (
 const (
 	TypeQBittorrent = "qbittorrent"
 	TypeSABnzbd     = "sabnzbd"
-	// TypeDirect is LibriNode's own HTTP fetcher — no external program; see
+	// TypeDirect is CantiNode's own HTTP fetcher — no external program; see
 	// direct.go.
 	TypeDirect = "direct"
 
@@ -74,14 +74,14 @@ type Item struct {
 	Path     string  `json:"path,omitempty"`
 }
 
-// Client is the operations LibriNode needs from any download client.
+// Client is the operations CantiNode needs from any download client.
 type Client interface {
 	// Test verifies connectivity and credentials.
 	Test(ctx context.Context) error
 	// Add sends a release URL for download; the returned id may be empty
 	// when the client doesn't report one (qBittorrent).
 	Add(ctx context.Context, url, title string) (string, error)
-	// List returns LibriNode's downloads (the client's category).
+	// List returns CantiNode's downloads (the client's category).
 	List(ctx context.Context) ([]Item, error)
 	// Remove deletes a download, optionally with its data.
 	Remove(ctx context.Context, id string, deleteData bool) error

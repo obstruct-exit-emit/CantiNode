@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/librinode/librinode/internal/redact"
+	"github.com/cantinode/cantinode/internal/redact"
 )
 
 // qBittorrent Web API v2: cookie-session auth via /api/v2/auth/login, then
@@ -119,10 +119,10 @@ func (q *qbittorrent) Test(ctx context.Context) error {
 }
 
 // Add sends a release to qBittorrent. Like the SABnzbd client, it resolves the
-// release on LibriNode's side first: the download client is often a NAT'd/cloud
+// release on CantiNode's side first: the download client is often a NAT'd/cloud
 // client (or a debrid bridge) that can't fetch our LAN indexer/Prowlarr URL, so
 // handing it that URL fails ("hostname could not be parsed") or stalls.
-// LibriNode can reach the indexer, so it follows the URL to the magnet, or
+// CantiNode can reach the indexer, so it follows the URL to the magnet, or
 // downloads the .torrent and uploads its bytes — either way the client gets
 // something self-contained. A magnet URL is passed straight through; if
 // resolution fails, it falls back to handing the client the URL.

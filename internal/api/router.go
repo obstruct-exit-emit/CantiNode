@@ -1,4 +1,4 @@
-// Package api exposes LibriNode's versioned REST API and serves the web UI.
+// Package api exposes CantiNode's versioned REST API and serves the web UI.
 // Every endpoint under /api/v1 requires the API key via the X-Api-Key header
 // (or ?apikey= query parameter); /ping is open for health checks.
 package api
@@ -14,18 +14,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/librinode/librinode/internal/audiodb"
-	"github.com/librinode/librinode/internal/config"
-	"github.com/librinode/librinode/internal/coverart"
-	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/health"
-	"github.com/librinode/librinode/internal/imagecache"
-	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/library"
-	"github.com/librinode/librinode/internal/musicbrainz"
-	"github.com/librinode/librinode/internal/musiclibrary"
-	"github.com/librinode/librinode/internal/musicscanner"
-	"github.com/librinode/librinode/web"
+	"github.com/cantinode/cantinode/internal/audiodb"
+	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/coverart"
+	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/health"
+	"github.com/cantinode/cantinode/internal/imagecache"
+	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/library"
+	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/web"
 )
 
 type server struct {
@@ -89,7 +89,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		musicScanner: musicScanner,
 		mb:           mb,
 		audiodb:      audiodb.NewClient(musicSettings.AudioDBAPIKey),
-		coverart:     coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "LibriNode/"+version),
+		coverart:     coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version),
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist

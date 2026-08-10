@@ -1,6 +1,6 @@
-site_name: LibriNode
+site_name: CantiNode
 site_description: Self-hosted automation for your music library
-repo_url: https://github.com/obstruct-exit-emit/LibriNode
+repo_url: https://github.com/obstruct-exit-emit/CantiNode
 theme:
   name: material
   palette:

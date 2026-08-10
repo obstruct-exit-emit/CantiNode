@@ -87,8 +87,8 @@ func TestAuthUserMigrationAndManagement(t *testing.T) {
 }
 
 func TestEnvOverrides(t *testing.T) {
-	t.Setenv("LIBRINODE_PORT", "9999")
-	t.Setenv("LIBRINODE_LOG_LEVEL", "debug")
+	t.Setenv("CANTINODE_PORT", "9999")
+	t.Setenv("CANTINODE_LOG_LEVEL", "debug")
 
 	cfg, err := Load(t.TempDir())
 	if err != nil {

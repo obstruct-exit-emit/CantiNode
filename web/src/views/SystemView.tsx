@@ -154,7 +154,7 @@ function BackupsCard({ onError }: { onError: (message: string) => void }) {
                           danger: true,
                         })
                       ) {
-                        run(() => api.restoreBackup(b.name), "✓ Restore staged — restart LibriNode to apply");
+                        run(() => api.restoreBackup(b.name), "✓ Restore staged — restart CantiNode to apply");
                       }
                     }}
                   >

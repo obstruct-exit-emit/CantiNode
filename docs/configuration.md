@@ -48,14 +48,14 @@ path_mappings:                   # remote client paths → local paths
     local: /mnt/media            # where this server sees the same files
 ```
 
-Environment variables override the file: `LIBRINODE_HOST`, `LIBRINODE_PORT`,
-`LIBRINODE_API_KEY`, `LIBRINODE_LOG_LEVEL`.
+Environment variables override the file: `CANTINODE_HOST`, `CANTINODE_PORT`,
+`CANTINODE_API_KEY`, `CANTINODE_LOG_LEVEL`.
 The data directory itself is chosen with `--data <dir>`.
 
 ## Remote path mappings
 
 When a download client runs on another machine or in a container, it reports
-paths from *its* filesystem. Without a mapping, LibriNode can only import
+paths from *its* filesystem. Without a mapping, CantiNode can only import
 those downloads if the share is mounted at the identical path. **Settings →
 Download Clients → Remote path mappings** maps a remote prefix to a local
 one — the longest matching prefix wins, matching is boundary-aware and
@@ -109,14 +109,14 @@ regenerated from the same page. For HTTPS, see the next section.
 
 ## HTTPS & reverse proxies
 
-LibriNode itself serves plain HTTP. For access beyond your LAN, put it
+CantiNode itself serves plain HTTP. For access beyond your LAN, put it
 behind a TLS-terminating reverse proxy **and enable the login**. Never
 expose the raw HTTP port directly to the internet.
 
 Caddy makes it a two-liner (automatic certificates):
 
 ```
-librinode.example.com {
+cantinode.example.com {
     reverse_proxy 127.0.0.1:7845
 }
 ```
@@ -126,7 +126,7 @@ nginx equivalent:
 ```nginx
 server {
     listen 443 ssl;
-    server_name librinode.example.com;
+    server_name cantinode.example.com;
     # ssl_certificate / ssl_certificate_key ...
     location / {
         proxy_pass http://127.0.0.1:7845;
@@ -139,14 +139,14 @@ server {
 
 ## Health checks
 
-Every 15 minutes (and on demand from the System page) LibriNode verifies
+Every 15 minutes (and on demand from the System page) CantiNode verifies
 root folders are reachable, enabled indexers answer, and download clients
 are up — plus warnings when nothing is configured at all. Issues appear as
 a banner on every page.
 
 ## Logs
 
-`<data>/logs/librinode.log`, size-rotated (5 MB, 3 old files kept). The
+`<data>/logs/cantinode.log`, size-rotated (5 MB, 3 old files kept). The
 System page tails it with a text filter; `log_level: debug` for more.
 
 ## Backups

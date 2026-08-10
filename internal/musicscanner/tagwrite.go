@@ -3,7 +3,7 @@ package musicscanner
 import (
 	"fmt"
 
-	"github.com/librinode/librinode/internal/tagwriter"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 // WriteTags embeds trackFileID's matched metadata (artist/album/track

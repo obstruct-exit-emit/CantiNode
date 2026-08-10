@@ -1,4 +1,4 @@
--- LibriNode initial schema.
+-- CantiNode initial schema.
 -- Media types are fixed strings: 'ebook', 'audiobook', 'comic', 'music'.
 
 CREATE TABLE root_folders (

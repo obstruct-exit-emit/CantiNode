@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/musicbrainz"
-	"github.com/librinode/librinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 )
 
 // --- JSON-shaped fixtures for release-search/release-lookup responses,

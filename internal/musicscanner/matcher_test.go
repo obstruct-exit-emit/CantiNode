@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/musicbrainz"
-	"github.com/librinode/librinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 )
 
 // buildFLACFile writes a minimal FLAC file (just a Vorbis comment block —

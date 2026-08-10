@@ -6,7 +6,7 @@
 
 export type ThemePref = "auto" | "light" | "dark";
 
-const KEY = "librinode-theme";
+const KEY = "cantinode-theme";
 const media = window.matchMedia("(prefers-color-scheme: light)");
 
 export function getThemePref(): ThemePref {

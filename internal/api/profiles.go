@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/librinode/librinode/internal/library"
+	"github.com/cantinode/cantinode/internal/library"
 )
 
 func (s *server) handleListProfiles(w http.ResponseWriter, r *http.Request) {

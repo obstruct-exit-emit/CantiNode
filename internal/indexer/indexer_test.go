@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/librinode/librinode/internal/database"
+	"github.com/cantinode/cantinode/internal/database"
 )
 
 const capsXML = `<?xml version="1.0" encoding="UTF-8"?>

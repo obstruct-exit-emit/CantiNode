@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/librinode/librinode/internal/config"
-	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/library"
+	"github.com/cantinode/cantinode/internal/config"
+	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/library"
 )
 
 type testAPI struct {
@@ -321,7 +321,7 @@ func TestDownloadClientsCRUD(t *testing.T) {
 		case "queue":
 			// SABnzbd names the queue slot's category field "cat" (history uses
 			// "category" instead — see sabSlot in internal/download/sabnzbd.go).
-			w.Write([]byte(`{"queue": {"slots": [{"nzo_id": "nzo_1", "filename": "Mort", "status": "Downloading", "percentage": "50", "cat": "librinode"}]}}`))
+			w.Write([]byte(`{"queue": {"slots": [{"nzo_id": "nzo_1", "filename": "Mort", "status": "Downloading", "percentage": "50", "cat": "cantinode"}]}}`))
 		case "history":
 			w.Write([]byte(`{"history": {"slots": []}}`))
 		default:
@@ -351,7 +351,7 @@ func TestDownloadClientsCRUD(t *testing.T) {
 	var client download.ClientConfig
 	a.want(a.call("POST", "/api/v1/downloadclient",
 		map[string]any{"name": "sab", "type": "sabnzbd", "host": srv.URL, "apiKey": "k", "enabled": true}, &client), http.StatusCreated)
-	if client.Category != "librinode" || client.Priority != 1 {
+	if client.Category != "cantinode" || client.Priority != 1 {
 		t.Fatalf("client defaults = %+v", client)
 	}
 

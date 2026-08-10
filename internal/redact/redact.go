@@ -1,6 +1,6 @@
 // Package redact strips credential-shaped query parameters out of HTTP
 // errors before they're logged or shown to a user. Several protocols
-// LibriNode speaks put the secret directly in the request URL's query
+// CantiNode speaks put the secret directly in the request URL's query
 // string (Newznab/Torznab's apikey, SABnzbd's apikey) — a failed request
 // there comes back as a *url.Error whose default Error()
 // text is "<Op> \"<URL-with-secret>\": <cause>", so logging or displaying it

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/librinode/librinode/internal/database"
+	"github.com/cantinode/cantinode/internal/database"
 )
 
 // writeBackupZip builds a backup archive the same shape handleCreateBackup
-// produces: the database snapshot as librinode.db, config.yaml alongside it.
+// produces: the database snapshot as cantinode.db, config.yaml alongside it.
 func writeBackupZip(t *testing.T, dest, dbSnapshot, configPath string) {
 	t.Helper()
 	f, err := os.Create(dest)
@@ -35,7 +35,7 @@ func writeBackupZip(t *testing.T, dest, dbSnapshot, configPath string) {
 			t.Fatalf("copy %s: %v", entryName, err)
 		}
 	}
-	add("librinode.db", dbSnapshot)
+	add("cantinode.db", dbSnapshot)
 	add("config.yaml", configPath)
 	if err := zw.Close(); err != nil {
 		t.Fatalf("close backup zip: %v", err)
@@ -53,7 +53,7 @@ func stageBackup(t *testing.T, backupZip, dataDir string) {
 	}
 	defer zr.Close()
 	for _, entry := range zr.File {
-		if entry.Name != "librinode.db" && entry.Name != "config.yaml" {
+		if entry.Name != "cantinode.db" && entry.Name != "config.yaml" {
 			continue
 		}
 		in, err := entry.Open()
@@ -82,7 +82,7 @@ func stageBackup(t *testing.T, backupZip, dataDir string) {
 func TestCleanMachineRestore(t *testing.T) {
 	// --- Source machine: a populated data dir, then a backup of it. ---
 	src := t.TempDir()
-	db, err := database.Open(filepath.Join(src, "librinode.db"))
+	db, err := database.Open(filepath.Join(src, "cantinode.db"))
 	if err != nil {
 		t.Fatalf("open source db: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestCleanMachineRestore(t *testing.T) {
 		t.Fatalf("snapshot: %v", err)
 	}
 	db.Close()
-	backupZip := filepath.Join(src, "librinode-backup-20260718-000000.zip")
+	backupZip := filepath.Join(src, "cantinode-backup-20260718-000000.zip")
 	writeBackupZip(t, backupZip, snapshot, configPath)
 
 	// --- Clean machine: a fresh, empty data dir. ---
@@ -123,8 +123,8 @@ func TestCleanMachineRestore(t *testing.T) {
 	// A clean machine had no live files, so nothing should have been preserved
 	// as *.pre-restore, and the staged files must have been consumed.
 	for _, leftover := range []string{
-		"librinode.db.pre-restore", "config.yaml.pre-restore",
-		"librinode.db.restore", "config.yaml.restore",
+		"cantinode.db.pre-restore", "config.yaml.pre-restore",
+		"cantinode.db.restore", "config.yaml.restore",
 	} {
 		if _, err := os.Stat(filepath.Join(clean, leftover)); err == nil {
 			t.Errorf("unexpected leftover after clean-machine restore: %s", leftover)
@@ -141,7 +141,7 @@ func TestCleanMachineRestore(t *testing.T) {
 	}
 
 	// The restored database opens and the seeded library is whole.
-	restored, err := database.Open(filepath.Join(clean, "librinode.db"))
+	restored, err := database.Open(filepath.Join(clean, "cantinode.db"))
 	if err != nil {
 		t.Fatalf("open restored db: %v", err)
 	}

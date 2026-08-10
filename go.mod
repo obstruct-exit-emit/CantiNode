@@ -1,4 +1,4 @@
-module github.com/librinode/librinode
+module github.com/cantinode/cantinode
 
 go 1.25.0
 

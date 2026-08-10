@@ -1,6 +1,9 @@
 -- Download clients: qBittorrent (torrents) and SABnzbd (usenet). category is
--- the client-side label/folder LibriNode claims for its downloads; priority
+-- the client-side label/folder the app claims for its downloads; priority
 -- picks between multiple clients of the same protocol (lower wins).
+-- (The 'librinode' default below is historical — this migration already
+-- shipped under that name and is never re-run on an existing database; see
+-- 020_rebrand_cantinode.sql for the CantiNode-branded default.)
 
 CREATE TABLE download_clients (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,

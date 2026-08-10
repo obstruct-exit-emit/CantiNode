@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/librinode/librinode/internal/musicbrainz"
-	"github.com/librinode/librinode/internal/musiclibrary"
-	"github.com/librinode/librinode/internal/tagreader"
+	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 // matchFileDirect looks tf up directly by the MusicBrainz recording ID

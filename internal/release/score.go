@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/library"
-	"github.com/librinode/librinode/internal/relname"
+	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/library"
+	"github.com/cantinode/cantinode/internal/relname"
 )
 
 // Preferences drive scoring. The media type's default quality profile

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/librinode/librinode/internal/library"
+	"github.com/cantinode/cantinode/internal/library"
 )
 
 const metadataTimeout = 60 * time.Second

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/librinode/librinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 )
 
 // illegalPathChars are characters not safely usable in a filename across

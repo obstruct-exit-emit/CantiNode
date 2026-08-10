@@ -45,19 +45,19 @@ jobs:
           build() {
             GOOS=$1 GOARCH=$2 go build -trimpath \
               -ldflags "-s -w -X main.version=${VERSION}" \
-              -o "dist/$3" ./cmd/librinode
+              -o "dist/$3" ./cmd/cantinode
           }
-          build linux amd64 librinode
-          (cd dist && tar czf "librinode-${VERSION}-linux-amd64.tar.gz" librinode && rm librinode)
-          build linux arm64 librinode
-          (cd dist && tar czf "librinode-${VERSION}-linux-arm64.tar.gz" librinode && rm librinode)
-          cp packaging/systemd/librinode.service dist/
+          build linux amd64 cantinode
+          (cd dist && tar czf "cantinode-${VERSION}-linux-amd64.tar.gz" cantinode && rm cantinode)
+          build linux arm64 cantinode
+          (cd dist && tar czf "cantinode-${VERSION}-linux-arm64.tar.gz" cantinode && rm cantinode)
+          cp packaging/systemd/cantinode.service dist/
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
-            dist/librinode.service
+            dist/cantinode.service
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

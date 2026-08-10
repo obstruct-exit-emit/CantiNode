@@ -1,6 +1,7 @@
 -- Music domain: artists/albums/tracks/track_files, matched against
--- MusicBrainz — ported from CantiNode's own original (pre-LibriNode-fork)
--- schema. Kept as dedicated tables rather than folded into books/authors:
+-- MusicBrainz — ported from CantiNode's own original, from-scratch schema
+-- (before this codebase was rebuilt on top of a fork of LibriNode). Kept
+-- as dedicated tables rather than folded into books/authors:
 -- track-level matching (disc/track position, per-file MusicBrainz
 -- recording IDs, embedded-tag confidence) doesn't fit the prose
 -- book/edition shape, and an artist's identity is its MusicBrainz MBID,
@@ -11,7 +12,9 @@
 -- 'music' once the Go side switches over) rather than a second
 -- music-specific root folder table.
 --
--- An artist is unified the same way LibriNode's own authors are: one row
+-- An artist is unified the same way LibriNode's own authors were (this
+-- codebase's fork ancestor; the authors table itself is long gone, dropped
+-- by 019_music_only.sql): one row
 -- whether CantiNode knows about it from owning a matched track file,
 -- from being explicitly monitored for acquisition, or both — is_monitored
 -- plus artist_release_groups (the cached discography backing the artist
@@ -110,13 +113,12 @@ CREATE INDEX idx_track_files_match_status ON track_files (match_status);
 
 -- Wanted albums: a monitored artist's release groups CantiNode should try
 -- to acquire. Seeded from MusicBrainz when an artist is monitored and
--- updated by the grab/import flow (internal/autosearch, internal/importer)
--- as a specific one progresses.
+-- updated by the grab/scan flow as a specific one progresses.
 --
 -- status: 'wanted' (not yet grabbed) -> 'downloading' (a grabs row exists
 -- and isn't finished) -> 'downloaded' (imported into the library) ->
 -- 'ignored' (user doesn't want this one). Grabbing/downloading itself
--- rides LibriNode's existing indexer/download-client/grabs pipeline
+-- rides CantiNode's existing indexer/download-client/grabs pipeline
 -- (internal/indexer, internal/download) rather than a second one.
 CREATE TABLE wanted_albums (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,

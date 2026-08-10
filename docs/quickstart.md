@@ -25,7 +25,7 @@
    gets its metadata cached automatically too.
 
 5. **Automate acquisition.** Add indexers (**Settings → Indexers**, or sync
-   them from Prowlarr by adding LibriNode as a *Readarr* application) and a
+   them from Prowlarr by adding CantiNode as a *Readarr* application) and a
    download client (**Settings → Download Clients**, with **Test** buttons).
    From an artist's **Missing** section, **+ Add** (or **+ Add & Monitor**)
    an album to want it; from **Wanted**, **Search releases** and **Grab**

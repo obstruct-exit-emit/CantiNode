@@ -255,8 +255,8 @@ function GeneralCard({ onError }: { onError: (message: string) => void }) {
         )}
         <p className="muted" style={{ marginBottom: 0 }}>
           Host, port, and data directory are set in <code>config.yaml</code>{" "}
-          (or <code>LIBRINODE_*</code> environment variables) and need a
-          restart. For HTTPS, run LibriNode behind a reverse proxy — see the
+          (or <code>CANTINODE_*</code> environment variables) and need a
+          restart. For HTTPS, run CantiNode behind a reverse proxy — see the
           README. Health checks, logs, and backups live on the System page.
         </p>
         <Disclosure summary="Advanced: background timings">
@@ -623,7 +623,7 @@ const emptyDownloadClient: Omit<DownloadClient, "id"> = {
   username: "",
   password: "",
   apiKey: "",
-  category: "librinode",
+  category: "cantinode",
   enabled: true,
   priority: 1,
 };
@@ -710,7 +710,7 @@ function DownloadClientsCard({
       <p className="muted">
         Where grabbed releases go: <strong>qBittorrent</strong> for torrents,{" "}
         <strong>SABnzbd</strong> for usenet. Downloads are tagged with the
-        category so LibriNode only tracks its own.
+        category so CantiNode only tracks its own.
       </p>
 
       {clients.length > 0 && (
@@ -817,14 +817,14 @@ function DownloadClientsCard({
               Expect failures.
             </p>
             <p className="muted field-note">
-              LibriNode downloads the file itself — no external program. Needed
+              CantiNode downloads the file itself — no external program. Needed
               only for <em>direct</em>-protocol sources (e.g. Anna&apos;s
               Archive); torrents and usenet keep using the clients above.
             </p>
             <label>
               Download folder (on this server; finished files import from here)
               <input
-                placeholder="/downloads/librinode"
+                placeholder="/downloads/cantinode"
                 value={draft.host}
                 onChange={(e) => set({ host: e.target.value })}
               />
@@ -878,7 +878,7 @@ function DownloadClientsCard({
             />
           </label>
           <p className="muted field-note">
-            Downloads are tagged with this category so LibriNode only tracks its
+            Downloads are tagged with this category so CantiNode only tracks its
             own — change it only if it collides with another app on the same
             client.
           </p>
@@ -1478,7 +1478,7 @@ function IndexersCard({
       <h2>Indexers</h2>
       <p className="muted">
         Newznab (usenet) and Torznab (torrents — Prowlarr/Jackett feeds work)
-        endpoints. Add them here by hand, or add LibriNode to Prowlarr as a{" "}
+        endpoints. Add them here by hand, or add CantiNode to Prowlarr as a{" "}
         <strong>Readarr</strong> application and Prowlarr keeps them in sync.
         Categories default to audio (<code>3010,3040</code>); change only for
         an unusual indexer.
@@ -1857,7 +1857,7 @@ function RootFoldersCard({
       <p className="muted">
         Where your libraries live on disk. The scanner walks these to match
         files you already own; note the path must exist on the machine running
-        LibriNode (in WSL, Windows drives are under <code>/mnt/c/…</code>).
+        CantiNode (in WSL, Windows drives are under <code>/mnt/c/…</code>).
       </p>
 
       {folders.length > 0 && (

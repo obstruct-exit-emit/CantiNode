@@ -1,4 +1,4 @@
-// Typed client for LibriNode's REST API. The API key is kept in localStorage
+// Typed client for CantiNode's REST API. The API key is kept in localStorage
 // for now; proper session handling comes with the settings UI.
 
 export interface SystemStatus {
@@ -166,7 +166,7 @@ export interface RenameMove {
 }
 
 // PathMapping translates a download client's reported path prefix into the
-// path where LibriNode sees the same files (remote client / container
+// path where CantiNode sees the same files (remote client / container
 // setups). Longest matching prefix wins.
 export interface PathMapping {
   remotePrefix: string;
@@ -329,14 +329,14 @@ export interface MusicSettings {
   audioDbApiKey: string;
 }
 
-const KEY_STORAGE = "librinode-api-key";
+const KEY_STORAGE = "cantinode-api-key";
 
 export function getApiKey(): string {
   return localStorage.getItem(KEY_STORAGE) ?? "";
 }
 
 // proxiedImage routes a provider image (e.g. an artist photo from
-// TheAudioDB) through LibriNode's caching proxy so it's served locally and
+// TheAudioDB) through CantiNode's caching proxy so it's served locally and
 // survives the provider's URL rot. Local API URLs (our own /cover endpoint)
 // pass through unchanged; empty URLs return undefined so callers can fall
 // back.

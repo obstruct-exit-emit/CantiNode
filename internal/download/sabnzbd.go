@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/librinode/librinode/internal/redact"
+	"github.com/cantinode/cantinode/internal/redact"
 )
 
 // SABnzbd's API is a single endpoint: GET /api?mode=...&apikey=...&output=json.
-// Queue and history are separate calls; LibriNode merges them into one view.
+// Queue and history are separate calls; CantiNode merges them into one view.
 type sabnzbd struct {
 	cfg   *ClientConfig
 	httpc *http.Client
@@ -84,7 +84,7 @@ func (s *sabnzbd) Test(ctx context.Context) error {
 }
 
 // Add sends a release to SABnzbd. It first fetches the NZB itself and uploads
-// the file content (addfile): LibriNode can reach the indexer/proxy on the
+// the file content (addfile): CantiNode can reach the indexer/proxy on the
 // LAN, but the download client often can't (SABnzbd behind NAT, or a
 // Real-Debrid usenet bridge whose cloud side can't fetch a LAN URL) — handing
 // it a URL leaves grabs stuck at 0 bytes. Uploading the content sidesteps

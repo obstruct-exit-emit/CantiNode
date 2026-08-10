@@ -1,4 +1,4 @@
-// Package indexer implements LibriNode's indexer framework: Newznab (usenet)
+// Package indexer implements CantiNode's indexer framework: Newznab (usenet)
 // and Torznab (torrent) clients behind one API, indexer configuration
 // storage, and aggregated release search. Release scoring and automatic
 // grabbing (internal/release, internal/autosearch) build on top of this.
@@ -13,7 +13,7 @@ const (
 
 // Protocols derived from the indexer type. Direct releases are plain HTTP
 // file links (possibly a "|"-separated mirror list), downloaded by the
-// LibriNode-side direct download client rather than an external program.
+// CantiNode-side direct download client rather than an external program.
 const (
 	ProtocolUsenet  = "usenet"
 	ProtocolTorrent = "torrent"

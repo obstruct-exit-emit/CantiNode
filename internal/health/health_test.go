@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/library"
+	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/library"
 )
 
 func TestCheckFindsIssues(t *testing.T) {

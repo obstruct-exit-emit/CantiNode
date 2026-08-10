@@ -3,9 +3,9 @@
 Go 1.25+ backend, React 19 + Vite frontend, SQLite (pure Go, no cgo).
 
 ```sh
-go run ./cmd/librinode     # starts on http://localhost:7845
+go run ./cmd/cantinode     # starts on http://localhost:7845
 go test ./...
-go build ./cmd/librinode   # embeds web/dist if present
+go build ./cmd/cantinode   # embeds web/dist if present
 ```
 
 Frontend (Node 22+):
@@ -26,7 +26,7 @@ npm run build    # production build into web/dist
 ## Layout
 
 ```
-cmd/librinode/         entrypoint, background loops, restore staging
+cmd/cantinode/         entrypoint, background loops, restore staging
 internal/api/          REST handlers, router, auth, backups
 internal/musiclibrary/ domain model + SQLite store (artists/albums/tracks)
 internal/musicscanner/ file scanning, MusicBrainz matching, organize/rename

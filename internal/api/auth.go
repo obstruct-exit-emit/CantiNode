@@ -15,13 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/librinode/librinode/internal/config"
+	"github.com/cantinode/cantinode/internal/config"
 )
 
 // Session cookie: HttpOnly, SameSite=Lax, 30-day expiry. Sessions live in
 // memory — a restart logs everyone out (the README says to expect that).
 const (
-	sessionCookie = "librinode_session"
+	sessionCookie = "cantinode_session"
 	sessionTTL    = 30 * 24 * time.Hour
 )
 

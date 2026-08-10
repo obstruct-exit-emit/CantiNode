@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/librinode/librinode/internal/database"
+	"github.com/cantinode/cantinode/internal/database"
 )
 
 // mockQbit fakes qBittorrent's Web API v2 with session-cookie auth.
@@ -53,7 +53,7 @@ func mockQbit(t *testing.T) *httptest.Server {
 						return
 					}
 					f, _, err := r.FormFile("torrents")
-					if err != nil || r.FormValue("category") != "librinode" {
+					if err != nil || r.FormValue("category") != "cantinode" {
 						w.Write([]byte("Fails."))
 						return
 					}
@@ -62,20 +62,20 @@ func mockQbit(t *testing.T) *httptest.Server {
 					return
 				}
 				r.ParseForm()
-				if r.Form.Get("category") != "librinode" || r.Form.Get("urls") == "" {
+				if r.Form.Get("category") != "cantinode" || r.Form.Get("urls") == "" {
 					w.Write([]byte("Fails."))
 					return
 				}
 				w.Write([]byte("Ok."))
 			case "/api/v2/torrents/info":
-				if r.URL.Query().Get("category") != "librinode" {
+				if r.URL.Query().Get("category") != "cantinode" {
 					w.Write([]byte("[]"))
 					return
 				}
 				w.Write([]byte(`[
-					{"hash":"aaa","name":"Mort.epub","state":"downloading","progress":0.42,"content_path":"","save_path":"/dl","category":"librinode"},
-					{"hash":"bbb","name":"Guards.epub","state":"stalledUP","progress":1,"content_path":"/dl/Guards.epub","category":"librinode"},
-					{"hash":"ccc","name":"Bad.epub","state":"error","progress":0.1,"category":"librinode"},
+					{"hash":"aaa","name":"Mort.epub","state":"downloading","progress":0.42,"content_path":"","save_path":"/dl","category":"cantinode"},
+					{"hash":"bbb","name":"Guards.epub","state":"stalledUP","progress":1,"content_path":"/dl/Guards.epub","category":"cantinode"},
+					{"hash":"ccc","name":"Bad.epub","state":"error","progress":0.1,"category":"cantinode"},
 					{"hash":"ddd","name":"SomeMovie.mkv","state":"stalledUP","progress":1,"content_path":"/dl/SomeMovie.mkv","category":"radarr"}
 				]`))
 			case "/api/v2/torrents/delete":
@@ -95,7 +95,7 @@ func mockQbit(t *testing.T) *httptest.Server {
 func qbitConfig(host string) *ClientConfig {
 	return &ClientConfig{
 		Name: "qbit", Type: TypeQBittorrent, Host: host,
-		Username: "admin", Password: "secret", Category: "librinode",
+		Username: "admin", Password: "secret", Category: "cantinode",
 		Enabled: true, Priority: 1,
 	}
 }
@@ -139,7 +139,7 @@ func TestQBittorrent(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 	// The server returns a 4th torrent (category "radarr") despite the
-	// category=librinode query param — some qBittorrent-compatible bridges
+	// category=cantinode query param — some qBittorrent-compatible bridges
 	// (debrid services) don't honor it. It must be filtered client-side.
 	if len(items) != 3 {
 		t.Fatalf("items = %+v, want 3 (radarr-categorized torrent excluded)", items)
@@ -187,7 +187,7 @@ func mockSab(t *testing.T) *httptest.Server {
 		case "addfile":
 			// The NZB content arrives as a multipart file; the name comes from
 			// nzbname (not the URL), so the job is identifiable.
-			if q.Get("cat") != "librinode" || q.Get("nzbname") == "" {
+			if q.Get("cat") != "cantinode" || q.Get("nzbname") == "" {
 				w.Write([]byte(`{"status": false, "error": "bad request"}`))
 				return
 			}
@@ -203,7 +203,7 @@ func mockSab(t *testing.T) *httptest.Server {
 			f.Close()
 			w.Write([]byte(`{"status": true, "nzo_ids": ["SABnzbd_nzo_x1"]}`))
 		case "addurl":
-			if q.Get("cat") != "librinode" || q.Get("name") == "" {
+			if q.Get("cat") != "cantinode" || q.Get("name") == "" {
 				w.Write([]byte(`{"status": false, "error": "bad request"}`))
 				return
 			}
@@ -212,19 +212,19 @@ func mockSab(t *testing.T) *httptest.Server {
 			// SABnzbd's queue slots name the category field "cat" — unlike
 			// history, which calls it "category" (see sabSlot). A radarr-
 			// categorized slot is included to confirm the client-side filter
-			// still excludes it even though the request asked for cat=librinode
+			// still excludes it even though the request asked for cat=cantinode
 			// — some SABnzbd-compatible bridges don't honor that server-side.
 			w.Write([]byte(`{"queue": {"slots": [
-				{"nzo_id": "SABnzbd_nzo_q1", "filename": "Mort", "status": "Downloading", "percentage": "34", "cat": "librinode"},
+				{"nzo_id": "SABnzbd_nzo_q1", "filename": "Mort", "status": "Downloading", "percentage": "34", "cat": "cantinode"},
 				{"nzo_id": "SABnzbd_nzo_q2", "filename": "SomeShow", "status": "Downloading", "percentage": "10", "cat": "radarr"}
 			]}}`))
 		case "history":
 			// A radarr-categorized slot is included even though the request
-			// asked for category=librinode — some SABnzbd-compatible bridges
+			// asked for category=cantinode — some SABnzbd-compatible bridges
 			// (debrid services) don't honor that filter server-side.
 			w.Write([]byte(`{"history": {"slots": [
-				{"nzo_id": "SABnzbd_nzo_h1", "name": "Guards", "status": "Completed", "storage": "/complete/Guards", "category": "librinode"},
-				{"nzo_id": "SABnzbd_nzo_h2", "name": "Broken", "status": "Failed", "fail_message": "crc", "category": "librinode"},
+				{"nzo_id": "SABnzbd_nzo_h1", "name": "Guards", "status": "Completed", "storage": "/complete/Guards", "category": "cantinode"},
+				{"nzo_id": "SABnzbd_nzo_h2", "name": "Broken", "status": "Failed", "fail_message": "crc", "category": "cantinode"},
 				{"nzo_id": "SABnzbd_nzo_h3", "name": "SomeMovie", "status": "Completed", "storage": "/complete/SomeMovie", "category": "radarr"}
 			]}}`))
 		default:
@@ -236,7 +236,7 @@ func mockSab(t *testing.T) *httptest.Server {
 func sabConfig(host string) *ClientConfig {
 	return &ClientConfig{
 		Name: "sab", Type: TypeSABnzbd, Host: host,
-		APIKey: "sab-key", Category: "librinode", Enabled: true, Priority: 1,
+		APIKey: "sab-key", Category: "cantinode", Enabled: true, Priority: 1,
 	}
 }
 

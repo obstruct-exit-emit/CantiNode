@@ -36,7 +36,7 @@ func TestBackupCreateRestoreDelete(t *testing.T) {
 	if restored.Staged != 2 {
 		t.Fatalf("staged = %d, want 2", restored.Staged)
 	}
-	for _, f := range []string{"librinode.db.restore", "config.yaml.restore"} {
+	for _, f := range []string{"cantinode.db.restore", "config.yaml.restore"} {
 		if _, err := os.Stat(filepath.Join(status.DataDir, f)); err != nil {
 			t.Errorf("%s not staged: %v", f, err)
 		}

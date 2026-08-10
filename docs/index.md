@@ -1,13 +1,13 @@
-# LibriNode
+# CantiNode
 
 A self-hosted **music library** automation server — an alternative to
 Lidarr.
 
-LibriNode monitors artists you want, searches your indexers, sends releases
+CantiNode monitors artists you want, searches your indexers, sends releases
 to your download client, then matches scanned files against MusicBrainz and
 organizes them — automatically.
 
-> 🚧 LibriNode is **pre-1.0**. The whole loop works end-to-end, but expect
+> 🚧 CantiNode is **pre-1.0**. The whole loop works end-to-end, but expect
 > rough edges and breaking changes until 1.0.
 
 ## The library
@@ -39,7 +39,7 @@ add a root folder for it.
   artist is discovered (monitored, or found by a scan) — never fetched
   again just from browsing.
 - Local image cache: provider art is downloaded on add/refresh and served
-  from LibriNode, surviving provider link rot.
+  from CantiNode, surviving provider link rot.
 
 Start with [Installation](installation.md), then the
 [Quickstart](quickstart.md).

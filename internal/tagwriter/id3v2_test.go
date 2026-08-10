@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/librinode/librinode/internal/tagreader"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 func TestWriteID3v2ToFileWithNoExistingTag(t *testing.T) {

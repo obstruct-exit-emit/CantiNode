@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/database"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 )
 
 func TestSanitizePathComponent(t *testing.T) {
@@ -225,7 +225,7 @@ func TestPlanOrganizeArtistSkipsUnmatchedAndAlreadyOrganized(t *testing.T) {
 	}
 }
 
-// TestPlanOrganizeArtistEmptyWhenNothingToDo mirrors LibriNode's "files
+// TestPlanOrganizeArtistEmptyWhenNothingToDo mirrors CantiNode's "files
 // already match the naming templates" empty-plan message — no matched
 // files under the artist at all means an empty (not nil) plan.
 func TestPlanOrganizeArtistEmptyWhenNothingToDo(t *testing.T) {

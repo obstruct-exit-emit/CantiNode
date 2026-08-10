@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/librinode/librinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/indexer"
 )
 
 const indexerTestTimeout = 30 * time.Second
@@ -23,7 +23,7 @@ func writeIndexerError(w http.ResponseWriter, err error) {
 }
 
 // decodeIndexer reads and validates an indexer definition from the body.
-// Two dialects arrive here: LibriNode's native flat JSON and the Readarr v1
+// Two dialects arrive here: CantiNode's native flat JSON and the Readarr v1
 // resource Prowlarr pushes (marked by an "implementation" key with fields[]).
 func decodeIndexer(r *http.Request) (*indexer.Indexer, string) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -124,7 +124,7 @@ func (s *server) handleListIndexers(w http.ResponseWriter, r *http.Request) {
 		writeIndexerError(w, err)
 		return
 	}
-	// Native sources are LibriNode-managed only: hide them from Prowlarr so it
+	// Native sources are CantiNode-managed only: hide them from Prowlarr so it
 	// never treats them as indexers it owns (and prunes them on sync). The
 	// app's own UI (any non-Prowlarr caller) still sees them.
 	prowlarr := isProwlarr(r)

@@ -1,6 +1,6 @@
 // Package imagecache downloads and stores remote provider images — artist
 // photos (TheAudioDB) and album art (Cover Art Archive) — under the data
-// directory, so the UI serves them from LibriNode instead of the provider
+// directory, so the UI serves them from CantiNode instead of the provider
 // CDN on every view, and they survive the provider's URL rot.
 package imagecache
 
