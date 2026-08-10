@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/config"
@@ -197,9 +198,35 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		s.logger.Warn("importer: removing completed download from its client failed (import still succeeded)",
 			"grab_id", g.ID, "error", err)
 	}
+	// Some clients (debrid bridges in particular) acknowledge the removal
+	// but don't actually honor the delete-files flag — CantiNode already
+	// has its own safely-copied version in the library, so delete the
+	// source directly to be sure it's actually gone instead of trusting
+	// the client did what it was asked.
+	deleteDownloadData(src, s.logger)
 
 	s.logger.Info("importer: imported completed download", "grab_id", g.ID, "title", g.Title, "dest", dest)
 	return true
+}
+
+// deleteDownloadData removes a completed download's own files after a
+// successful import, guarding against a misreported path: it must be
+// absolute and nested at least three segments deep (e.g.
+// .../downloads/<client>/<release>) so a bad or mistranslated path can
+// never wipe a mount root or top-level directory.
+func deleteDownloadData(path string, logger *slog.Logger) {
+	if path == "" || !filepath.IsAbs(path) {
+		return
+	}
+	clean := filepath.Clean(path)
+	segs := strings.FieldsFunc(clean, func(r rune) bool { return r == '/' || r == '\\' })
+	if len(segs) < 3 {
+		logger.Warn("importer: refusing to delete a suspiciously shallow download path", "path", clean)
+		return
+	}
+	if err := os.RemoveAll(clean); err != nil {
+		logger.Warn("importer: deleting download files failed", "path", clean, "error", err)
+	}
 }
 
 // copyTree copies src (a file or a directory, recursively) into dstDir,

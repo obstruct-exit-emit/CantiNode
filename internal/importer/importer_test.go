@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -150,6 +151,15 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	if *deleteCalls == 0 {
 		t.Error("importer should have removed the completed download from its client after importing it")
 	}
+
+	// mockSab's own "delete" handler never touches the filesystem (exactly
+	// like a debrid bridge that acknowledges deleteData but ignores it) —
+	// the source directory must still be gone, proving the importer's own
+	// direct deleteDownloadData fallback ran rather than trusting the
+	// client did it.
+	if _, err := os.Stat(albumDir); !os.IsNotExist(err) {
+		t.Errorf("source directory %s should have been deleted directly, stat err = %v", albumDir, err)
+	}
 }
 
 func TestPollOnceAppliesPathMapping(t *testing.T) {
@@ -287,6 +297,61 @@ func TestPollOnceNoGrabsIsANoop(t *testing.T) {
 	result := svc.PollOnce(t.Context())
 	if result != (PollResult{}) {
 		t.Errorf("result = %+v, want zero value when there's nothing to check", result)
+	}
+}
+
+func TestDeleteDownloadDataRefusesEmptyAndRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "marker")
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"", "relative/path"} {
+		deleteDownloadData(p, slog.Default())
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("unrelated marker file should be untouched: %v", err)
+	}
+}
+
+func TestDeleteDownloadDataRefusesShallowAbsolutePath(t *testing.T) {
+	// os.MkdirTemp("", ...) lands directly under the OS temp root (typically
+	// /tmp on Linux) — exactly two path segments deep, below the "at least
+	// three" floor deleteDownloadData enforces. t.TempDir() isn't used here
+	// specifically because its own depth varies by environment; this test
+	// needs a path of a known, controlled shallowness to prove the guard
+	// actually refuses it rather than happening not to touch it.
+	shallow, err := os.MkdirTemp("", "importer-shallow-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(shallow) })
+	marker := filepath.Join(shallow, "marker")
+	if err := os.WriteFile(marker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	deleteDownloadData(shallow, slog.Default())
+
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("a shallow path must be refused, not deleted: marker gone (%v)", err)
+	}
+}
+
+func TestDeleteDownloadDataRemovesADeepAbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	deep := filepath.Join(root, "downloads", "client", "release")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "file.flac"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	deleteDownloadData(deep, slog.Default())
+
+	if _, err := os.Stat(deep); !os.IsNotExist(err) {
+		t.Errorf("deep path should have been removed, stat err = %v", err)
 	}
 }
 

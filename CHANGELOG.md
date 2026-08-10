@@ -27,15 +27,20 @@ in progress. Highlights from the hardening period, newest first:
   `bookId` → `wantedAlbumId` to match. Once a download is safely copied
   into the library, it's removed from its download client (with its data)
   so it doesn't sit around in the download folder or the client's history
-  forever; a client-reported failure, a failed copy, or a grab that
-  vanishes from its client's queue outright (removed there, or lost to a
-  restart) reverts the wanted album back to **wanted** instead — either
-  way, nothing is deleted from the client until CantiNode's own copy is
-  confirmed good. Live-verified against a real TorBox/SABnzbd bridge: a
-  genuine grabbed album was imported and matched into the library, its
-  wanted status flipped to downloaded, and the source removed from both
-  the download folder and the client, with no manual step. This restores
-  the half of Completed
+  forever — and since some clients (debrid bridges in particular)
+  acknowledge that removal but don't actually honor the delete-files flag,
+  the importer also deletes the source directly afterward as a fallback,
+  guarded against ever touching a suspiciously shallow path (must be
+  absolute and at least three segments deep, so a bad or mistranslated
+  path can never wipe a mount root or top-level directory). A
+  client-reported failure, a failed copy, or a grab that vanishes from its
+  client's queue outright (removed there, or lost to a restart) reverts
+  the wanted album back to **wanted** instead — either way, nothing is
+  deleted until CantiNode's own copy is confirmed good. Live-verified
+  against a real TorBox/SABnzbd bridge, including the debrid-bridge
+  quirk above: the bridge accepted the delete-files request but left the
+  files in place, exactly the case the direct fallback exists for. This
+  restores the half of Completed
   Download Handling dropped in the ebook/comic removal that doesn't need
   an automatic search sweep to be useful on its own; see the
   [roadmap](ROADMAP.md#future-) for the other half.
