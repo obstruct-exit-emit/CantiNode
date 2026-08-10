@@ -22,21 +22,20 @@ import (
 )
 
 // The direct client is LibriNode's own downloader — a third protocol beside
-// torrent and usenet for sources that hand out plain HTTP file links (Anna's
-// Archive fast-download, Libgen mirrors, open-book collections). There is no
-// external program: Add streams the file into the configured download folder
-// itself, Completed Download Handling imports the result like any other
-// finished download, and Remove deletes it.
+// torrent and usenet for sources that hand out plain HTTP file links instead
+// of a magnet/NZB. There is no external program: Add streams the file into
+// the configured download folder itself; the next library scan picks up the
+// result like any other file on disk, and Remove deletes it. No native
+// source ships built in today, so nothing currently grabs through this path.
 //
 // A release's download URL may carry several mirrors separated by "|" — they
 // are tried in order until one delivers. A fetched body that turns out to be
-// JSON with a "download_url" field (the shape membership APIs like Anna's
-// fast_download.json answer with) is followed one hop to the real file.
+// JSON with a "download_url" field (the shape some membership APIs answer
+// with) is followed one hop to the real file.
 //
 // The in-flight queue is in-memory: a restart forgets active downloads (the
-// files on disk keep whatever bytes arrived; the importer's orphan sweep
-// resolves their grabs). Completed items survive as files and are re-listed
-// until removed.
+// files on disk keep whatever bytes arrived). Completed items survive as
+// files and are re-listed until removed.
 
 const (
 	// directTimeout bounds one download end to end.
@@ -430,7 +429,7 @@ func safeFilename(title string) string {
 // Content-Disposition filename, then the URL path, then the Content-Type. The
 // last three are allow-listed to real media types so a file served from a
 // get.php/download.aspx link is never saved as ".php" — the bug that made a
-// perfectly good ebook unimportable.
+// perfectly good download unimportable.
 func extensionFor(resp *http.Response, header []byte) string {
 	if ext := sniffExt(header); ext != "" {
 		return ext
@@ -454,7 +453,7 @@ func extensionFor(resp *http.Response, header []byte) string {
 	case strings.Contains(ct, "mobi"):
 		return ".mobi"
 	}
-	return ".bin" // unknown — the importer will name what it expected instead
+	return ".bin" // unknown — saved as-is for manual review
 }
 
 // sniffExt identifies a file from its leading magic bytes — the one signal a
@@ -479,11 +478,11 @@ func sniffExt(b []byte) string {
 	return ""
 }
 
-// looksLikeWebPage reports whether a downloaded body is really an HTML/XML error
-// or landing page rather than a book file. No format LibriNode accepts begins
-// with '<', so a leading angle bracket (after optional whitespace or a BOM) is a
-// reliable tell — and it catches pages a mirror serves as octet-stream, which
-// the Content-Type guard misses.
+// looksLikeWebPage reports whether a downloaded body is really an HTML/XML
+// error or landing page rather than a real file. No format LibriNode accepts
+// begins with '<', so a leading angle bracket (after optional whitespace or a
+// BOM) is a reliable tell — and it catches pages a mirror serves as
+// octet-stream, which the Content-Type guard misses.
 func looksLikeWebPage(b []byte) bool {
 	b = bytes.TrimLeft(b, " \t\r\n\uFEFF")
 	return len(b) > 0 && b[0] == '<'

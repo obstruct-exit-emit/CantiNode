@@ -87,14 +87,14 @@ func TestCleanMachineRestore(t *testing.T) {
 		t.Fatalf("open source db: %v", err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO authors (metadata_source, foreign_id, name, sort_name) VALUES ('hardcover', 'hc-1', 'Ursula K. Le Guin', 'Le Guin, Ursula K.')`,
+		`INSERT INTO artists (mbid, name, sort_name) VALUES ('mbid-1', 'Boards of Canada', 'Boards of Canada')`,
 	); err != nil {
-		t.Fatalf("seed author: %v", err)
+		t.Fatalf("seed artist: %v", err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO books (author_id, foreign_id, title, sort_title) VALUES (1, 'hc-b1', 'A Wizard of Earthsea', 'wizard of earthsea a')`,
+		`INSERT INTO albums (artist_id, mbid, release_group_mbid, title) VALUES (1, 'album-mbid-1', 'rg-mbid-1', 'Geogaddi')`,
 	); err != nil {
-		t.Fatalf("seed book: %v", err)
+		t.Fatalf("seed album: %v", err)
 	}
 
 	configPath := filepath.Join(src, "config.yaml")
@@ -148,17 +148,17 @@ func TestCleanMachineRestore(t *testing.T) {
 	defer restored.Close()
 
 	var name string
-	if err := restored.QueryRow(`SELECT name FROM authors WHERE foreign_id = 'hc-1'`).Scan(&name); err != nil {
-		t.Fatalf("restored author lookup: %v", err)
+	if err := restored.QueryRow(`SELECT name FROM artists WHERE mbid = 'mbid-1'`).Scan(&name); err != nil {
+		t.Fatalf("restored artist lookup: %v", err)
 	}
-	if name != "Ursula K. Le Guin" {
-		t.Errorf("restored author name = %q, want Ursula K. Le Guin", name)
+	if name != "Boards of Canada" {
+		t.Errorf("restored artist name = %q, want Boards of Canada", name)
 	}
-	var books int
-	if err := restored.QueryRow(`SELECT COUNT(*) FROM books`).Scan(&books); err != nil {
-		t.Fatalf("restored book count: %v", err)
+	var albums int
+	if err := restored.QueryRow(`SELECT COUNT(*) FROM albums`).Scan(&albums); err != nil {
+		t.Fatalf("restored album count: %v", err)
 	}
-	if books != 1 {
-		t.Errorf("restored book count = %d, want 1", books)
+	if albums != 1 {
+		t.Errorf("restored album count = %d, want 1", albums)
 	}
 }

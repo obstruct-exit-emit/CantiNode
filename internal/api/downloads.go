@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/librinode/librinode/internal/download"
-	"github.com/librinode/librinode/internal/scanner"
+	"github.com/librinode/librinode/internal/relname"
 )
 
 // downloadTimeout bounds a grab/import request. It's generous because a debrid
@@ -165,110 +165,6 @@ func (s *server) handleTestDownloadClient(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// handleGrabRelease sends a release to the matching download client — the
-// button behind interactive search results. bookId ties the download to a
-// book so Completed Download Handling can import it automatically.
-func (s *server) handleGrabRelease(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Title       string `json:"title"`
-		DownloadURL string `json:"downloadUrl"`
-		GUID        string `json:"guid"`
-		Protocol    string `json:"protocol"`
-		BookID      int64  `json:"bookId"`
-		MediaType   string `json:"mediaType"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DownloadURL == "" {
-		writeError(w, http.StatusBadRequest,
-			"this release has no download URL — the source may require a membership/API key for downloads")
-		return
-	}
-	switch req.Protocol {
-	case download.ProtocolTorrent, download.ProtocolUsenet, download.ProtocolDirect:
-	default:
-		writeError(w, http.StatusBadRequest, "protocol must be torrent, usenet, or direct")
-		return
-	}
-	if req.MediaType == "" {
-		req.MediaType = "ebook"
-	}
-	if req.BookID > 0 {
-		if _, err := s.store.GetBook(req.BookID); err != nil {
-			writeStoreError(w, err)
-			return
-		}
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
-	defer cancel()
-
-	result, grab, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, req.BookID, req.MediaType)
-	if errors.Is(err, download.ErrNoClient) {
-		writeError(w, http.StatusServiceUnavailable,
-			"no enabled "+req.Protocol+" download client — add one under Settings")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"client": result.Client, "id": result.ID, "grabId": grab.ID,
-	})
-}
-
-// handleAutoSearchBook searches indexers for one book and grabs the best
-// approved release automatically.
-func (s *server) handleAutoSearchBook(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(r)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	ctx, cancel := s.metadataCtx(r)
-	defer cancel()
-
-	outcome, err := s.search.SearchBook(ctx, id, r.URL.Query().Get("mediaType"))
-	if err != nil {
-		writeStoreError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, outcome)
-}
-
-// handleSearchWanted runs the automatic search over every wanted book now
-// (the background loop does the same on a schedule).
-func (s *server) handleSearchWanted(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
-
-	outcomes, err := s.search.SearchWanted(ctx)
-	if err != nil && len(outcomes) == 0 {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	grabbed := 0
-	for _, o := range outcomes {
-		if o.Grabbed {
-			grabbed++
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"searched": len(outcomes), "grabbed": grabbed, "outcomes": outcomes,
-	})
-}
-
-// handleImport runs one Completed Download Handling pass on demand.
-func (s *server) handleImport(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
-	defer cancel()
-
-	result, err := s.importer.Run(ctx)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
 // handleHistory lists grab records, newest first, paged:
 // GET /history?search=&limit=&offset= → {"records": […], "total": N}.
 func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
@@ -366,12 +262,12 @@ func (s *server) enrichQueue(items []download.Item) []queueItem {
 		if g.ClientItemID != "" {
 			byID[g.ClientItemID] = g
 		}
-		byTitle[scanner.Normalize(g.Title)] = g
+		byTitle[relname.Normalize(g.Title)] = g
 	}
 	for i := range out {
 		g := byID[out[i].ID]
 		if g == nil {
-			g = byTitle[scanner.Normalize(out[i].Title)]
+			g = byTitle[relname.Normalize(out[i].Title)]
 		}
 		if g != nil {
 			out[i].GrabID = g.ID

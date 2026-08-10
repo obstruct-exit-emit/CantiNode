@@ -8,14 +8,14 @@ import (
 func TestSeededDefaultProfile(t *testing.T) {
 	s := newTestStore(t)
 
-	def, err := s.DefaultProfile("ebook")
+	def, err := s.DefaultProfile("music")
 	if err != nil {
 		t.Fatalf("DefaultProfile: %v", err)
 	}
-	if def.Name != "Standard Ebook" || !def.IsDefault {
+	if def.Name != "Standard Music" || !def.IsDefault {
 		t.Errorf("seeded default = %+v", def)
 	}
-	if len(def.Formats) != 4 || def.Formats[0] != "epub" {
+	if len(def.Formats) == 0 || def.Formats[0] != "flac" {
 		t.Errorf("seeded formats = %v", def.Formats)
 	}
 }
@@ -24,27 +24,27 @@ func TestProfileCRUDAndDefaultSwap(t *testing.T) {
 	s := newTestStore(t)
 
 	p := &QualityProfile{
-		Name:    "EPUB Only",
-		Formats: []string{" EPUB ", "epub"}, // normalized + deduped
+		Name:    "FLAC Only",
+		Formats: []string{" FLAC ", "flac"}, // normalized + deduped
 	}
 	if err := s.AddProfile(p); err != nil {
 		t.Fatalf("AddProfile: %v", err)
 	}
-	if p.ID == 0 || len(p.Formats) != 1 || p.Formats[0] != "epub" {
+	if p.ID == 0 || len(p.Formats) != 1 || p.Formats[0] != "flac" {
 		t.Fatalf("added profile = %+v", p)
 	}
-	if p.MediaType != "ebook" {
+	if p.MediaType != "music" {
 		t.Errorf("media type default = %q", p.MediaType)
 	}
 
 	// Validation failures.
 	for _, bad := range []*QualityProfile{
-		{Name: "", Formats: []string{"epub"}},
+		{Name: "", Formats: []string{"flac"}},
 		{Name: "x", Formats: nil},
 		{Name: "x", Formats: []string{"docx"}},
-		{Name: "x", Formats: []string{"epub"}, RetailBonus: 500},
-		{Name: "x", Formats: []string{"epub"}, MinSize: 100, MaxSize: 50},
-		{Name: "x", MediaType: "vinyl", Formats: []string{"epub"}},
+		{Name: "x", Formats: []string{"flac"}, RetailBonus: 500},
+		{Name: "x", Formats: []string{"flac"}, MinSize: 100, MaxSize: 50},
+		{Name: "x", MediaType: "vinyl", Formats: []string{"flac"}},
 	} {
 		if err := s.AddProfile(bad); err == nil {
 			t.Errorf("profile %+v should fail validation", bad)
@@ -66,7 +66,7 @@ func TestProfileCRUDAndDefaultSwap(t *testing.T) {
 	if err := s.SetDefaultProfile(p.ID); err != nil {
 		t.Fatalf("SetDefaultProfile: %v", err)
 	}
-	def, _ := s.DefaultProfile("ebook")
+	def, _ := s.DefaultProfile("music")
 	if def.ID != p.ID {
 		t.Errorf("default = %+v, want %d", def, p.ID)
 	}

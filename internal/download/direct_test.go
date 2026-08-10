@@ -218,11 +218,11 @@ func TestDirectHTMLWithoutFileLinkFails(t *testing.T) {
 	}
 }
 
-// TestDirectNamesFileByContentNotPhpURL reproduces the libgen get.php chain: the
-// file is served from a ".../get.php?..." URL as application/octet-stream, but
-// its bytes are a real epub. The saved file must be named ".epub" from the
-// content sniff — never ".php" from the URL path, the bug that made a perfectly
-// good ebook unimportable.
+// TestDirectNamesFileByContentNotPhpURL reproduces a get.php-style mirror
+// chain: the file is served from a ".../get.php?..." URL as
+// application/octet-stream, but its bytes are a real epub. The saved file
+// must be named ".epub" from the content sniff — never ".php" from the URL
+// path, the bug that made a perfectly good download unimportable.
 func TestDirectNamesFileByContentNotPhpURL(t *testing.T) {
 	epub := append([]byte("PK\x03\x04\x14\x00\x00\x00\x00\x00"),
 		[]byte("________________mimetypeapplication/epub+zip then the book bytes")...)
@@ -276,7 +276,7 @@ func TestDirectDispositionBeatsPhpURL(t *testing.T) {
 
 // TestDirectRejectsWebPageServedAsFile: a mirror that answers an error/landing
 // page but labels it application/octet-stream (slipping past the Content-Type
-// guard) must be rejected — not saved as a bogus "book" the importer can't use.
+// guard) must be rejected — not saved to disk as a bogus file.
 func TestDirectRejectsWebPageServedAsFile(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")

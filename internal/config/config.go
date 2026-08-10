@@ -20,160 +20,13 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/librinode/librinode/internal/metadata"
 )
 
-// MetadataSettings selects the active metadata provider and stores each
-// provider's settings (kept even while inactive, so switching back is
-// painless).
-type MetadataSettings struct {
-	Active    string                       `yaml:"active"`
-	Providers map[string]metadata.Settings `yaml:"providers"`
-	// Fallbacks names book providers, in order, consulted only when Active
-	// draws a blank on a search or an id lookup — the "as fallbacks" contract.
-	// A record found through a fallback is stored under that fallback's name,
-	// so its later refresh routes back to it, not to Active. Open Library and
-	// Google Books are the keyless fallbacks that ship. See
-	// metadata.FallbackProvider.
-	Fallbacks []string `yaml:"fallbacks,omitempty"`
-	// ComicProvider chooses the comic series provider ("hardcover",
-	// "comicvine", or "none"); empty defaults to hardcover. "none" turns off
-	// search/adds for that library — existing series still refresh through
-	// their own source.
-	ComicProvider string `yaml:"comic_provider,omitempty"`
-	// ComicCoverSource picks volume/issue cover art for the comics library:
-	// "file" (extract the first page of the owned archive) or "provider"
-	// (the metadata provider's art). Defaults to provider art.
-	ComicCoverSource string `yaml:"comic_cover_source,omitempty"`
-	// Language / Country / IncludeAdult are global, provider-agnostic
-	// metadata preferences: every provider that carries the data prefers
-	// matching editions/entries and falls back to less strict picks.
-	// Defaults: english, united states, adult content hidden; "none" means
-	// no preference at all. They shape METADATA only — acquisition (quality
-	// profiles) is untouched.
-	Language     string `yaml:"language,omitempty"`
-	Country      string `yaml:"country,omitempty"`
-	IncludeAdult bool   `yaml:"include_adult,omitempty"`
-	// IncludeCompilations, off by default, keeps box sets / omnibus editions /
-	// collections out of metadata search so results are individual books.
-	IncludeCompilations bool `yaml:"include_compilations,omitempty"`
-}
-
-// ComicSeriesProvider returns the configured comic provider name, defaulting
-// to hardcover.
-func (c *Config) ComicSeriesProvider() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.Metadata.ComicProvider == "" {
-		return "hardcover"
-	}
-	return c.Metadata.ComicProvider
-}
-
-// MetadataLanguage returns the global metadata language preference,
-// defaulting to english.
-func (c *Config) MetadataLanguage() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.Metadata.Language == "" {
-		return "english"
-	}
-	return c.Metadata.Language
-}
-
-// MetadataCountry returns the global metadata country preference, defaulting
-// to united states.
-func (c *Config) MetadataCountry() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.Metadata.Country == "" {
-		return "united states"
-	}
-	return c.Metadata.Country
-}
-
-// IncludeAdult reports whether adult-flagged results may appear in metadata
-// searches (default: hidden).
-func (c *Config) IncludeAdult() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Metadata.IncludeAdult
-}
-
-// IncludeCompilations reports whether box sets / omnibus editions may appear in
-// metadata searches (default: hidden).
-func (c *Config) IncludeCompilations() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Metadata.IncludeCompilations
-}
-
-// ProviderSettings returns the providers map with the global metadata
-// preferences injected into every entry — providers are built from Settings
-// alone, so the preferences ride along to each of them, present and future.
-// A "none" language/country means no preference and is injected as empty.
-func (c *Config) ProviderSettings() map[string]metadata.Settings {
-	ms := c.MetadataSettings()
-	lang, country, adult := c.MetadataLanguage(), c.MetadataCountry(), c.IncludeAdult()
-	comps := c.IncludeCompilations()
-	if lang == "none" {
-		lang = ""
-	}
-	if country == "none" {
-		country = ""
-	}
-	for name, s := range ms.Providers {
-		s.Language, s.Country, s.IncludeAdult = lang, country, adult
-		s.IncludeCompilations = comps
-		ms.Providers[name] = s
-	}
-	return ms.Providers
-}
-
-// CoverSourceFor returns the effective volume-cover source ("file" or
-// "provider") for the comic media type: the per-type setting, or the
-// default — the provider's art.
-func (c *Config) CoverSourceFor(mediaType string) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var v string
-	switch mediaType {
-	case "comic":
-		v = c.Metadata.ComicCoverSource
-	}
-	if v == "" {
-		return "provider"
-	}
-	return v
-}
-
-// UseProviderCovers reports whether a media type's volume covers should come
-// from the metadata provider instead of the owned file.
-func (c *Config) UseProviderCovers(mediaType string) bool {
-	return c.CoverSourceFor(mediaType) == "provider"
-}
-
-// SeriesSelection maps each series media type to its chosen provider, for
-// metadata.Manager.ConfigureSeries.
-func (c *Config) SeriesSelection() map[string]string {
-	return map[string]string{
-		"comic": c.ComicSeriesProvider(),
-	}
-}
-
-// NamingSettings holds the file-organization templates (per media type as
-// later phases land; ebooks first). Rendered per path segment by the naming
-// package. Music has its own template shape ({Artist}/{Album}/{Title}, not
-// {Author Name}/{Book Title}) and is rendered by internal/musicscanner's
-// own FormatPath, not internal/naming — MusicFile is stored here anyway so
-// it lives alongside the other per-media-type templates in Settings.
+// NamingSettings holds the file-organization templates. Music has its own
+// template shape ({Artist}/{Album}/{Title}) and is rendered by
+// internal/musicscanner's own FormatPath, not internal/naming — MusicFile is
+// stored here anyway so it lives alongside other Settings sections.
 type NamingSettings struct {
-	EbookFolder string `yaml:"ebook_folder" json:"ebookFolder"`
-	EbookFile   string `yaml:"ebook_file" json:"ebookFile"`
-	// Comics use Kavita/Komga's Series/File layout.
-	ComicFolder string `yaml:"comic_folder" json:"comicFolder"`
-	ComicFile   string `yaml:"comic_file" json:"comicFile"`
 	// MusicFile is a single template (not folder+file) since
 	// internal/musicscanner.FormatPath renders one path — folder
 	// separators included — from artist/album/track in one placeholder
@@ -183,14 +36,7 @@ type NamingSettings struct {
 
 func defaultNaming() NamingSettings {
 	return NamingSettings{
-		// Each ebook lives in its own folder (Calibre/Readarr convention) so
-		// its sidecars travel with it; the filename stays informative on its
-		// own — author, series, title, year.
-		EbookFolder: "{Author Name}/{Book Title} ({Release Year})",
-		EbookFile:   "{Author Name} - {Series Title} {Series Position} - {Book Title} ({Release Year})",
-		ComicFolder: "{Series Title}",
-		ComicFile:   "{Series Title} #{Series Position 00} ({Release Year})",
-		MusicFile:   "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}",
+		MusicFile: "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}",
 	}
 }
 
@@ -252,24 +98,6 @@ func (a AuthSettings) Find(username string) *UserAccount {
 	return nil
 }
 
-// ImportSettings tunes Completed Download Handling. All three default to on
-// (see defaults()); the fields carry no omitempty so an explicit "off" is
-// written to the file and survives a reload instead of falling back to the
-// default.
-type ImportSettings struct {
-	// PackImportAll imports every matching book from a multi-book pack, not
-	// just monitored ones. On by default. Off fills monitored books only, so
-	// grabbing one volume never auto-imports the rest of a bundle.
-	PackImportAll bool `yaml:"pack_import_all" json:"packImportAll"`
-	// RemoveCompleted removes a download from its client once LibriNode has
-	// imported it. On by default. Off leaves torrents seeding until their
-	// client's own goal is met (usenet history is cleared either way).
-	RemoveCompleted bool `yaml:"remove_completed" json:"removeCompleted"`
-	// DeleteCompletedFiles also deletes the downloaded files from disk when a
-	// download is removed after import. On by default; implies RemoveCompleted.
-	DeleteCompletedFiles bool `yaml:"delete_completed_files" json:"deleteCompletedFiles"`
-}
-
 // PathMapping translates a download client's reported path prefix into the
 // path where LibriNode actually sees those files — for setups where the
 // client runs on another machine or in a container and reports its own
@@ -324,8 +152,7 @@ type TimingSettings struct {
 	SearchIntervalHours int `yaml:"search_interval_hours,omitempty" json:"searchIntervalHours"`
 	// RefreshIntervalHours: library metadata re-sync cadence (default 720 —
 	// 30 days; metadata rarely changes, and a monthly sweep is kinder to
-	// providers. New volumes for monitored series still arrive via per-item
-	// refreshes and manual Refresh.)
+	// providers.)
 	RefreshIntervalHours int `yaml:"refresh_interval_hours,omitempty" json:"refreshIntervalHours"`
 	// HealthIntervalMinutes: background health check cadence (default 15).
 	HealthIntervalMinutes int `yaml:"health_interval_minutes,omitempty" json:"healthIntervalMinutes"`
@@ -411,21 +238,13 @@ type Config struct {
 	APIKey   string `yaml:"api_key"`
 	LogLevel string `yaml:"log_level"` // debug, info, warn, error
 
-	Auth     AuthSettings     `yaml:"auth,omitempty"`
-	Metadata MetadataSettings `yaml:"metadata"`
-	Naming   NamingSettings   `yaml:"naming"`
-	Music    MusicSettings    `yaml:"music,omitempty"`
-	// No omitempty: Import defaults to all-on, so an all-off choice must be
-	// written explicitly rather than dropped and re-defaulted on load.
-	Import  ImportSettings `yaml:"import"`
+	Auth    AuthSettings   `yaml:"auth,omitempty"`
+	Naming  NamingSettings `yaml:"naming"`
+	Music   MusicSettings  `yaml:"music,omitempty"`
 	Timings TimingSettings `yaml:"timings,omitempty"`
 	// PathMappingList translates client-reported download paths onto this
 	// machine's filesystem (Completed Download Handling reads them).
 	PathMappingList []PathMapping `yaml:"path_mappings,omitempty"`
-
-	// Legacy flat field, migrated into Metadata.Providers on load and
-	// dropped from the file on the next save.
-	LegacyHardcoverToken string `yaml:"hardcover_token,omitempty"`
 
 	mu      sync.Mutex
 	dataDir string
@@ -436,20 +255,8 @@ func defaults() *Config {
 		Host:     "0.0.0.0",
 		Port:     7845,
 		LogLevel: "info",
-		Metadata: MetadataSettings{
-			Active:    "hardcover",
-			Providers: map[string]metadata.Settings{},
-		},
-		Naming: defaultNaming(),
-		Music:  defaultMusic(),
-		// Completed Download Handling is fully automatic by default: import
-		// whole packs, remove the download from its client, and delete the
-		// source files once imported.
-		Import: ImportSettings{
-			PackImportAll:        true,
-			RemoveCompleted:      true,
-			DeleteCompletedFiles: true,
-		},
+		Naming:   defaultNaming(),
+		Music:    defaultMusic(),
 	}
 }
 
@@ -498,17 +305,6 @@ func Load(dataDir string) (*Config, error) {
 
 	applyEnvOverrides(cfg)
 
-	if cfg.Metadata.Providers == nil {
-		cfg.Metadata.Providers = map[string]metadata.Settings{}
-	}
-	// Migrate the legacy flat token into the provider map; omitempty drops
-	// the old field from the file on save.
-	if cfg.LegacyHardcoverToken != "" {
-		if cfg.Metadata.Providers["hardcover"].Token == "" {
-			cfg.setProviderToken("hardcover", cfg.LegacyHardcoverToken)
-		}
-		cfg.LegacyHardcoverToken = ""
-	}
 	// Migrate the legacy single login account into the user list (as the
 	// default); omitempty drops the old fields from the file on save.
 	if cfg.Auth.Username != "" {
@@ -531,9 +327,6 @@ func Load(dataDir string) (*Config, error) {
 		}
 	}
 	normalizeUsers(&cfg.Auth)
-	if v := os.Getenv("LIBRINODE_HARDCOVER_TOKEN"); v != "" {
-		cfg.setProviderToken("hardcover", v)
-	}
 
 	// Empty templates (fresh section, hand-edited file) fall back to defaults.
 	cfg.Naming.FillDefaults()
@@ -566,36 +359,14 @@ func applyEnvOverrides(cfg *Config) {
 	}
 }
 
-func (c *Config) setProviderToken(provider, token string) {
-	s := c.Metadata.Providers[provider]
-	s.Token = token
-	c.Metadata.Providers[provider] = s
-}
-
-// SetMetadata replaces the metadata settings and persists the config.
-// Safe for concurrent use from API handlers.
-func (c *Config) SetMetadata(ms MetadataSettings) error {
-	c.mu.Lock()
-	c.Metadata = ms
-	c.mu.Unlock()
-	return c.save()
-}
-
-// FillDefaults replaces empty templates with the built-in defaults, so a
-// partial update (or hand-edited config) can never leave a media type with
-// an empty — and thus garbage-rendering — template.
+// FillDefaults replaces an empty template with the built-in default, so a
+// partial update (or hand-edited config) can never leave the music template
+// empty — and thus garbage-rendering.
 func (ns *NamingSettings) FillDefaults() {
 	def := defaultNaming()
-	fill := func(dst *string, fallback string) {
-		if strings.TrimSpace(*dst) == "" {
-			*dst = fallback
-		}
+	if strings.TrimSpace(ns.MusicFile) == "" {
+		ns.MusicFile = def.MusicFile
 	}
-	fill(&ns.EbookFolder, def.EbookFolder)
-	fill(&ns.EbookFile, def.EbookFile)
-	fill(&ns.ComicFolder, def.ComicFolder)
-	fill(&ns.ComicFile, def.ComicFile)
-	fill(&ns.MusicFile, def.MusicFile)
 }
 
 // SetNaming replaces the naming templates and persists the config. Empty
@@ -613,21 +384,6 @@ func (c *Config) NamingSettings() NamingSettings {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Naming
-}
-
-// ImportSettings returns the current import options.
-func (c *Config) ImportSettings() ImportSettings {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Import
-}
-
-// SetImport replaces the import options and persists the config.
-func (c *Config) SetImport(is ImportSettings) error {
-	c.mu.Lock()
-	c.Import = is
-	c.mu.Unlock()
-	return c.save()
 }
 
 // MusicSettings returns the current music-scanning options. A config
@@ -651,14 +407,6 @@ func (c *Config) SetMusic(m MusicSettings) error {
 	c.Music = m
 	c.mu.Unlock()
 	return c.save()
-}
-
-// PackImportAll reports whether pack imports fill every matching book
-// instead of monitored ones only.
-func (c *Config) PackImportAll() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.Import.PackImportAll
 }
 
 // TimingSettings returns the background-loop cadences (zero = default).
@@ -718,27 +466,6 @@ func (c *Config) SetTimings(t TimingSettings) error {
 	c.Timings = t
 	c.mu.Unlock()
 	return c.save()
-}
-
-// MetadataSettings returns a deep copy so callers can't mutate shared state.
-func (c *Config) MetadataSettings() MetadataSettings {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	out := MetadataSettings{
-		Active:              c.Metadata.Active,
-		ComicProvider:       c.Metadata.ComicProvider,
-		ComicCoverSource:    c.Metadata.ComicCoverSource,
-		Language:            c.Metadata.Language,
-		Country:             c.Metadata.Country,
-		IncludeAdult:        c.Metadata.IncludeAdult,
-		IncludeCompilations: c.Metadata.IncludeCompilations,
-		Fallbacks:           append([]string(nil), c.Metadata.Fallbacks...),
-		Providers:           make(map[string]metadata.Settings, len(c.Metadata.Providers)),
-	}
-	for name, s := range c.Metadata.Providers {
-		out.Providers[name] = s
-	}
-	return out
 }
 
 // AuthSettings returns the current login accounts (possibly none). The Users

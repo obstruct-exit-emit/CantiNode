@@ -9,8 +9,10 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
 
 > **Since removed:** manga and magazines (media types, Phase 3) and the
 > AudioBook Bay / Library Genesis native indexers (Phase 5) were pulled from
-> the codebase entirely — see the [CHANGELOG](CHANGELOG.md#removed). The
-> phase write-ups below are left as delivered-at-the-time history.
+> the codebase entirely, and later **ebooks, audiobooks, and comics were
+> removed outright** — LibriNode is now a **music-only** server (see the
+> [CHANGELOG](CHANGELOG.md#removed)). The phase write-ups below are left as
+> delivered-at-the-time history.
 
 ## At a glance
 
@@ -193,15 +195,15 @@ Under consideration, in no particular order:
   well-supported Linux path through burn-in — reintroducing them, plus the
   originally-planned code-signed Windows installer, is a matter of picking
   the work back up, not redesigning it
-- [ ] **Import lists**: Hardcover want-to-read shelf → auto-monitor
 - [ ] **External notifications**: Discord/webhook/email on grab, import,
   upgrade, and failure
-- [ ] **Reader integrations**: notify Calibre, Kavita, Komga, or
-  Audiobookshelf on import
+- [ ] **Player integrations**: notify Navidrome/Plex on import
+- [ ] **Automatic acquisition loop**: a periodic wanted-list sweep and
+  Completed Download Handling (both dropped in the ebook/comic removal —
+  search, grab, and import are user-triggered only today)
 - [ ] **Accessibility, the systematic pass**: focus trapping, full keyboard
   paths, a screen-reader walk of the main flows
 - [ ] **Localization** — and with it, language/date preferences
-- [ ] `ComicInfo.xml` for CBR archives (needs a RAR writer)
 
 ---
 

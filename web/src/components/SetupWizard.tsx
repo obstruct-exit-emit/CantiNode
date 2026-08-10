@@ -4,13 +4,10 @@ import FolderBrowser from "./FolderBrowser";
 
 // SetupWizard is the first-run experience: a fresh instance is claimed by
 // creating a login account (no API key involved), then walked through the
-// essentials — library folder, metadata token, indexer, download client.
-// Every step after the account is skippable; everything lives in Settings
-// afterwards.
+// essentials — library folder, indexer, download client. Every step after
+// the account is skippable; everything lives in Settings afterwards.
 
-const steps = ["Account", "Library", "Metadata", "Indexer", "Downloads", "Done"] as const;
-
-const mediaTypes = ["ebook", "comic", "music"] as const;
+const steps = ["Account", "Library", "Indexer", "Downloads", "Done"] as const;
 
 export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
@@ -22,30 +19,24 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
 
-  // Step 1 — root folders.
-  const [mediaType, setMediaType] = useState<string>("ebook");
+  // Step 1 — root folder.
   const [path, setPath] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const [folders, setFolders] = useState<RootFolder[]>([]);
 
-  // Step 2 — metadata token.
-  const [token, setToken] = useState("");
-
-  // Step 3 — indexer.
+  // Step 2 — indexer.
   const [indexer, setIndexer] = useState<Omit<Indexer, "id" | "addedAt">>({
     name: "",
     type: "newznab",
     baseUrl: "",
     apiKey: "",
-    categories: "7000,7020",
-    audioCategories: "3030",
-    comicCategories: "7030",
+    audioCategories: "3010,3040",
     enabled: true,
     priority: 25,
   });
   const [indexersAdded, setIndexersAdded] = useState(0);
 
-  // Step 4 — download client.
+  // Step 3 — download client.
   const [client, setClient] = useState<Omit<DownloadClient, "id">>({
     name: "",
     type: "qbittorrent",
@@ -92,34 +83,11 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
     const trimmed = path.trim();
     if (!trimmed) return;
     run(async () => {
-      const f = await api.addRootFolder(mediaType, trimmed);
+      const f = await api.addRootFolder("music", trimmed);
       setFolders((list) => [...list, f]);
       setPath("");
     }, "✓ Library folder added — add another, or continue");
   };
-
-  const saveToken = () => {
-    run(async () => {
-      const s = await api.getMetadataSettings();
-      await api.saveMetadataSettings(
-        "hardcover",
-        { ...s.providers, hardcover: { ...(s.providers.hardcover ?? {}), token: token.trim() } },
-        {
-          comicProvider: s.comicProvider,
-          comicCoverSource: s.comicCoverSource,
-          language: s.language,
-          country: s.country,
-          includeAdult: s.includeAdult,
-        },
-      );
-    }, undefined, true);
-  };
-
-  const testToken = () =>
-    run(
-      () => api.testMetadataProvider("hardcover", { token: token.trim() }),
-      "✓ Token accepted",
-    );
 
   const addIndexer = () =>
     run(async () => {
@@ -186,25 +154,18 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
 
       {step === 1 && (
         <>
-          <h2>Where do your books live?</h2>
+          <h2>Where does your music live?</h2>
           <p className="muted">
-            A <strong>root folder</strong> creates a library — LibriNode scans
-            it for files you own and organizes new downloads into it. Add one
-            per media type you use (paths are on the machine running
-            LibriNode; under WSL, Windows drives are at <code>/mnt/c/…</code>).
+            A <strong>root folder</strong> creates your library — LibriNode
+            scans it for files you own and organizes new downloads into it
+            (paths are on the machine running LibriNode; under WSL, Windows
+            drives are at <code>/mnt/c/…</code>).
           </p>
           <div className="settings-form">
             <div className="settings-actions">
-              <select value={mediaType} onChange={(e) => setMediaType(e.target.value)}>
-                {mediaTypes.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
               <input
                 style={{ flex: 1, minWidth: 220 }}
-                placeholder="/data/ebooks"
+                placeholder="/data/music"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
               />
@@ -246,42 +207,6 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
       )}
 
       {step === 2 && (
-        <>
-          <h2>Metadata</h2>
-          <p className="muted">
-            Book search, covers, and author bibliographies come from{" "}
-            <strong>Hardcover</strong> — grab a free token at{" "}
-            <a href="https://hardcover.app/account/api" target="_blank" rel="noreferrer">
-              hardcover.app/account/api
-            </a>
-            . A ComicVine key can be added later in Settings → Metadata.
-          </p>
-          <div className="settings-form">
-            <label>
-              Hardcover API token
-              <input
-                type="password"
-                placeholder="Paste your token"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-              />
-            </label>
-            <div className="settings-actions">
-              <button className="toggle" disabled={busy || !token.trim()} onClick={testToken}>
-                Test
-              </button>
-              <button disabled={busy || !token.trim()} onClick={saveToken}>
-                Save & continue
-              </button>
-              {notice && (
-                <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>{notice}</span>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-      {step === 3 && (
         <>
           <h2>Where to search</h2>
           <p className="muted">
@@ -331,7 +256,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         </>
       )}
 
-      {step === 4 && (
+      {step === 3 && (
         <>
           <h2>Where downloads go</h2>
           <p className="muted">
@@ -400,7 +325,7 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         </>
       )}
 
-      {step === 5 && (
+      {step === 4 && (
         <>
           <h2>You're all set 🎉</h2>
           <p className="muted">
@@ -408,16 +333,14 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
               ? `${folders.length} library folder${folders.length === 1 ? "" : "s"}`
               : "No library folders yet"}
             {" · "}
-            {token.trim() ? "metadata connected" : "no metadata token"}
-            {" · "}
             {indexersAdded} indexer{indexersAdded === 1 ? "" : "s"}
             {" · "}
             {clientsAdded} download client{clientsAdded === 1 ? "" : "s"}
           </p>
           <p className="muted">
             Everything here — and much more — lives in <strong>Settings</strong>.
-            Add an author or series from a library page and LibriNode takes it
-            from there: search, grab, download, import, organize.
+            Add an artist from the Music page and LibriNode takes it from
+            there: search, grab, download, import, organize.
           </p>
           <div className="settings-actions">
             <button onClick={onDone}>Enter LibriNode</button>
@@ -425,16 +348,16 @@ export default function SetupWizard({ onDone }: { onDone: () => void }) {
         </>
       )}
 
-      {step > 0 && step < 5 && (
+      {step > 0 && step < 4 && (
         <div className="wizard-nav">
           <button className="toggle" disabled={busy || step === 1} onClick={back}>
             ← Back
           </button>
-          {notice && step !== 2 && (
+          {notice && (
             <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>{notice}</span>
           )}
           <button className="toggle wizard-skip" disabled={busy} onClick={next}>
-            {step === 1 && folders.length > 0 ? "Continue →" : step === 3 && indexersAdded > 0 ? "Continue →" : step === 4 && clientsAdded > 0 ? "Continue →" : "Skip for now →"}
+            {step === 1 && folders.length > 0 ? "Continue →" : step === 2 && indexersAdded > 0 ? "Continue →" : step === 3 && clientsAdded > 0 ? "Continue →" : "Skip for now →"}
           </button>
         </div>
       )}

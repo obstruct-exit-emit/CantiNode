@@ -15,7 +15,7 @@ type Parsed struct {
 	Author   string   `json:"author,omitempty"`
 	Title    string   `json:"title,omitempty"`
 	Year     int      `json:"year,omitempty"`
-	Formats  []string `json:"formats,omitempty"` // ebook and audio format tokens
+	Formats  []string `json:"formats,omitempty"` // audio format tokens
 	Language string   `json:"language,omitempty"`
 	Retail   bool     `json:"retail"`
 	Group    string   `json:"group,omitempty"`
@@ -34,11 +34,6 @@ type Parsed struct {
 }
 
 var mediaFormats = map[string]bool{
-	// ebook
-	"epub": true, "mobi": true, "azw3": true, "pdf": true,
-	// comic
-	"cbz": true, "cbr": true,
-	// music
 	"m4a": true, "mp3": true, "flac": true, "opus": true, "wav": true,
 }
 

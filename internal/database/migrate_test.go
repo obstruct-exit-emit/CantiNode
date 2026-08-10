@@ -58,9 +58,11 @@ func TestFreshDatabaseAppliesEveryMigration(t *testing.T) {
 
 // seedThroughV009 writes a database that looks like an older LibriNode build
 // left it: migrations applied only through 009 (media_type columns exist, but
-// before the 011+ backfills), then a handful of representative rows. Closing
-// the handle before Open() re-runs the real migration chain over this
-// fixture — the whole point of the upgrade drill.
+// before the 011+ backfills, and long before 019 removed ebook/comic
+// support), then a handful of representative rows — both prose/comic data
+// (which the upgrade must remove) and a music root folder (which it must
+// keep untouched). Closing the handle before Open() re-runs the real
+// migration chain over this fixture — the whole point of the upgrade drill.
 func seedThroughV009(t *testing.T, path string) {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(OFF)&_pragma=busy_timeout(5000)")
@@ -98,27 +100,32 @@ func seedThroughV009(t *testing.T, path string) {
 			t.Fatalf("seed %q: %v", q, err)
 		}
 	}
-	// Two root folders.
-	exec(`INSERT INTO root_folders (id, media_type, path) VALUES (1, 'ebook', '/lib/ebooks'), (2, 'comic', '/lib/comics')`)
-	// A custom profile alongside the built-in default — both must survive the
-	// rest of the migration chain.
+	// Three root folders: ebook and comic must be dropped by the upgrade;
+	// music must survive untouched.
+	exec(`INSERT INTO root_folders (id, media_type, path) VALUES
+		(1, 'ebook', '/lib/ebooks'), (2, 'comic', '/lib/comics'), (3, 'music', '/lib/music')`)
+	// A custom profile per surviving/dropped media type — both the built-in
+	// ebook default and the custom comic one must be gone after the upgrade;
+	// the custom music one must survive.
 	exec(`INSERT INTO quality_profiles (name, media_type, formats) VALUES ('Custom Comic', 'comic', 'cbz,cbr')`)
-	// An author with a prose book and a comic volume.
+	exec(`INSERT INTO quality_profiles (name, media_type, formats) VALUES ('Custom Music', 'music', 'flac,mp3')`)
+	// An author with a prose book and a comic volume — all dropped.
 	exec(`INSERT INTO authors (id, foreign_id, name, sort_name, monitored) VALUES (1, 'hc-a1', 'Test Author', 'Author, Test', 1)`)
 	exec(`INSERT INTO books (id, author_id, foreign_id, title, sort_title, media_type, monitored) VALUES (1, 1, 'hc-b1', 'A Prose Book', 'prose book a', 'book', 1)`)
 	exec(`INSERT INTO books (id, author_id, foreign_id, title, sort_title, media_type, monitored) VALUES (2, 1, 'hc-b2', 'Comic Vol 1', 'comic vol 1', 'comic', 1)`)
-	// An owned ebook file for the prose book — the 012 backfill should read
-	// this and flip the book into the ebook library.
+	// An owned ebook file for the prose book — dropped along with book_files.
 	exec(`INSERT INTO book_files (root_folder_id, book_id, path, media_type, format) VALUES (1, 1, '/lib/ebooks/a.epub', 'ebook', 'epub')`)
+	// A grab against that prose book — grabs itself survives (rebuilt), the
+	// dangling book_id just becomes an inert plain integer.
+	exec(`INSERT INTO grabs (book_id, title, protocol, media_type) VALUES (1, 'A Prose Book', 'usenet', 'ebook')`)
 }
 
-// TestMigrationChainPreservesOldData is the real upgrade drill: seed an
-// old-schema fixture, run every remaining migration against it, and assert the
-// data comes through whole — table rebuilds keep their rows, and the backfills
-// compute the values an upgrading user would expect. A migration that drops a
-// column, filters rows on rebuild, or botches a backfill fails here rather than
-// silently eating a real library's data.
-func TestMigrationChainPreservesOldData(t *testing.T) {
+// TestMigrationChainDropsEbookComicKeepsMusic is the real upgrade drill: seed
+// an old-schema fixture with both prose/comic data and music data, run every
+// remaining migration (through 019, which removes ebook/comic support)
+// against it, and assert prose/comic data is gone while music data and
+// generic rows (grabs, download-client-agnostic tables) survive intact.
+func TestMigrationChainDropsEbookComicKeepsMusic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "librinode.db")
 	seedThroughV009(t, path)
 
@@ -137,72 +144,72 @@ func TestMigrationChainPreservesOldData(t *testing.T) {
 		t.Errorf("after upgrade: %d migrations recorded, want %d", migCount, want)
 	}
 
-	// Both root folders must survive the rest of the migration chain.
-	var rootCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM root_folders`).Scan(&rootCount); err != nil {
-		t.Fatalf("count root_folders: %v", err)
+	// Only the music root folder survives.
+	var folders []struct {
+		MediaType string
+		Path      string
 	}
-	if rootCount != 2 {
-		t.Errorf("root_folders count = %d, want 2", rootCount)
+	rows, err := db.Query(`SELECT media_type, path FROM root_folders ORDER BY id`)
+	if err != nil {
+		t.Fatalf("query root_folders: %v", err)
 	}
-	var ebookPath string
-	if err := db.QueryRow(`SELECT path FROM root_folders WHERE id = 1`).Scan(&ebookPath); err != nil {
-		t.Fatalf("root_folder 1: %v", err)
+	for rows.Next() {
+		var f struct {
+			MediaType string
+			Path      string
+		}
+		if err := rows.Scan(&f.MediaType, &f.Path); err != nil {
+			t.Fatalf("scan root_folder: %v", err)
+		}
+		folders = append(folders, f)
 	}
-	if ebookPath != "/lib/ebooks" {
-		t.Errorf("root_folder 1 path = %q, want /lib/ebooks", ebookPath)
+	rows.Close()
+	if len(folders) != 1 || folders[0].MediaType != "music" || folders[0].Path != "/lib/music" {
+		t.Errorf("root_folders after upgrade = %+v, want just the music folder", folders)
 	}
 
-	// Both the built-in default and the custom profile must remain.
-	for _, name := range []string{"Standard Ebook", "Custom Comic"} {
+	// The ebook default and the custom comic profile are gone; the custom
+	// music profile survives, and a "Standard Music" default was seeded
+	// alongside it (no default existed among the surviving music profiles).
+	for name, wantExists := range map[string]bool{
+		"Standard Ebook": false,
+		"Custom Comic":   false,
+		"Custom Music":   true,
+		"Standard Music": true,
+	} {
 		var n int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM quality_profiles WHERE name = ?`, name).Scan(&n); err != nil {
 			t.Fatalf("count profile %q: %v", name, err)
 		}
-		if n != 1 {
-			t.Errorf("quality profile %q = %d rows, want 1", name, n)
+		exists := n == 1
+		if exists != wantExists {
+			t.Errorf("quality profile %q exists = %v, want %v", name, exists, wantExists)
+		}
+	}
+	var defaults int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM quality_profiles WHERE is_default = 1`).Scan(&defaults); err != nil {
+		t.Fatalf("count defaults: %v", err)
+	}
+	if defaults != 1 {
+		t.Errorf("default profile count = %d, want exactly 1", defaults)
+	}
+
+	// The whole prose/comic domain is gone.
+	for _, table := range []string{"authors", "books", "series", "series_books", "editions", "book_files"} {
+		if _, err := db.Query(`SELECT 1 FROM ` + table); err == nil {
+			t.Errorf("table %q should have been dropped by the upgrade", table)
 		}
 	}
 
-	// 012 backfill on the prose book: implicitly in the ebook library and
-	// monitored there.
-	var inEbook, ebookMon int
-	if err := db.QueryRow(
-		`SELECT in_ebook_library, ebook_monitored FROM books WHERE id = 1`,
-	).Scan(&inEbook, &ebookMon); err != nil {
-		t.Fatalf("book 1 membership: %v", err)
+	// grabs survives the rebuild — its dangling book_id (the deleted prose
+	// book) is now just an inert integer, not a broken foreign key.
+	var grabTitle string
+	var grabBookID int64
+	if err := db.QueryRow(`SELECT title, book_id FROM grabs WHERE title = 'A Prose Book'`).
+		Scan(&grabTitle, &grabBookID); err != nil {
+		t.Fatalf("grabs row did not survive the upgrade: %v", err)
 	}
-	if inEbook != 1 || ebookMon != 1 {
-		t.Errorf("prose book ebook membership = (in=%d mon=%d), want (1,1)", inEbook, ebookMon)
-	}
-
-	// The comic volume is not a prose 'book', so the 012 backfill must leave it
-	// out of the prose libraries.
-	var comicInEbook int
-	if err := db.QueryRow(`SELECT in_ebook_library FROM books WHERE id = 2`).Scan(&comicInEbook); err != nil {
-		t.Fatalf("comic book membership: %v", err)
-	}
-	if comicInEbook != 0 {
-		t.Errorf("comic volume in_ebook_library = %d, want 0", comicInEbook)
-	}
-
-	// 013 backfill: the author inherits its membership from the prose book.
-	var authorEbook int
-	if err := db.QueryRow(
-		`SELECT in_ebook_library FROM authors WHERE id = 1`,
-	).Scan(&authorEbook); err != nil {
-		t.Fatalf("author membership: %v", err)
-	}
-	if authorEbook != 1 {
-		t.Errorf("author membership = (ebook=%d), want 1", authorEbook)
-	}
-
-	// 015 added provider_override with an empty default.
-	var override string
-	if err := db.QueryRow(`SELECT provider_override FROM authors WHERE id = 1`).Scan(&override); err != nil {
-		t.Fatalf("author provider_override: %v", err)
-	}
-	if override != "" {
-		t.Errorf("author provider_override = %q, want empty default", override)
+	if grabBookID != 1 {
+		t.Errorf("grab book_id = %d, want 1 (preserved as a plain value)", grabBookID)
 	}
 }

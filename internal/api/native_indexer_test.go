@@ -30,7 +30,7 @@ func init() {
 // but is hidden from Prowlarr (identified by its User-Agent) so it can't be
 // treated as an indexer Prowlarr owns and prunes.
 func TestNativeIndexerAddAndProwlarrExclusion(t *testing.T) {
-	a := newTestAPI(t, fakeProvider{})
+	a := newTestAPI(t)
 
 	// It shows up in the list of selectable native implementations.
 	var impls []map[string]any
@@ -76,7 +76,7 @@ func hasIndexerType(list []map[string]any, typ string) bool {
 // TestDirectDownloadClientPersists: a direct-type client saves to the store
 // (migration 017 dropped the type CHECK) and round-trips through the API.
 func TestDirectDownloadClientPersists(t *testing.T) {
-	a := newTestAPI(t, fakeProvider{})
+	a := newTestAPI(t)
 
 	dir := t.TempDir()
 	var created map[string]any

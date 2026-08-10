@@ -1,8 +1,8 @@
 // Package redact strips credential-shaped query parameters out of HTTP
 // errors before they're logged or shown to a user. Several protocols
 // LibriNode speaks put the secret directly in the request URL's query
-// string (Newznab/Torznab's apikey, SABnzbd's apikey, ComicVine's api_key) —
-// a failed request there comes back as a *url.Error whose default Error()
+// string (Newznab/Torznab's apikey, SABnzbd's apikey) — a failed request
+// there comes back as a *url.Error whose default Error()
 // text is "<Op> \"<URL-with-secret>\": <cause>", so logging or displaying it
 // as-is leaks the credential into the log file's log viewer, health
 // banners, and search-error messages a user might paste into a bug report.
@@ -17,7 +17,7 @@ import (
 
 // sensitiveParams are the query-string keys every client in this codebase
 // uses to carry a secret. Matched case-sensitively against how each client
-// actually sets them (see indexer.apiURL, sabnzbd's params, comicvine.get).
+// actually sets them (see indexer.apiURL, sabnzbd's params).
 var sensitiveParams = []string{"apikey", "api_key", "token", "password", "key"}
 
 // URLError redacts any sensitive query parameters from a *url.Error's

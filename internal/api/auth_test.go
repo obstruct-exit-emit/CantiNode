@@ -8,7 +8,7 @@ import (
 )
 
 func TestAuthSessionsAndAPIKeyRegen(t *testing.T) {
-	a := newTestAPI(t, nil)
+	a := newTestAPI(t)
 
 	// Auth is disabled until credentials are set.
 	var status struct {
@@ -62,7 +62,7 @@ func TestAuthSessionsAndAPIKeyRegen(t *testing.T) {
 
 	// The session alone (no API key) authenticates API requests.
 	withCookie := func(c *http.Cookie) int {
-		req, _ := http.NewRequest("GET", a.srv.URL+"/api/v1/author", nil)
+		req, _ := http.NewRequest("GET", a.srv.URL+"/api/v1/music/artist", nil)
 		if c != nil {
 			req.AddCookie(c)
 		}
@@ -101,18 +101,18 @@ func TestAuthSessionsAndAPIKeyRegen(t *testing.T) {
 	if regen.APIKey == "" || regen.APIKey == oldKey {
 		t.Fatalf("regenerated key %q should be fresh", regen.APIKey)
 	}
-	if r := a.call("GET", "/api/v1/author", nil, nil); r.StatusCode != http.StatusUnauthorized {
+	if r := a.call("GET", "/api/v1/music/artist", nil, nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("old API key: status %d, want 401", r.StatusCode)
 	}
 	a.apiKey = regen.APIKey
-	a.want(a.call("GET", "/api/v1/author", nil, nil), http.StatusOK)
+	a.want(a.call("GET", "/api/v1/music/artist", nil, nil), http.StatusOK)
 }
 
 // Sessions are bound to their account: removing a user ends their open
 // sessions immediately, and a password change ends the account's OTHER
 // sessions while the browser making the change keeps its own.
 func TestSessionUserBinding(t *testing.T) {
-	a := newTestAPI(t, nil)
+	a := newTestAPI(t)
 
 	a.want(a.call("PUT", "/api/v1/auth/credentials",
 		map[string]string{"username": "dan", "password": "secret-pass-1"}, nil), http.StatusOK)
@@ -138,7 +138,7 @@ func TestSessionUserBinding(t *testing.T) {
 		return nil
 	}
 	status := func(c *http.Cookie) int {
-		req, _ := http.NewRequest("GET", a.srv.URL+"/api/v1/author", nil)
+		req, _ := http.NewRequest("GET", a.srv.URL+"/api/v1/music/artist", nil)
 		req.AddCookie(c)
 		r, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -189,7 +189,7 @@ func TestSessionUserBinding(t *testing.T) {
 // (requireAdmin) — and can change their own password but not someone
 // else's, while an admin can do both.
 func TestMemberRoleRestrictions(t *testing.T) {
-	a := newTestAPI(t, nil)
+	a := newTestAPI(t)
 
 	a.want(a.call("PUT", "/api/v1/auth/credentials",
 		map[string]string{"username": "admin1", "password": "admin-pass-1"}, nil), http.StatusOK)
@@ -256,7 +256,7 @@ func TestMemberRoleRestrictions(t *testing.T) {
 	}
 
 	// A member reaches ordinary library endpoints fine.
-	if got := do(kid, "GET", "/api/v1/author", ""); got != http.StatusOK {
+	if got := do(kid, "GET", "/api/v1/music/artist", ""); got != http.StatusOK {
 		t.Fatalf("member GET /author = %d, want 200", got)
 	}
 	// A member is turned away from server configuration — 403, not 401 (they
@@ -264,7 +264,7 @@ func TestMemberRoleRestrictions(t *testing.T) {
 	if got := do(kid, "GET", "/api/v1/indexer", ""); got != http.StatusForbidden {
 		t.Fatalf("member GET /indexer = %d, want 403", got)
 	}
-	if got := do(kid, "POST", "/api/v1/rootfolder", `{"mediaType":"ebook","path":"/tmp"}`); got != http.StatusForbidden {
+	if got := do(kid, "POST", "/api/v1/rootfolder", `{"mediaType":"music","path":"/tmp"}`); got != http.StatusForbidden {
 		t.Fatalf("member POST /rootfolder = %d, want 403", got)
 	}
 	if got := do(kid, "GET", "/api/v1/backup", ""); got != http.StatusForbidden {
@@ -294,7 +294,7 @@ func TestMemberRoleRestrictions(t *testing.T) {
 // revokes the account's sessions; the default user can never be demoted,
 // and promoting someone to default makes them an admin in the same step.
 func TestUserRoleChangeAndDefaultInvariant(t *testing.T) {
-	a := newTestAPI(t, nil)
+	a := newTestAPI(t)
 
 	a.want(a.call("PUT", "/api/v1/auth/credentials",
 		map[string]string{"username": "owner", "password": "owner-pass-1"}, nil), http.StatusOK)

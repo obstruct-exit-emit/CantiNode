@@ -18,9 +18,7 @@ export default function ActivityView({
   const [blocked, setBlocked] = useState<BlockEntry[]>([]);
   const [clientErrors, setClientErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [importing, setImporting] = useState(false);
   const [removing, setRemoving] = useState("");
-  const [notice, setNotice] = useState("");
 
   const reload = useCallback(() => {
     Promise.all([api.queue(), api.history(histFilter, histLimit), api.blocklist()])
@@ -80,20 +78,6 @@ export default function ActivityView({
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   };
 
-  const runImport = () => {
-    setImporting(true);
-    setNotice("");
-    api
-      .runImport()
-      .then((r) => {
-        const extra = r.messages?.length ? ` — ${r.messages.join("; ")}` : "";
-        setNotice(`Imported ${r.imported}, failed ${r.failed}, skipped ${r.skipped}${extra}`);
-        reload();
-      })
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setImporting(false));
-  };
-
   // Poll while the tab is open; downloads move fast.
   useEffect(() => {
     reload();
@@ -109,13 +93,9 @@ export default function ActivityView({
       <div className="card-head">
         <h2>Queue ({items.length})</h2>
         <span className="row-actions">
-          <button disabled={importing} onClick={runImport} title="Import finished downloads now">
-            {importing ? "Importing…" : "Import now"}
-          </button>
           <button onClick={reload}>Refresh</button>
         </span>
       </div>
-      {notice && <p className="muted">{notice}</p>}
       {clientErrors.map((e) => (
         <p key={e} className="notice bad">
           {e}

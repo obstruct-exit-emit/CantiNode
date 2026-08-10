@@ -18,14 +18,7 @@ import (
 	"github.com/librinode/librinode/internal/api"
 	"github.com/librinode/librinode/internal/config"
 	"github.com/librinode/librinode/internal/database"
-	"github.com/librinode/librinode/internal/library"
 	"github.com/librinode/librinode/internal/logging"
-	"github.com/librinode/librinode/internal/metadata"
-	"github.com/librinode/librinode/internal/metadata/comicvine"
-	"github.com/librinode/librinode/internal/metadata/googlebooks"
-	"github.com/librinode/librinode/internal/metadata/hardcover"
-	"github.com/librinode/librinode/internal/metadata/openlibrary"
-	"github.com/librinode/librinode/internal/refresh"
 )
 
 // Background cadences (wanted search, metadata refresh, health checks,
@@ -139,49 +132,16 @@ func run(dataDir string) error {
 	}
 	defer db.Close()
 
-	// Register all built-in metadata providers, then activate the configured
-	// one. New providers are one Register call away; the settings UI and API
-	// pick them up automatically.
-	metadata.Register("hardcover", hardcover.Factory)
-	// Keyless book providers — usable as the primary, but their reason for
-	// being is the fallback chain (Settings → Metadata → Fallbacks).
-	metadata.Register("openlibrary", openlibrary.Factory)
-	metadata.Register("googlebooks", googlebooks.Factory)
-	metadata.RegisterSeries("hardcover-comics", hardcover.ComicSeriesFactory)
-	metadata.RegisterSeries("comicvine", comicvine.Factory)
-
-	providers := metadata.NewManager()
-	// ProviderSettings carries the global metadata preferences (language,
-	// country, adult filter) into every provider build.
-	if err := providers.ConfigureWithFallbacks(cfg.Metadata.Active, cfg.Metadata.Fallbacks, cfg.ProviderSettings()); err != nil {
-		logger.Warn("activating metadata provider failed", "provider", cfg.Metadata.Active, "error", err)
-	}
-	providers.ConfigureSeries(cfg.ProviderSettings(), cfg.SeriesSelection())
-	if p := providers.Current(); p != nil {
-		logger.Info("metadata provider active", "provider", p.Name())
-	} else {
-		logger.Warn("no metadata provider configured — add a provider token under Settings in the web UI")
-	}
-
-	// Background loops: metadata refresh polls the provider manager (so a
-	// provider added later via settings is picked up without a restart), and
-	// Completed Download Handling imports finished grabs.
+	// Background loops: currently just the periodic health check — music's
+	// own acquisition (search/grab) and metadata refresh are triggered from
+	// the API (scan, monitor, "Refresh metadata"), not on a schedule.
 	bgCtx, cancelBg := context.WithCancel(context.Background())
 	defer cancelBg()
-	store := library.NewStore(db)
 	// Cadences: built-in defaults unless tuned under Settings → General →
 	// Background timings (applied at startup — a change needs a restart).
 	timings := cfg.TimingSettings()
 
-	// NewRouter owns the shared service stack — one download.Service (whose
-	// direct-client queue is in-memory, so it must not be duplicated), importer,
-	// indexer, and auto-search, all wired together and already exposed on the API.
-	// main runs their periodic loops beside the metadata-refresh sweep so a
-	// UI-initiated grab and the background importer act on the very same queue.
-	handler, bg := api.NewRouter(cfg, db, providers, version)
-	go refresh.New(store, providers).RunPeriodic(bgCtx, timings.RefreshInterval())
-	go bg.Importer.RunPeriodic(bgCtx, timings.ImportInterval())
-	go bg.Search.RunPeriodic(bgCtx, timings.SearchInterval())
+	handler, bg := api.NewRouter(cfg, db, version)
 	go bg.Health.RunPeriodic(bgCtx, timings.HealthInterval())
 
 	srv := &http.Server{

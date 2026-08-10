@@ -95,14 +95,11 @@ func (r *arrIndexerResource) toIndexer() (*indexer.Indexer, error) {
 				parts = append(parts, strconv.Itoa(int(n)))
 			}
 		}
-		ind.Categories = strings.Join(parts, ",")
+		ind.AudioCategories = strings.Join(parts, ",")
 	}
-	if ind.Categories == "" {
-		ind.Categories = "7000,7020"
+	if ind.AudioCategories == "" {
+		ind.AudioCategories = "3010,3040"
 	}
-	// Prowlarr's Readarr dialect has no audio/comic category fields; defaults.
-	ind.AudioCategories = "3030"
-	ind.ComicCategories = "7030"
 	if ind.Priority <= 0 || ind.Priority > 50 {
 		ind.Priority = 25
 	}
@@ -116,7 +113,7 @@ func toArrResource(ind *indexer.Indexer) arrIndexerResource {
 		impl = "Torznab"
 	}
 	categories := []int{}
-	for _, part := range strings.Split(ind.Categories, ",") {
+	for _, part := range strings.Split(ind.AudioCategories, ",") {
 		if n, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
 			categories = append(categories, n)
 		}
@@ -288,7 +285,7 @@ func readarrQualityProfile(p library.QualityProfile) map[string]any {
 	// null. Provide a single quality whose id matches the cutoff.
 	items := []any{
 		map[string]any{
-			"quality": map[string]any{"id": 1, "name": "eBook"},
+			"quality": map[string]any{"id": 1, "name": "Music"},
 			"items":   []any{},
 			"allowed": true,
 		},

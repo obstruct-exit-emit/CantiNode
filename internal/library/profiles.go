@@ -29,8 +29,6 @@ type QualityProfile struct {
 
 // formatsByMediaType lists the grabbable formats per media type.
 var formatsByMediaType = map[string][]string{
-	"ebook": {"epub", "azw3", "mobi", "pdf"},
-	"comic": {"cbz", "cbr", "pdf"},
 	"music": {"flac", "mp3", "m4a", "opus", "wav"},
 }
 
@@ -41,7 +39,7 @@ func ValidateProfile(p *QualityProfile) error {
 		return errors.New("name is required")
 	}
 	if p.MediaType == "" {
-		p.MediaType = "ebook"
+		p.MediaType = "music"
 	}
 	known, ok := formatsByMediaType[p.MediaType]
 	if !ok {

@@ -26,33 +26,31 @@ npm run build    # production build into web/dist
 ## Layout
 
 ```
-cmd/librinode/        entrypoint, background loops, restore staging
-internal/api/         REST handlers, router, auth, backups
-internal/library/     domain model + SQLite store (authors/books/series)
-internal/metadata/    provider registry + fallback chain; hardcover/,
-                      comicvine/, openlibrary/, googlebooks/
-internal/indexer/     Newznab/Torznab clients, search fan-out, backoff;
-                      native-source registry (no built-in sources today)
-internal/release/     release parsing + scoring
-internal/download/    qBittorrent/SABnzbd/direct clients, grabs, blocklist
-internal/autosearch/  wanted-list sweeps, per-book search
-internal/importer/    Completed Download Handling, seed-goal cleanup
-internal/refresh/     scheduled + manual metadata re-sync
-internal/scanner/     library file scanning + matching
-internal/organize/    naming-template rename engine (all media types)
-internal/naming/      template token rendering
-internal/opf/         OPF sidecar rendering
-internal/comicinfo/   ComicInfo.xml for CBZ archives
-internal/comiccover/  cover extraction from CBZ/CBR archives
-internal/imagecache/  provider-image download cache
-internal/health/      background health checks
-internal/redact/      strips credential-shaped values out of errors/logs
-internal/logging/     rotating log file
-internal/config/      config.yaml + env overrides
-internal/database/    SQLite open + embedded migrations
-web/                  React SPA (embedded via go:embed)
-docs/                 this documentation (mkdocs)
-packaging/            systemd unit
+cmd/librinode/         entrypoint, background loops, restore staging
+internal/api/          REST handlers, router, auth, backups
+internal/musiclibrary/ domain model + SQLite store (artists/albums/tracks)
+internal/musicscanner/ file scanning, MusicBrainz matching, organize/rename
+internal/musicbrainz/  MusicBrainz API client (artist/release lookup+search)
+internal/audiodb/      TheAudioDB client (artist bio/photo)
+internal/coverart/     Cover Art Archive client + local album-art cache
+internal/tagreader/    reads embedded audio tags (MBIDs, title, track#)
+internal/tagwriter/    rewrites embedded audio tags on organize
+internal/indexer/      Newznab/Torznab clients, search fan-out, backoff;
+                       native-source registry (no built-in sources today)
+internal/release/      release parsing + scoring
+internal/download/     qBittorrent/SABnzbd/direct clients, grabs, blocklist
+internal/relname/      generic release-name text utilities (used by
+                       release scoring and download-queue enrichment)
+internal/library/      generic shared model: root folders, quality profiles
+internal/imagecache/   provider-image download cache
+internal/health/       background health checks
+internal/redact/       strips credential-shaped values out of errors/logs
+internal/logging/      rotating log file
+internal/config/       config.yaml + env overrides
+internal/database/     SQLite open + embedded migrations
+web/                   React SPA (embedded via go:embed)
+docs/                  this documentation (mkdocs)
+packaging/             systemd unit
 ```
 
 Releases are cut by tagging `v*` — CI builds version-stamped binaries

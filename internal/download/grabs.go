@@ -53,7 +53,7 @@ func (s *Store) AddGrab(g *GrabRecord) error {
 		g.Status = GrabStatusGrabbed
 	}
 	if g.MediaType == "" {
-		g.MediaType = "ebook"
+		g.MediaType = "music"
 	}
 	return s.db.QueryRow(`
 		INSERT INTO grabs (book_id, client_config_id, client_item_id, title, guid, protocol, media_type, status)

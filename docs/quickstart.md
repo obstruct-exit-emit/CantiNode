@@ -2,43 +2,35 @@
 
 1. **Connect.** Open `http://localhost:7845`. A brand-new instance greets you
    with a **first-run setup wizard** — create an account (no API key needed)
-   and it walks you through libraries, metadata, an indexer, and a download
+   and it walks you through your music folder, an indexer, and a download
    client. Otherwise, paste the API key from `config.yaml` in the data
    directory, or add a login account later under **Settings → General →
    Security** and sign in with a username/password instead.
 
-2. **Metadata.** Under **Settings → Metadata**, paste your
-   [Hardcover API token](https://hardcover.app/account/api), hit **Test**,
-   then **Save**. Search goes live immediately. Comics use Hardcover (the
-   default) or a free [ComicVine key](https://comicvine.gamespot.com/api/) —
-   pick the provider on the same page.
+2. **Root folder.** Under **Settings → Media Management**, add the root
+   folder your music lives in. Adding it is what makes the Music library
+   appear in the sidebar.
 
-3. **Root folders.** Under **Settings → Media Management**, add one root
-   folder per media type you use. Adding a root folder is what makes that
-   library appear in the sidebar.
+3. **Add an artist.** On the Music page, hit **+ Add**, search MusicBrainz,
+   and pick the right one. Adding (monitoring) an artist caches their whole
+   discography, bio, and photo right away — every release starts in that
+   artist's **Missing** section for you to want selectively.
 
-4. **Add something.** On a library page, hit **+ Add** and search. Adding an
-   author pulls their bibliography as metadata and joins the library,
-   but monitors nothing yet — every book starts in that author's **Missing**
-   section for you to monitor selectively. Adding a specific book pulls its
-   editions and monitors just that one. Comic series work like authors:
-   adding one pulls its volumes as metadata, all starting in the series'
-   **Missing** section — monitor volumes selectively, or flip the series'
-   monitor toggle to monitor everything (including future volumes).
+4. **Scan what you own.** **Scan files** on the Music page (or an artist's
+   own page) matches existing files against MusicBrainz — by embedded
+   `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID` tags first, then whole-folder
+   release matching, then fuzzy title search. Files it can't confidently
+   place land in an **Unmatched** list for manual review. A newly-discovered
+   artist (one your files matched to, that you hadn't explicitly monitored)
+   gets its metadata cached automatically too.
 
-5. **Scan what you own.** **Scan files** on a library page matches existing
-   files to your books — every item gets an owned/wanted badge. Strays land
-   in an unmatched list with a confidence-rated best guess: import them in
-   one click (or all confident matches at once), resolve duplicates, or add
-   the missing author/series right from the row.
-
-6. **Automate acquisition.** Add indexers (**Settings → Indexers**, or sync
+5. **Automate acquisition.** Add indexers (**Settings → Indexers**, or sync
    them from Prowlarr by adding LibriNode as a *Readarr* application) and a
    download client (**Settings → Download Clients**, with **Test** buttons).
-   Monitored items are searched automatically every six hours; **Search
-   wanted**, per-item **Auto grab**, and interactive **Search releases**
-   cover "right now". Finished downloads import, rename, and organize
-   themselves; the **Activity** page shows the queue and history.
+   From an artist's **Missing** section, **+ Add** (or **+ Add & Monitor**)
+   an album to want it; from **Wanted**, **Search releases** and **Grab**
+   the one you want. Grabbed files are picked up the same way any other
+   file is — the next scan of your music folder matches them in.
 
-7. **Check the Calendar** for upcoming releases, the per-library **Wanted**
-   card for gaps, and **System** for health checks, logs, and backups.
+6. **Check Activity** for the download queue and grab history, and
+   **System** for health checks, logs, and backups.

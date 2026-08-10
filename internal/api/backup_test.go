@@ -8,7 +8,7 @@ import (
 )
 
 func TestBackupCreateRestoreDelete(t *testing.T) {
-	a := newTestAPI(t, nil)
+	a := newTestAPI(t)
 
 	var status struct {
 		DataDir string `json:"dataDir"`

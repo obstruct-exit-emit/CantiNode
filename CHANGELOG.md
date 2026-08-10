@@ -617,6 +617,28 @@ in progress. Highlights from the hardening period, newest first:
   versions via ldflags.
 
 ### Removed
+- **Ebooks, audiobooks, and comics are gone — LibriNode is now a music-only
+  server.** Authors, books, editions, series, and every book-format library
+  are removed, along with the metadata-provider subsystem that served them
+  (Hardcover, ComicVine, Open Library, Google Books, AniList) and the
+  importer/autosearch/organize/refresh pipeline built around them. Music
+  (MusicBrainz + TheAudioDB, added over the prior series of changes) is now
+  the sole library. Generic infrastructure Music depends on is untouched:
+  root folders, quality profiles, indexers (Newznab/Torznab/native,
+  including Prowlarr application sync), download clients, the grab
+  queue/history/blocklist, health checks, backups, and auth/roles. Two
+  functional notes: **Completed Download Handling and the automatic
+  wanted-list sweep are gone with the importer/autosearch packages they
+  lived in** — grabbed files are picked up by the next library scan
+  instead of an automatic import pass, and search/grab are user-triggered
+  only for now (tracked in the roadmap's Future section); and the
+  `naming`/`opf`/`comicinfo`/`comiccover`/`scanner` packages are removed or
+  trimmed to their still-generic pieces (`internal/relname` keeps the two
+  release-name utilities release scoring and queue enrichment still use).
+  Touches the DB schema (a new migration drops the book tables and rebuilds
+  the shared `root_folders`/`quality_profiles`/`indexers`/`grabs` tables to
+  match), the REST API, and the web UI (routing collapses to a single
+  Music library).
 - **Manga and magazines are gone as media types**, along with the
   colorized/monochrome per-variant root-folder system manga alone used.
   Comics remains as the one series-first library. Also removed: the

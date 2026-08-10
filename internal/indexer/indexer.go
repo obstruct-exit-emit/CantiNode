@@ -22,17 +22,14 @@ const (
 
 // Indexer is one configured indexer endpoint.
 type Indexer struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	BaseURL    string `json:"baseUrl"`
-	APIKey     string `json:"apiKey"`
-	Categories string `json:"categories"` // comma-separated Newznab category ids (book searches)
-	// AudioCategories are used for music searches (3010 = Audio/MP3, 3040 =
-	// Audio/Lossless).
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	BaseURL string `json:"baseUrl"`
+	APIKey  string `json:"apiKey"`
+	// AudioCategories are the comma-separated Newznab/Torznab category ids
+	// used for music searches (3010 = Audio/MP3, 3040 = Audio/Lossless).
 	AudioCategories string `json:"audioCategories"`
-	// ComicCategories are used for comic searches (7030 = Books/Comics).
-	ComicCategories string `json:"comicCategories"`
 	Enabled         bool   `json:"enabled"`
 	Priority        int    `json:"priority"` // 1-50, lower wins ties
 	AddedAt         string `json:"addedAt"`
@@ -50,15 +47,11 @@ func (i *Indexer) Protocol() string {
 	return ProtocolUsenet
 }
 
-// CategoriesFor picks the category list for a media type's searches.
+// CategoriesFor picks the category list for a media type's searches — only
+// music exists now, so this always returns AudioCategories; the mediaType
+// parameter survives for API-shape stability with SearchAll's callers.
 func (i *Indexer) CategoriesFor(mediaType string) string {
-	switch mediaType {
-	case "music":
-		return i.AudioCategories
-	case "comic":
-		return i.ComicCategories
-	}
-	return i.Categories
+	return i.AudioCategories
 }
 
 // Release is one search result from an indexer — a candidate file for a

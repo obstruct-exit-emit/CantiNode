@@ -875,11 +875,12 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 // handleGrabWantedMusicAlbum sends a release (a result from a prior
 // handleSearchWantedMusicAlbum call — the caller passes back whichever one
 // the user picked) to the matching download client. Grabs are recorded
-// untracked (no book_id — that column belongs to the prose/comic library):
-// internal/musicscanner's own scan matches the downloaded files by their
-// embedded MusicBrainz tags once they land in a music root folder, the
-// same as any other file dropped there, so a grab doesn't need Completed
-// Download Handling's book-tracking machinery to eventually show up.
+// untracked (no book_id — that column is a leftover plain field from the
+// removed prose/comic library; see 019_music_only.sql): internal/
+// musicscanner's own scan matches the downloaded files by their embedded
+// MusicBrainz tags once they land in a music root folder, the same as any
+// other file dropped there, so a grab doesn't need any automatic import
+// step to eventually show up.
 func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {

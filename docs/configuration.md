@@ -16,37 +16,24 @@ auth:                  # present once a login account is added
       default: true    # the protected primary account (cannot be removed)
       role: admin      # admin | member (omitted = admin; the default user is
                        #   always admin). Members can't reach settings/accounts
-metadata:
-  active: hardcover              # primary book provider: hardcover |
-                                 #   openlibrary | googlebooks
-  fallbacks: [openlibrary, googlebooks]  # book providers, in order, consulted
-                                 #   ONLY when the active one draws a blank on a
-                                 #   search or lookup (Settings → Metadata →
-                                 #   Fallbacks); omit for none
-  comic_provider: hardcover      # hardcover | comicvine | none (Settings → Metadata)
-  comic_cover_source: provider   # provider | file — comic issue covers
-  language: english              # global metadata preference — providers
-  country: united states         #   prefer matching editions, then fall
-  include_adult: false           #   back; "none" = no preference
-  include_compilations: false    # show box sets / omnibus editions in metadata
-                                 #   search (default: hidden, individual books only)
-  providers:
-    hardcover: { token: "..." }
-    comicvine: { token: "..." }
-    googlebooks: { token: "..." }  # recommended: keyless shares one global daily
-                                   #   quota that's often already spent (HTTP 429);
-                                   #   a free key gives you your own. Open Library
-                                   #   needs no key.
 naming:
-  # Each ebook gets its own folder, so sidecars travel with the book.
-  ebook_folder: "{Author Name}/{Book Title} ({Release Year})"
-  ebook_file: "{Author Name} - {Series Title} {Series Position} - {Book Title} ({Release Year})"
-  # audiobook_*, comic_* — all editable in the UI
+  music_file: "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}"
+music:
+  organize_on_match: false       # move/rename a file the instant it's matched
+                                 #   during a scan (default: off — review first)
+  min_match_confidence: 0.75     # fuzzy-search acceptance threshold (0-1);
+                                 #   direct tag matches and whole-folder release
+                                 #   matches always accept regardless
+  musicbrainz_contact_email: ""  # included in the MusicBrainz User-Agent per
+                                 #   their API usage policy; optional but
+                                 #   recommended
+  audiodb_api_key: ""            # TheAudioDB key for artist bio/photo lookup;
+                                 #   empty uses TheAudioDB's public test key
 import:                          # Completed Download Handling (Settings →
                                  # Download Clients → Import handling).
                                  # All default to true.
-  pack_import_all: true          # multi-book packs fill every matching book,
-                                 #   not just monitored ones
+  pack_import_all: true          # multi-album packs fill every matching
+                                 #   album, not just monitored ones
   remove_completed: true         # remove the download from the client once
                                  #   imported (torrents too, else they seed)
   delete_completed_files: true   # also delete the downloaded files after
@@ -62,7 +49,7 @@ path_mappings:                   # remote client paths → local paths
 ```
 
 Environment variables override the file: `LIBRINODE_HOST`, `LIBRINODE_PORT`,
-`LIBRINODE_API_KEY`, `LIBRINODE_LOG_LEVEL`, `LIBRINODE_HARDCOVER_TOKEN`.
+`LIBRINODE_API_KEY`, `LIBRINODE_LOG_LEVEL`.
 The data directory itself is chosen with `--data <dir>`.
 
 ## Remote path mappings
@@ -73,7 +60,7 @@ those downloads if the share is mounted at the identical path. **Settings →
 Download Clients → Remote path mappings** maps a remote prefix to a local
 one — the longest matching prefix wins, matching is boundary-aware and
 case-insensitive (Windows clients), and separators convert automatically, so
-`C:\downloads\Book` maps cleanly onto `/mnt/dl/Book`. Applied to every
+`C:\downloads\Album` maps cleanly onto `/mnt/dl/Album`. Applied to every
 client-reported path before import touches disk.
 
 ## Background timings
@@ -83,15 +70,13 @@ client-reported path before import touches disk.
 fields use the defaults; entered values are clamped to the ranges above so a
 typo can't hammer your indexers. Changes apply on the next server start.
 
-## Naming templates
+## Naming template
 
-Tokens: `{Author Name}`, `{Author SortName}`, `{Book Title}`,
-`{Series Title}`, `{Series Position}`, `{Series Position 00}` (zero-padded,
-so `Vol. 01` sorts before `Vol. 10`), `{Release Year}`. Tokens without a
-value drop out cleanly; emptied fields revert to defaults (a partial save
-can never wipe another type's templates). Folder templates may span several
-levels with `/` — a level that renders empty drops away, so a year-less book
-nests one level shallower.
+Tokens: `{Artist}`, `{Album}`, `{TrackNumber}`, `{Title}`, `{Ext}`. One
+template renders the whole path (folder separators included) in a single
+pass, so `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}` produces both the
+folder structure and the filename together. Tokens without a value drop out
+cleanly; an emptied template reverts to the default.
 
 ## Authentication
 
@@ -117,7 +102,7 @@ admin-equivalent for Prowlarr and scripts.
 
 A brand-new instance offers a **first-run setup wizard** instead (no API key
 needed): it creates the first account — which becomes the default — and walks
-through libraries, metadata, an indexer, and a download client.
+through your root folder, an indexer, and a download client.
 
 The API key keeps working for Prowlarr and scripts regardless, and can be
 regenerated from the same page. For HTTPS, see the next section.
@@ -155,9 +140,9 @@ server {
 ## Health checks
 
 Every 15 minutes (and on demand from the System page) LibriNode verifies
-root folders are reachable, enabled indexers answer, download clients are
-up, and the metadata token is valid — plus warnings when nothing is
-configured at all. Issues appear as a banner on every page.
+root folders are reachable, enabled indexers answer, and download clients
+are up — plus warnings when nothing is configured at all. Issues appear as
+a banner on every page.
 
 ## Logs
 
@@ -173,19 +158,8 @@ and applies them on the next restart, keeping the replaced ones as
 
 ## Image cache
 
-Two kinds of images are cached under `<data>/covers`, both disposable and
-safe to delete (they rebuild on demand):
-
-- **Extracted comic covers** (`covers/book-<id>`): a comic volume's
-  cover, pulled from the owned archive's first page and re-extracted when the
-  source file changes. Clear it from **Settings → Metadata → Clear extracted
-  covers**.
-- **Provider art** (`covers/remote/…`): author portraits and series/book
-  covers from any provider (Hardcover, AniList, ComicVine, Open Library,
-  Google Books), downloaded on add/refresh so the UI serves them locally and
-  they survive the provider's link rot.
-
-**Settings → Metadata** has buttons to clear each of these, plus
-**Descriptions** (stored in the database — cleared descriptions return on the
-next metadata refresh) and **Clear all**, which wipes every rebuildable cache
-at once.
+Provider art — artist photos (TheAudioDB) and album covers (Cover Art
+Archive) — is cached under `<data>/covers/remote/…`, downloaded on
+add/refresh so the UI serves it locally and it survives provider link rot.
+It's disposable and rebuilds on demand; deleting the directory (server
+stopped) is safe, or call `DELETE /api/v1/cache`.

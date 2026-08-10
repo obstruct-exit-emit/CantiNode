@@ -6,29 +6,24 @@ import {
   setApiKey,
   type AuthStatus,
   type DownloadClient,
-  type ImportSettings,
   type Indexer,
-  type MetadataSettings,
   type NamingSettings,
   type NativeIndexer,
   type PathMapping,
-  type ProviderSettings,
   type QualityProfile,
   type RootFolder,
   type SystemStatus,
   type TimingSettings,
   type UserAccount,
 } from "../api";
-import { formatBytes } from "../format";
 import { useUi } from "../ui";
 
 // Settings groups, *arr-style: pages organized by concern instead of one
 // long scroll. Each carries an icon and a one-line blurb so the section a
 // user lands on always explains itself. Order matches the README spec.
 const settingsGroups = [
-  { name: "Media Management", icon: "📁", blurb: "Where your libraries live on disk, and how organized files are named." },
-  { name: "Quality Profiles", icon: "⭐", blurb: "Which release formats are acceptable and preferred, per media type." },
-  { name: "Metadata", icon: "🔖", blurb: "Where authors, series, covers, and descriptions come from." },
+  { name: "Media Management", icon: "📁", blurb: "Where your library lives on disk, and how organized files are named." },
+  { name: "Quality Profiles", icon: "⭐", blurb: "Which release formats are acceptable and preferred." },
   { name: "Indexers", icon: "🔎", blurb: "Newznab and Torznab search sources — added by hand or synced from Prowlarr." },
   { name: "Download Clients", icon: "⬇️", blurb: "Where grabbed releases are sent, and how finished downloads are handled." },
   { name: "General", icon: "⚙️", blurb: "Login accounts, the API key, and this instance's details." },
@@ -87,28 +82,15 @@ export default function SettingsView({
 }) {
   const [group, setGroup] = useState<SettingsGroup>("Media Management");
 
-  // Plex-style gating: type-specific settings render only for libraries
-  // that are set up. Root Folders always offers every type — that's how a
-  // library gets created in the first place.
+  // Plex-style gating: music-specific settings render only once a music
+  // root folder is set up. Root Folders itself always offers it — that's
+  // how the library gets created in the first place.
   const [activeTypes, setActiveTypes] = useState<string[]>([]);
   const reloadLibraries = useCallback(() => {
     api
-      .libraries()
-      .then((ls) => ls.filter((l) => l.active).map((l) => l.mediaType))
-      .catch(() => [] as string[])
-      .then((types) =>
-        // Music isn't part of the ebook/comic library-status system (it's a
-        // separate domain — see internal/musiclibrary); it gates the same
-        // way once a music root folder exists.
-        api
-          .listRootFolders()
-          .then((folders) =>
-            setActiveTypes(
-              folders.some((f) => f.mediaType === "music") ? [...types, "music"] : types,
-            ),
-          )
-          .catch(() => setActiveTypes(types)),
-      );
+      .listRootFolders()
+      .then((folders) => setActiveTypes(folders.some((f) => f.mediaType === "music") ? ["music"] : []))
+      .catch(() => setActiveTypes([]));
   }, []);
   useEffect(reloadLibraries, [reloadLibraries]);
 
@@ -157,18 +139,16 @@ export default function SettingsView({
       {group === "Media Management" && (
         <>
           <RootFoldersCard onError={onError} onChanged={librariesChanged} />
-          <NamingCard onError={onError} activeTypes={activeTypes} />
+          <NamingCard onError={onError} />
         </>
       )}
       {group === "Quality Profiles" && (
         <QualityProfilesCard onError={onError} activeTypes={activeTypes} />
       )}
-      {group === "Metadata" && <MetadataCard onError={onError} />}
       {group === "Indexers" && <IndexersCard onError={onError} />}
       {group === "Download Clients" && (
         <>
           <DownloadClientsCard onError={onError} />
-          <ImportOptions onError={onError} />
           <PathMappingsPanel onError={onError} />
         </>
       )}
@@ -1042,7 +1022,7 @@ function PathMappingsPanel({ onError }: { onError: (message: string) => void }) 
           onClick={() =>
             save(
               [...mappings, { remotePrefix: remote.trim(), localPrefix: local.trim() }],
-              "✓ Mapping added — applies from the next import pass",
+              "✓ Mapping added — applies from the next scan",
             )
           }
         >
@@ -1053,129 +1033,9 @@ function PathMappingsPanel({ onError }: { onError: (message: string) => void }) 
   );
 }
 
-// ImportOptions: Completed Download Handling knobs (saved on toggle).
-const DEFAULT_IMPORT_SETTINGS: ImportSettings = {
-  packImportAll: true,
-  removeCompleted: true,
-  deleteCompletedFiles: true,
-};
-
-function ImportOptions({ onError }: { onError: (message: string) => void }) {
-  const [settings, setSettings] = useState<ImportSettings>(DEFAULT_IMPORT_SETTINGS);
-  const [loaded, setLoaded] = useState(false);
-  const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    api
-      .getImportSettings()
-      .then((s) => {
-        setSettings(s);
-        setLoaded(true);
-      })
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
-  }, [onError]);
-
-  if (!loaded) return null;
-
-  const update = (patch: Partial<ImportSettings>) => {
-    const next = { ...settings, ...patch };
-    // Deleting the files necessarily removes the download from the client.
-    if (next.deleteCompletedFiles) next.removeCompleted = true;
-    const prev = settings;
-    setSettings(next);
-    setNotice("");
-    api
-      .saveImportSettings(next)
-      .then((s) => {
-        setSettings(s);
-        setNotice("✓ Saved");
-      })
-      .catch((err: unknown) => {
-        setSettings(prev);
-        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`);
-      });
-  };
-
-  return (
-    <section className="card">
-      <h2>Import Handling</h2>
-      <p className="muted">
-        How LibriNode imports finished downloads and tidies up afterwards. All
-        on by default — changes save immediately.
-      </p>
-      <div className="settings-form">
-        <div className="opt">
-          <label className="check">
-            <span>
-              <input
-                type="checkbox"
-                checked={settings.packImportAll}
-                onChange={(e) => update({ packImportAll: e.target.checked })}
-              />{" "}
-              Import whole packs
-            </span>
-          </label>
-          <p className="muted opt-help">
-            On (default): a multi-book pack fills every book it matches. Off: a
-            pack only fills the grabbed book plus other{" "}
-            <strong>monitored</strong> books. Either way, a book that already
-            owns the format is only replaced by a genuine quality upgrade, and
-            nothing gets monitored automatically.
-          </p>
-        </div>
-
-        <div className="opt">
-          <label className="check">
-            <span>
-              <input
-                type="checkbox"
-                checked={settings.removeCompleted}
-                onChange={(e) => update({ removeCompleted: e.target.checked })}
-              />{" "}
-              Remove completed downloads from the client after import
-            </span>
-          </label>
-          <p className="muted opt-help">
-            On (default): the download is removed from the client — for torrents
-            too — once LibriNode has imported it. Off: usenet history entries are
-            cleared either way (the file stays), and torrents keep seeding until
-            the client's own goal is met.
-          </p>
-        </div>
-
-        <div className="opt">
-          <label className="check">
-            <span>
-              <input
-                type="checkbox"
-                checked={settings.deleteCompletedFiles}
-                onChange={(e) => update({ deleteCompletedFiles: e.target.checked })}
-              />{" "}
-              Delete the downloaded files after import
-            </span>
-          </label>
-          <p className="muted opt-help">
-            On (default): LibriNode copies imported files into the library, then
-            deletes the originals (this also removes the download from the
-            client). Turn off if the download folder is shared with other apps.
-          </p>
-        </div>
-
-        {notice && (
-          <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>
-            {notice}
-          </span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// Formats each media type is known to use — offered as suggestions in the
-// chips editor (anything else can still be typed).
+// Formats known to be used — offered as suggestions in the chips editor
+// (anything else can still be typed).
 const knownFormats: Record<string, string[]> = {
-  ebook: ["epub", "azw3", "mobi", "pdf", "txt"],
-  comic: ["cbz", "cbr", "pdf"],
   music: ["flac", "mp3", "m4a", "opus", "wav"],
 };
 
@@ -1275,16 +1135,14 @@ function QualityProfilesCard({
   onError: (message: string) => void;
   activeTypes: string[];
 }) {
-  const profileTypes = activeTypes.length > 0 ? activeTypes : ["ebook"];
+  const profileTypes = activeTypes.length > 0 ? activeTypes : ["music"];
   const defaultFormats: Record<string, string[]> = {
-    ebook: ["epub", "azw3", "mobi"],
-    comic: ["cbz", "cbr"],
     music: ["flac", "mp3", "m4a"],
   };
   const [profiles, setProfiles] = useState<QualityProfile[]>([]);
   const [name, setName] = useState("");
-  const [profileType, setProfileType] = useState("ebook");
-  const [formats, setFormats] = useState<string[]>(defaultFormats.ebook);
+  const [profileType, setProfileType] = useState("music");
+  const [formats, setFormats] = useState<string[]>(defaultFormats.music);
   const [language, setLanguage] = useState("english");
   const [upgrades, setUpgrades] = useState(false);
   // Edit-in-place: the saved profile loaded into the form, or null when adding.
@@ -1494,9 +1352,7 @@ const emptyIndexer: Omit<Indexer, "id" | "addedAt"> = {
   type: "torznab",
   baseUrl: "",
   apiKey: "",
-  categories: "7000,7020",
-  audioCategories: "3030",
-  comicCategories: "7030",
+  audioCategories: "3010,3040",
   enabled: true,
   priority: 25,
 };
@@ -1624,8 +1480,8 @@ function IndexersCard({
         Newznab (usenet) and Torznab (torrents — Prowlarr/Jackett feeds work)
         endpoints. Add them here by hand, or add LibriNode to Prowlarr as a{" "}
         <strong>Readarr</strong> application and Prowlarr keeps them in sync.
-        Categories default to books (<code>7000,7020</code>); per-type
-        categories are under advanced.
+        Categories default to audio (<code>3010,3040</code>); change only for
+        an unusual indexer.
       </p>
 
       {indexers.length > 0 && (
@@ -1804,19 +1660,6 @@ function IndexersCard({
           </>
         )}
         {!nativeDef && (
-        <Disclosure summary="Advanced — per-type categories">
-          <p className="muted field-note">
-            Newznab/Torznab category IDs searched per media type. Defaults cover
-            the standard book categories; change only for an unusual indexer.
-          </p>
-          <label>
-            Book categories
-            <input
-              title="7000 = Books, 7020 = Books/Ebook"
-              value={draft.categories}
-              onChange={(e) => set({ categories: e.target.value })}
-            />
-          </label>
           <label>
             Audio categories
             <input
@@ -1825,15 +1668,6 @@ function IndexersCard({
               onChange={(e) => set({ audioCategories: e.target.value })}
             />
           </label>
-          <label>
-            Comic categories
-            <input
-              title="7030 = Books/Comics"
-              value={draft.comicCategories}
-              onChange={(e) => set({ comicCategories: e.target.value })}
-            />
-          </label>
-        </Disclosure>
         )}
         <label>
           Priority (1–50, lower wins ties)
@@ -1870,12 +1704,9 @@ function IndexersCard({
 
 function NamingCard({
   onError,
-  activeTypes,
 }: {
   onError: (message: string) => void;
-  activeTypes: string[];
 }) {
-  const show = (t: string) => activeTypes.length === 0 || activeTypes.includes(t);
   const [settings, setSettings] = useState<NamingSettings | null>(null);
   const [t, setT] = useState<Partial<NamingSettings>>({});
   const [busy, setBusy] = useState(false);
@@ -1924,50 +1755,27 @@ function NamingCard({
     <section className="card">
       <h2>File Naming</h2>
       <p className="muted">
-        How organized files are placed inside a root folder, per media type.
-        Available tokens: {settings.tokens.map((tok, i) => (
-          <span key={tok}>
-            {i > 0 && " "}
-            <code>{tok}</code>
-          </span>
-        ))}
-        . Tokens without a value (e.g. series, for standalone books) drop out
-        cleanly; emptied fields revert to the defaults.
+        How organized files are placed inside a music root folder.
       </p>
       <div className="settings-form">
-        {show("ebook") && (
-          <Section title="Ebooks">
-            {field("Folder template", "ebookFolder")}
-            {field("File template", "ebookFile")}
-            <p className="muted field-note">
-              Example: <code>{settings.example}</code>
-            </p>
-          </Section>
-        )}
-        {show("comic") && (
-          <Section title="Comics">
-            {field("Folder template", "comicFolder")}
-            {field("File template", "comicFile")}
-          </Section>
-        )}
-        {show("music") && (
-          <Section title="Music">
-            {field(
-              "File template",
-              "musicFile",
-              "Renders one full path (folders included) from a matched track's artist/album/title — separate token set from ebooks/comics: {Artist} {Album} {Year} {TrackNumber} {DiscNumber} {Title} {Ext}",
-            )}
-            <p className="muted field-note">
-              Tokens: <code>{"{Artist}"}</code> <code>{"{Album}"}</code>{" "}
-              <code>{"{Year}"}</code> <code>{"{TrackNumber}"}</code>{" "}
-              <code>{"{DiscNumber}"}</code> <code>{"{Title}"}</code>{" "}
-              <code>{"{Ext}"}</code>. "/" separators create subfolders.
-            </p>
-            <p className="muted field-note">
-              Example: <code>{settings.musicExample}</code>
-            </p>
-          </Section>
-        )}
+        <Section title="Music">
+          {field(
+            "File template",
+            "musicFile",
+            "Renders one full path (folders included) from a matched track's artist/album/title: {Artist} {Album} {Year} {TrackNumber} {DiscNumber} {Title} {Ext}",
+          )}
+          <p className="muted field-note">
+            Tokens: <code>{"{Artist}"}</code> <code>{"{Album}"}</code>{" "}
+            <code>{"{Year}"}</code> <code>{"{TrackNumber}"}</code>{" "}
+            <code>{"{DiscNumber}"}</code> <code>{"{Title}"}</code>{" "}
+            <code>{"{Ext}"}</code>. "/" separators create subfolders. Tokens
+            without a value drop out cleanly; an emptied field reverts to
+            the default.
+          </p>
+          <p className="muted field-note">
+            Example: <code>{settings.musicExample}</code>
+          </p>
+        </Section>
         <div className="settings-actions">
           <button disabled={busy} onClick={save}>
             Save
@@ -1983,461 +1791,6 @@ function NamingCard({
   );
 }
 
-// Global metadata preference options (values stored lower-case; providers
-// match them case-insensitively against their own data).
-const LANGUAGES = [
-  "english", "spanish", "french", "german", "italian", "portuguese",
-  "dutch", "polish", "russian", "japanese", "chinese", "korean",
-];
-const COUNTRIES = [
-  "united states", "united kingdom", "canada", "australia", "germany",
-  "france", "spain", "italy", "brazil", "netherlands", "poland", "japan",
-];
-
-function MetadataCard({
-  onError,
-}: {
-  onError: (message: string) => void;
-}) {
-  const { confirmDlg } = useUi();
-  const [settings, setSettings] = useState<MetadataSettings | null>(null);
-  const [active, setActive] = useState("");
-  const [fallbacks, setFallbacks] = useState<string[]>([]);
-  const [providers, setProviders] = useState<Record<string, ProviderSettings>>({});
-  const [showToken, setShowToken] = useState(false);
-  const [comicProvider, setComicProvider] = useState("");
-  const [comicCoverSource, setComicCoverSource] = useState("provider");
-  const [language, setLanguage] = useState("english");
-  const [country, setCountry] = useState("united states");
-  const [includeAdult, setIncludeAdult] = useState(false);
-  const [includeCompilations, setIncludeCompilations] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [cacheNotice, setCacheNotice] = useState("");
-
-  const runClear = (
-    fn: () => Promise<{ removed?: number; freedBytes?: number; descriptionsCleared?: number }>,
-  ) => {
-    setCacheNotice("");
-    fn()
-      .then((r) => {
-        const parts: string[] = [];
-        if (r.removed !== undefined) {
-          parts.push(`${r.removed} image(s) (${formatBytes(r.freedBytes ?? 0) || "0 KiB"})`);
-        }
-        if (r.descriptionsCleared !== undefined) {
-          parts.push(`${r.descriptionsCleared} description(s)`);
-        }
-        const total = (r.removed ?? 0) + (r.descriptionsCleared ?? 0);
-        setCacheNotice(total === 0 ? "Nothing to clear." : `✓ Cleared ${parts.join(", ")}.`);
-      })
-      .catch((err: unknown) => setCacheNotice(`✗ ${err instanceof Error ? err.message : String(err)}`));
-  };
-
-  useEffect(() => {
-    api
-      .getMetadataSettings()
-      .then((s) => {
-        setSettings(s);
-        setActive(s.active);
-        setFallbacks(s.fallbacks ?? []);
-        setProviders(s.providers);
-        setComicProvider(s.comicProvider);
-        setComicCoverSource(s.comicCoverSource);
-        setLanguage(s.language);
-        setCountry(s.country);
-        setIncludeAdult(s.includeAdult);
-        setIncludeCompilations(s.includeCompilations);
-      })
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
-  }, [onError]);
-
-  if (!settings) return <p className="muted">Loading…</p>;
-
-  const hardcoverSettings = providers["hardcover"] ?? { token: "" };
-
-  const setProviderToken = (name: string, token: string) => {
-    setProviders({ ...providers, [name]: { ...(providers[name] ?? {}), token } });
-    setNotice("");
-  };
-
-  const test = () => {
-    setBusy(true);
-    setNotice("");
-    api
-      .testMetadataProvider("hardcover", hardcoverSettings)
-      .then(() => setNotice("✓ Connection OK — token accepted"))
-      .catch((err: unknown) =>
-        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
-      )
-      .finally(() => setBusy(false));
-  };
-
-  const save = () => {
-    setBusy(true);
-    setNotice("");
-    api
-      .saveMetadataSettings(active, providers, {
-        fallbacks: fallbacks.filter((f) => f !== active),
-        comicProvider,
-        comicCoverSource,
-        language,
-        country,
-        includeAdult,
-        includeCompilations,
-      })
-      .then((s) => {
-        setSettings(s);
-        setActive(s.active);
-        setFallbacks(s.fallbacks ?? []);
-        setProviders(s.providers);
-        setComicProvider(s.comicProvider);
-        setComicCoverSource(s.comicCoverSource);
-        setLanguage(s.language);
-        setCountry(s.country);
-        setIncludeAdult(s.includeAdult);
-        setIncludeCompilations(s.includeCompilations);
-        const hasToken = s.active && s.providers[s.active]?.token;
-        setNotice(
-          hasToken
-            ? "✓ Saved — metadata search is live"
-            : "Saved — no token set, metadata features stay disabled",
-        );
-      })
-      .catch((err: unknown) =>
-        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
-      )
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <section className="card">
-      <h2>Metadata</h2>
-      <p className="muted">
-        Where each library's metadata (authors, series, volumes, covers,
-        descriptions) comes from. Providers are pluggable — more sources can
-        be added without touching the rest of the app.
-      </p>
-
-      <div className="settings-form">
-        <div className="settings-section">
-          <h3>API keys</h3>
-          <label>
-            Hardcover API token
-            <span className="token-row">
-              <input
-                type={showToken ? "text" : "password"}
-                placeholder="Token from hardcover.app/account/api"
-                value={hardcoverSettings.token}
-                onChange={(e) => setProviderToken("hardcover", e.target.value)}
-              />
-              <button
-                type="button"
-                className="toggle"
-                onClick={() => setShowToken(!showToken)}
-              >
-                {showToken ? "hide" : "show"}
-              </button>
-              <button
-                type="button"
-                disabled={busy || !hardcoverSettings.token}
-                onClick={test}
-              >
-                Test
-              </button>
-            </span>
-          </label>
-          <label>
-            ComicVine API key
-            <input
-              type="password"
-              placeholder="Required for comic search (free key)"
-              value={providers["comicvine"]?.token ?? ""}
-              onChange={(e) => setProviderToken("comicvine", e.target.value)}
-            />
-          </label>
-          <label>
-            Google Books API key <span className="muted">(optional)</span>
-            <input
-              type="password"
-              placeholder="Optional — raises Google's anonymous rate limits"
-              value={providers["googlebooks"]?.token ?? ""}
-              onChange={(e) => setProviderToken("googlebooks", e.target.value)}
-            />
-          </label>
-          <p className="muted">
-            Hardcover tokens come from{" "}
-            <a href="https://hardcover.app/account/api" target="_blank" rel="noreferrer">hardcover.app/account/api</a>;
-            ComicVine keys from{" "}
-            <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer">comicvine.gamespot.com/api</a>.
-            AniList, Open Library, and Google Books need no key (a Google Books
-            key only lifts rate limits).
-          </p>
-        </div>
-
-        <div className="settings-section">
-          <h3>Preferences</h3>
-          <p className="muted">
-            Global metadata preferences, honored by every provider that
-            carries the data (with graceful fallback when nothing matches).
-            They shape metadata only — what to grab is the quality profiles'
-            job.
-          </p>
-          <label>
-            Language
-            <select
-              value={language}
-              onChange={(e) => {
-                setLanguage(e.target.value);
-                setNotice("");
-              }}
-            >
-              {LANGUAGES.map((l) => (
-                <option key={l} value={l}>
-                  {l[0].toUpperCase() + l.slice(1)}
-                </option>
-              ))}
-              <option value="none">No preference</option>
-            </select>
-          </label>
-          <label>
-            Country
-            <select
-              value={country}
-              onChange={(e) => {
-                setCountry(e.target.value);
-                setNotice("");
-              }}
-            >
-              {COUNTRIES.map((c) => (
-                <option key={c} value={c}>
-                  {c.replace(/\b\w/g, (ch) => ch.toUpperCase())}
-                </option>
-              ))}
-              <option value="none">No preference</option>
-            </select>
-          </label>
-          <label className="check">
-            <span>
-              <input
-                type="checkbox"
-                checked={includeAdult}
-                onChange={(e) => {
-                  setIncludeAdult(e.target.checked);
-                  setNotice("");
-                }}
-              />{" "}
-              Include adult content in metadata search results
-            </span>
-          </label>
-          <label className="check">
-            <span>
-              <input
-                type="checkbox"
-                checked={includeCompilations}
-                onChange={(e) => {
-                  setIncludeCompilations(e.target.checked);
-                  setNotice("");
-                }}
-              />{" "}
-              Show box sets &amp; collections in metadata search results
-            </span>
-          </label>
-        </div>
-
-        <div className="settings-section">
-          <h3>Ebooks</h3>
-          <label>
-            Book provider
-            <select
-              value={active}
-              onChange={(e) => {
-                setActive(e.target.value);
-                setNotice("");
-              }}
-            >
-              <option value="">None (disabled)</option>
-              {settings.available.map((name) => (
-                <option key={name} value={name}>
-                  {name[0].toUpperCase() + name.slice(1)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {active && settings.available.filter((n) => n !== active).length > 0 && (
-            <div className="opt" style={{ marginTop: "0.4rem" }}>
-              <span className="settings-subhead" style={{ display: "block" }}>
-                Fallbacks
-              </span>
-              <p className="muted opt-help" style={{ marginTop: 0 }}>
-                Consulted, in order, only when{" "}
-                <strong>{active[0].toUpperCase() + active.slice(1)}</strong> finds
-                nothing for a search or a lookup — never merged in. A book found
-                through a fallback is added under that provider, so its later
-                metadata refresh goes back to the same source. Open Library and
-                Google Books need no key.
-              </p>
-              {settings.available
-                .filter((n) => n !== active)
-                .map((name) => {
-                  const on = fallbacks.includes(name);
-                  return (
-                    <label className="check" key={name}>
-                      <span>
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={(e) => {
-                            setFallbacks(
-                              e.target.checked
-                                ? [...fallbacks.filter((f) => f !== name), name]
-                                : fallbacks.filter((f) => f !== name),
-                            );
-                            setNotice("");
-                          }}
-                        />{" "}
-                        {name[0].toUpperCase() + name.slice(1)}
-                        {on && fallbacks.length > 1 && (
-                          <span className="muted"> · #{fallbacks.indexOf(name) + 1}</span>
-                        )}
-                      </span>
-                    </label>
-                  );
-                })}
-            </div>
-          )}
-        </div>
-
-        <div className="settings-section">
-          <h3>Comics</h3>
-          <label>
-            Comic provider
-            <select
-              value={comicProvider || settings.comicProviders[0] || "hardcover"}
-              onChange={(e) => {
-                setComicProvider(e.target.value);
-                setNotice("");
-              }}
-            >
-              {settings.comicProviders.map((name) => (
-                <option key={name} value={name}>
-                  {name[0].toUpperCase() + name.slice(1)}
-                  {name === "comicvine" ? " (key above)" : ""}
-                  {name === "hardcover" ? " (uses your Hardcover token)" : ""}
-                </option>
-              ))}
-              <option value="none">None (disabled)</option>
-            </select>
-          </label>
-          <label>
-            Issue covers
-            <select
-              value={comicCoverSource}
-              onChange={(e) => {
-                setComicCoverSource(e.target.value);
-                setNotice("");
-              }}
-            >
-              <option value="provider">Use the provider's cover art</option>
-              <option value="file">Extract from the owned file (first page)</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="settings-actions">
-          <button disabled={busy} onClick={save}>
-            Save
-          </button>
-          {notice && (
-            <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>
-              {notice}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="settings-form">
-        <Disclosure summary="Cache maintenance">
-        <p className="muted field-note">
-          <strong>Refresh all metadata</strong> re-fetches every author and
-          series from your provider right now — descriptions and covers come
-          back, and entries the provider no longer lists (old translations, box
-          sets, anthologies) are removed. It runs in the background; changes
-          appear as they complete. Clearing a cache below just empties it;
-          it rebuilds on demand. <strong>Provider art</strong> (author portraits,
-          cover images) and <strong>extracted covers</strong> (the first page of
-          your owned comic archives) re-fetch as you browse;{" "}
-          <strong>descriptions</strong> return on the next refresh.
-        </p>
-        <div className="settings-actions">
-          <button
-            onClick={() => {
-              setCacheNotice("");
-              api
-                .refreshLibrary("all")
-                .then((r) => setCacheNotice(`✓ ${r.message}`))
-                .catch((err: unknown) =>
-                  setCacheNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
-                );
-            }}
-          >
-            Refresh all metadata
-          </button>
-          <button className="danger" onClick={() => runClear(api.clearMetadataCache)}>
-            Clear provider art
-          </button>
-          <button className="danger" onClick={() => runClear(api.clearCoverCache)}>
-            Clear extracted covers
-          </button>
-          <button
-            className="danger"
-            onClick={async () => {
-              if (
-                await confirmDlg({
-                  title: "Clear descriptions",
-                  message:
-                    "Clear all stored descriptions?\n\nThey stay blank until a metadata refresh re-fetches them.",
-                  confirmLabel: "Clear",
-                  danger: true,
-                })
-              ) {
-                runClear(api.clearDescriptions);
-              }
-            }}
-          >
-            Clear descriptions
-          </button>
-          <button
-            className="danger"
-            onClick={async () => {
-              if (
-                await confirmDlg({
-                  title: "Clear all caches",
-                  message:
-                    "Clear ALL caches — provider art, extracted covers, and descriptions?\n\nImages re-fetch as you browse; descriptions return on the next metadata refresh.",
-                  confirmLabel: "Clear everything",
-                  danger: true,
-                })
-              ) {
-                runClear(api.clearAllCache);
-              }
-            }}
-          >
-            Clear all
-          </button>
-          {cacheNotice && (
-            <span className={cacheNotice.startsWith("✗") ? "notice bad" : "notice ok"}>
-              {cacheNotice}
-            </span>
-          )}
-        </div>
-        </Disclosure>
-      </div>
-    </section>
-  );
-}
-
-const mediaTypes = ["ebook", "comic", "music"] as const;
 
 function RootFoldersCard({
   onError,
@@ -2448,7 +1801,6 @@ function RootFoldersCard({
 }) {
   const { confirmDlg } = useUi();
   const [folders, setFolders] = useState<RootFolder[]>([]);
-  const [mediaType, setMediaType] = useState<string>("ebook");
   const [path, setPath] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2470,7 +1822,7 @@ function RootFoldersCard({
     setBusy(true);
     setNotice("");
     api
-      .addRootFolder(mediaType, trimmed)
+      .addRootFolder("music", trimmed)
       .then(() => {
         setPath("");
         reload();
@@ -2531,15 +1883,8 @@ function RootFoldersCard({
 
       <h3 className="settings-subhead">Add a root folder</h3>
       <form onSubmit={add} className="search-form">
-        <select value={mediaType} onChange={(e) => setMediaType(e.target.value)}>
-          {mediaTypes.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
         <input
-          placeholder="/data/ebooks or /mnt/c/Users/…/Ebooks"
+          placeholder="/data/music or /mnt/c/Users/…/Music"
           value={path}
           onChange={(e) => setPath(e.target.value)}
         />

@@ -2,7 +2,6 @@ package health
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"github.com/librinode/librinode/internal/download"
 	"github.com/librinode/librinode/internal/indexer"
 	"github.com/librinode/librinode/internal/library"
-	"github.com/librinode/librinode/internal/metadata"
 )
 
 func TestCheckFindsIssues(t *testing.T) {
@@ -30,10 +28,11 @@ func TestCheckFindsIssues(t *testing.T) {
 	if err := os.MkdirAll(gone, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []struct{ mt, path string }{{"ebook", ok}, {"comic", gone}} {
-		if _, err := db.Exec(`INSERT INTO root_folders (media_type, path) VALUES (?, ?)`, f.mt, f.path); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('music', ?)`, ok); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('music', ?)`, gone); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.RemoveAll(gone); err != nil {
 		t.Fatal(err)
@@ -43,7 +42,6 @@ func TestCheckFindsIssues(t *testing.T) {
 		library.NewStore(db),
 		indexer.NewService(indexer.NewStore(db)),
 		download.NewService(download.NewStore(db)),
-		metadata.NewManager(),
 	)
 
 	if !svc.Last().CheckedAt.IsZero() {
@@ -59,7 +57,7 @@ func TestCheckFindsIssues(t *testing.T) {
 	}
 
 	// Expected: the vanished root folder (error), plus warnings for no
-	// metadata provider, no indexers, and no download clients.
+	// indexers and no download clients.
 	levels := map[string]string{}
 	counts := map[string]int{}
 	for _, is := range res.Issues {
@@ -68,7 +66,6 @@ func TestCheckFindsIssues(t *testing.T) {
 	}
 	want := map[string]string{
 		"root-folder":     LevelError,
-		"metadata":        LevelWarning,
 		"indexer":         LevelWarning,
 		"download-client": LevelWarning,
 	}
@@ -106,7 +103,7 @@ func TestCheckIndexerRestingSkipsProbe(t *testing.T) {
 	idxSvc := indexer.NewService(indexer.NewStore(db))
 	ind := &indexer.Indexer{
 		Name: "ratelimited", Type: indexer.TypeTorznab, BaseURL: srv.URL,
-		Categories: "7000", Enabled: true,
+		AudioCategories: "3010,3040", Enabled: true,
 	}
 	if err := idxSvc.Store().Add(ind); err != nil {
 		t.Fatal(err)
@@ -116,7 +113,7 @@ func TestCheckIndexerRestingSkipsProbe(t *testing.T) {
 	// Fail the search enough times to enter backoff — the first few consecutive
 	// failures are tolerated (a flaky source shouldn't rest on one blip).
 	for i := 0; i < 5; i++ {
-		if _, _, err := idxSvc.SearchAll(ctx, "test query", "", "ebook"); err != nil {
+		if _, _, err := idxSvc.SearchAll(ctx, "test query", "", "music"); err != nil {
 			t.Fatal(err)
 		}
 		if _, resting := idxSvc.Resting(ind.ID); resting {
@@ -130,7 +127,7 @@ func TestCheckIndexerRestingSkipsProbe(t *testing.T) {
 
 	svc := New(
 		library.NewStore(db), idxSvc,
-		download.NewService(download.NewStore(db)), metadata.NewManager(),
+		download.NewService(download.NewStore(db)),
 	)
 	res := svc.Check(ctx)
 
@@ -146,129 +143,5 @@ func TestCheckIndexerRestingSkipsProbe(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a 'resting' indexer issue, got %+v", res.Issues)
-	}
-}
-
-// unreachableProvider always fails Validate with metadata.ErrUnreachable,
-// simulating a provider that's down rather than one rejecting a bad token.
-type unreachableProvider struct{ name string }
-
-func (p unreachableProvider) Name() string { return p.name }
-func (unreachableProvider) SearchAuthors(context.Context, string) ([]metadata.Author, error) {
-	return nil, nil
-}
-func (unreachableProvider) SearchBooks(context.Context, string) ([]metadata.Book, error) {
-	return nil, nil
-}
-func (unreachableProvider) GetAuthor(context.Context, string) (*metadata.Author, error) {
-	return nil, nil
-}
-func (unreachableProvider) GetBook(context.Context, string) (*metadata.Book, error) { return nil, nil }
-func (unreachableProvider) Validate(context.Context) error {
-	return fmt.Errorf("connection refused: %w", metadata.ErrUnreachable)
-}
-
-// unreachableSeriesProvider is unreachableProvider's comic counterpart.
-type unreachableSeriesProvider struct {
-	name      string
-	mediaType string
-}
-
-func (p unreachableSeriesProvider) Name() string      { return p.name }
-func (p unreachableSeriesProvider) MediaType() string { return p.mediaType }
-func (unreachableSeriesProvider) SearchSeries(context.Context, string) ([]metadata.SeriesResult, error) {
-	return nil, nil
-}
-func (unreachableSeriesProvider) GetSeries(context.Context, string) (*metadata.SeriesResult, error) {
-	return nil, nil
-}
-func (unreachableSeriesProvider) Validate(context.Context) error {
-	return fmt.Errorf("connection refused: %w", metadata.ErrUnreachable)
-}
-
-// TestCheckSeriesMetadataScopedToActiveLibraries: a comic provider outage
-// only produces a banner when the comics library is actually set up (a root
-// folder exists) — a user who never touches comics shouldn't see provider
-// noise, but someone who does gets told when it's unreachable.
-func TestCheckSeriesMetadataScopedToActiveLibraries(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("opening database: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-
-	mgr := metadata.NewManager()
-	mgr.SetSeries(unreachableSeriesProvider{name: "fake-comic", mediaType: "comic"})
-
-	svc := New(
-		library.NewStore(db),
-		indexer.NewService(indexer.NewStore(db)),
-		download.NewService(download.NewStore(db)),
-		mgr,
-	)
-
-	hasSeriesIssue := func(res Result) bool {
-		for _, is := range res.Issues {
-			if is.Source == "metadata-comic" {
-				return true
-			}
-		}
-		return false
-	}
-
-	if res := svc.Check(context.Background()); hasSeriesIssue(res) {
-		t.Error("no comic root folder set up yet — should not report the comic provider at all")
-	}
-
-	if _, err := db.Exec(`INSERT INTO root_folders (media_type, path) VALUES ('comic', ?)`, t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	res := svc.Check(context.Background())
-	if !hasSeriesIssue(res) {
-		t.Fatalf("comic library is active — expected a metadata-comic issue, got %+v", res.Issues)
-	}
-	for _, is := range res.Issues {
-		if is.Source == "metadata-comic" && is.Level != LevelWarning {
-			t.Errorf("unreachable series provider level = %s, want warning", is.Level)
-		}
-	}
-}
-
-// TestCheckMetadataUnreachableIsWarningNotError: a provider that never
-// responds (down, DNS failure, timeout) is worded and leveled differently
-// from one that responds and rejects the token — the former is transient and
-// self-healing, not something the user needs to go fix.
-func TestCheckMetadataUnreachableIsWarningNotError(t *testing.T) {
-	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("opening database: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-
-	mgr := metadata.NewManager()
-	mgr.Set(unreachableProvider{name: "fake"})
-
-	svc := New(
-		library.NewStore(db),
-		indexer.NewService(indexer.NewStore(db)),
-		download.NewService(download.NewStore(db)),
-		mgr,
-	)
-	res := svc.Check(context.Background())
-
-	var found *Issue
-	for i := range res.Issues {
-		if res.Issues[i].Source == "metadata" {
-			found = &res.Issues[i]
-		}
-	}
-	if found == nil {
-		t.Fatal("expected a metadata issue")
-	}
-	if found.Level != LevelWarning {
-		t.Errorf("unreachable provider level = %s, want warning", found.Level)
-	}
-	if !strings.Contains(found.Message, "unreachable") {
-		t.Errorf("message = %q, want it to say unreachable", found.Message)
 	}
 }

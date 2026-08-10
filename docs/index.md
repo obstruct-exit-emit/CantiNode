@@ -1,46 +1,43 @@
 # LibriNode
 
-A self-hosted media automation server for **written media** — an
-alternative to tools like Readarr that manages ebooks, audiobooks, and
-comics in one app.
+A self-hosted **music library** automation server — an alternative to
+Lidarr.
 
-LibriNode monitors your wanted list, searches your indexers, sends releases
-to your download client, then imports, renames, and organizes files into
-per-type libraries — automatically.
+LibriNode monitors artists you want, searches your indexers, sends releases
+to your download client, then matches scanned files against MusicBrainz and
+organizes them — automatically.
 
 > 🚧 LibriNode is **pre-1.0**. The whole loop works end-to-end, but expect
 > rough edges and breaking changes until 1.0.
 
-## The three libraries
+## The library
+
+Music is the only library. It's Plex-style: it appears in the UI once you
+add a root folder for it.
 
 | Type | Metadata | Formats |
 |---|---|---|
-| Ebooks | Hardcover (+ Open Library / Google Books fallbacks) | epub, mobi, azw3, pdf |
-| Audiobooks | Hardcover (+ Open Library / Google Books fallbacks) | m4b, m4a, mp3, flac, opus |
-| Comics | Hardcover or ComicVine (free key) | cbz, cbr, pdf |
-
-Each library is independent: its own root folders, naming templates, and
-quality profiles. Plex-style, a library only appears in the UI once you
-create it by adding its root folder. For prose books, Ebooks and Audiobooks
-are **separate libraries** — a book belongs only to the format libraries you
-added it to (or own).
+| Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a, opus, wav |
 
 ## Highlights
 
-- One acquisition pipeline for everything: Newznab/Torznab indexers (or
-  Prowlarr sync), release parsing and scoring, quality profiles with
-  upgrades, qBittorrent and SABnzbd, Completed Download Handling.
+- One acquisition pipeline: Newznab/Torznab indexers (or Prowlarr sync),
+  release parsing and scoring, quality profiles with upgrades, qBittorrent
+  and SABnzbd.
 - A built-in **direct** HTTP fetcher for plain-HTTP sources, alongside
   Newznab/Torznab. See [Acquisition](acquisition.md).
-- Reader-friendly layouts: Audiobookshelf folders for audio, Kavita/Komga
-  layouts with `ComicInfo.xml` for comics, OPF sidecars for Calibre.
-- Poster-grid browsing with detail pages, per-library Wanted pages, a
-  release calendar, health checks, backups, and a log viewer.
+- Tag-first matching: a file's own `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID`
+  tags resolve it exactly; otherwise whole-folder release matching, then
+  fuzzy title search, fill the gap. Matched files can be renamed into a
+  configurable layout and have their tags rewritten.
+- Poster-grid browsing with artist detail pages (owned albums grouped by
+  type, a Missing section, a Wanted section), health checks, backups, and a
+  log viewer.
 - Optional login with **admin/member roles**: members get everyday use,
   admins get the server's configuration and accounts.
-- Comic extras: per-series Missing view with selective monitoring (adds
-  pull metadata only), and covers from the provider or extracted from the
-  owned CBZ/CBR.
+- Artist bio/photo and album art are cached automatically the moment an
+  artist is discovered (monitored, or found by a scan) — never fetched
+  again just from browsing.
 - Local image cache: provider art is downloaded on add/refresh and served
   from LibriNode, surviving provider link rot.
 

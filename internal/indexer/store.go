@@ -16,12 +16,12 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-const cols = `id, name, type, base_url, api_key, categories, audio_categories, comic_categories, enabled, priority, added_at`
+const cols = `id, name, type, base_url, api_key, audio_categories, enabled, priority, added_at`
 
 func scanIndexer(row interface{ Scan(...any) error }) (*Indexer, error) {
 	var i Indexer
 	err := row.Scan(&i.ID, &i.Name, &i.Type, &i.BaseURL, &i.APIKey,
-		&i.Categories, &i.AudioCategories, &i.ComicCategories, &i.Enabled, &i.Priority, &i.AddedAt)
+		&i.AudioCategories, &i.Enabled, &i.Priority, &i.AddedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -33,19 +33,19 @@ func scanIndexer(row interface{ Scan(...any) error }) (*Indexer, error) {
 
 func (s *Store) Add(i *Indexer) error {
 	return s.db.QueryRow(`
-		INSERT INTO indexers (name, type, base_url, api_key, categories, audio_categories, comic_categories, enabled, priority)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO indexers (name, type, base_url, api_key, audio_categories, enabled, priority)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, added_at`,
-		i.Name, i.Type, i.BaseURL, i.APIKey, i.Categories, i.AudioCategories, i.ComicCategories, i.Enabled, i.Priority,
+		i.Name, i.Type, i.BaseURL, i.APIKey, i.AudioCategories, i.Enabled, i.Priority,
 	).Scan(&i.ID, &i.AddedAt)
 }
 
 func (s *Store) Update(i *Indexer) error {
 	res, err := s.db.Exec(`
 		UPDATE indexers
-		SET name = ?, type = ?, base_url = ?, api_key = ?, categories = ?, audio_categories = ?, comic_categories = ?, enabled = ?, priority = ?
+		SET name = ?, type = ?, base_url = ?, api_key = ?, audio_categories = ?, enabled = ?, priority = ?
 		WHERE id = ?`,
-		i.Name, i.Type, i.BaseURL, i.APIKey, i.Categories, i.AudioCategories, i.ComicCategories, i.Enabled, i.Priority, i.ID)
+		i.Name, i.Type, i.BaseURL, i.APIKey, i.AudioCategories, i.Enabled, i.Priority, i.ID)
 	if err != nil {
 		return err
 	}

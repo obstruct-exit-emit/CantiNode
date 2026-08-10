@@ -94,7 +94,7 @@ func mockIndexer(t *testing.T, searchXML string, wantAPIKey string) *httptest.Se
 func testIndexer(srv *httptest.Server, typ string) *Indexer {
 	return &Indexer{
 		ID: 1, Name: "mock", Type: typ, BaseURL: srv.URL,
-		APIKey: "s3cret", Categories: "7000,7020", Enabled: true, Priority: 25,
+		APIKey: "s3cret", AudioCategories: "7000,7020", Enabled: true, Priority: 25,
 	}
 }
 
@@ -186,7 +186,7 @@ func TestStoreCRUD(t *testing.T) {
 	s := newTestStore(t)
 
 	i := &Indexer{Name: "usenet-1", Type: TypeNewznab, BaseURL: "https://a.example",
-		APIKey: "k", Categories: "7000,7020", Enabled: true, Priority: 25}
+		APIKey: "k", AudioCategories: "7000,7020", Enabled: true, Priority: 25}
 	if err := s.Add(i); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -238,17 +238,17 @@ func TestSearchAllMergesAndReportsFailures(t *testing.T) {
 	svc := NewService(store)
 
 	for _, ind := range []*Indexer{
-		{Name: "torrents", Type: TypeTorznab, BaseURL: good.URL, Categories: "7000,7020", Enabled: true, Priority: 25},
-		{Name: "usenet", Type: TypeNewznab, BaseURL: good2.URL, Categories: "7000,7020", Enabled: true, Priority: 25},
-		{Name: "dead", Type: TypeNewznab, BaseURL: "http://127.0.0.1:1", Categories: "7000,7020", Enabled: true, Priority: 25},
-		{Name: "disabled", Type: TypeNewznab, BaseURL: "http://127.0.0.1:1", Categories: "7000,7020", Enabled: false, Priority: 25},
+		{Name: "torrents", Type: TypeTorznab, BaseURL: good.URL, AudioCategories: "7000,7020", Enabled: true, Priority: 25},
+		{Name: "usenet", Type: TypeNewznab, BaseURL: good2.URL, AudioCategories: "7000,7020", Enabled: true, Priority: 25},
+		{Name: "dead", Type: TypeNewznab, BaseURL: "http://127.0.0.1:1", AudioCategories: "7000,7020", Enabled: true, Priority: 25},
+		{Name: "disabled", Type: TypeNewznab, BaseURL: "http://127.0.0.1:1", AudioCategories: "7000,7020", Enabled: false, Priority: 25},
 	} {
 		if err := store.Add(ind); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	releases, errs, err := svc.SearchAll(context.Background(), "mort", "", "ebook")
+	releases, errs, err := svc.SearchAll(context.Background(), "mort", "", "music")
 	if err != nil {
 		t.Fatalf("SearchAll: %v", err)
 	}
@@ -277,12 +277,12 @@ func TestSearchAllNeverLeaksAPIKey(t *testing.T) {
 	secret := "sk-live-9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c"
 	if err := store.Add(&Indexer{
 		Name: "dead", Type: TypeNewznab, BaseURL: "http://127.0.0.1:1",
-		APIKey: secret, Categories: "7000,7020", Enabled: true, Priority: 25,
+		APIKey: secret, AudioCategories: "7000,7020", Enabled: true, Priority: 25,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	_, errs, err := svc.SearchAll(context.Background(), "mort", "", "ebook")
+	_, errs, err := svc.SearchAll(context.Background(), "mort", "", "music")
 	if err != nil {
 		t.Fatalf("SearchAll: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestSearchAllBacksOffFailingIndexer(t *testing.T) {
 	svc.now = func() time.Time { return now }
 
 	dead := &Indexer{Name: "dead", Type: TypeNewznab, BaseURL: "http://127.0.0.1:1",
-		Categories: "7000,7020", Enabled: true, Priority: 25}
+		AudioCategories: "7000,7020", Enabled: true, Priority: 25}
 	if err := store.Add(dead); err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestSearchAllBacksOffFailingIndexer(t *testing.T) {
 	// reports a real failure, never a resting notice — a transient blip on a
 	// scraped source shouldn't hide it.
 	for i := 0; i < restAfter; i++ {
-		_, errs, err := svc.SearchAll(context.Background(), "mort", "", "ebook")
+		_, errs, err := svc.SearchAll(context.Background(), "mort", "", "music")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -327,7 +327,7 @@ func TestSearchAllBacksOffFailingIndexer(t *testing.T) {
 	}
 
 	// A sweep inside the rest window is skipped with a resting notice.
-	_, errs, err := svc.SearchAll(context.Background(), "mort", "", "ebook")
+	_, errs, err := svc.SearchAll(context.Background(), "mort", "", "music")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestSearchAllBacksOffFailingIndexer(t *testing.T) {
 
 	// Past the rest: retried again — another failure doubles the rest.
 	now = now.Add(backoffBase + time.Minute)
-	_, errs, _ = svc.SearchAll(context.Background(), "mort", "", "ebook")
+	_, errs, _ = svc.SearchAll(context.Background(), "mort", "", "music")
 	if len(errs) != 1 || strings.Contains(errs[0], "resting") {
 		t.Fatalf("post-rest sweep errs = %v, want a real failure", errs)
 	}
@@ -353,7 +353,7 @@ func TestSearchAllBacksOffFailingIndexer(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = now.Add(11 * time.Minute)
-	_, errs, _ = svc.SearchAll(context.Background(), "mort", "", "ebook")
+	_, errs, _ = svc.SearchAll(context.Background(), "mort", "", "music")
 	if len(errs) != 0 {
 		t.Fatalf("recovered sweep errs = %v, want none", errs)
 	}

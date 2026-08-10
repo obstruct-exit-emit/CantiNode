@@ -15,7 +15,7 @@ import (
 // removeQueueItem to resolve it against. Cancelling by grab id directly must
 // work regardless.
 func TestCancelGrabResolvesStuckPendingGrab(t *testing.T) {
-	a := newTestAPI(t, nil)
+	a := newTestAPI(t)
 	store := download.NewStore(a.db)
 
 	grab := &download.GrabRecord{
@@ -40,7 +40,7 @@ func TestCancelGrabResolvesStuckPendingGrab(t *testing.T) {
 }
 
 func TestCancelGrabNotFound(t *testing.T) {
-	a := newTestAPI(t, nil)
+	a := newTestAPI(t)
 	resp := a.call("POST", "/api/v1/grab/999999/cancel", nil, nil)
 	a.want(resp, http.StatusNotFound)
 }

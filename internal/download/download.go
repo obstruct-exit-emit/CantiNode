@@ -1,7 +1,7 @@
 // Package download talks to download clients — qBittorrent for torrents,
 // SABnzbd for usenet — behind one interface: send a release, watch its
-// progress, remove it. Completed Download Handling (internal/importer)
-// builds on this.
+// progress, remove it. A completed download is picked up like any other
+// file by the next library scan (internal/musicscanner).
 package download
 
 import (
@@ -311,9 +311,8 @@ func (s *Service) Grab(ctx context.Context, protocol, url, title string) (*GrabR
 }
 
 // GrabRelease sends a release to the best client for its protocol and
-// records the grab (tied to a book when bookID > 0) so Completed Download
-// Handling can import the result. Used by both the grab endpoint and
-// automatic search.
+// records the grab (tied to a book when bookID > 0) so the queue and grab
+// history can show its progress.
 func (s *Service) GrabRelease(ctx context.Context, protocol, url, title, guid string, bookID int64, mediaType string) (*GrabResult, *GrabRecord, error) {
 	result, err := s.Grab(ctx, protocol, url, title)
 	if err != nil {

@@ -25,8 +25,7 @@ import {
 import { formatDuration } from "../format";
 
 // Albums section display: "grid" (current default, large covers), "compact"
-// (same grid, smaller covers), or "list" (a plain title + status row) —
-// same three modes as the ebook author page's Books section.
+// (same grid, smaller covers), or "list" (a plain title + status row).
 type AlbumsView = "grid" | "compact" | "list";
 
 // Full-page artist detail, mirroring the author page: header with portrait,

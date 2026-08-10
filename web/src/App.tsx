@@ -6,7 +6,6 @@ import {
   setApiKey,
   type AuthStatus,
   type HealthIssue,
-  type LibraryStatus,
 } from "./api";
 import SetupWizard from "./components/SetupWizard";
 import { getThemePref, setThemePref, type ThemePref } from "./theme";
@@ -14,61 +13,31 @@ import { UiProvider, useUi } from "./ui";
 import ActivityView from "./views/ActivityView";
 import AlbumDetailView from "./views/AlbumDetailView";
 import ArtistDetailView from "./views/ArtistDetailView";
-import AuthorDetailView from "./views/AuthorDetailView";
-import BookDetailView from "./views/BookDetailView";
-import BooksLibraryView from "./views/BooksLibraryView";
-import CalendarView from "./views/CalendarView";
-import HomeView from "./views/HomeView";
 import MusicLibraryView from "./views/MusicLibraryView";
 import SearchView from "./views/SearchView";
-import SeriesDetailView from "./views/SeriesDetailView";
-import SeriesLibraryView from "./views/SeriesLibraryView";
 import SettingsView from "./views/SettingsView";
 import SystemView from "./views/SystemView";
 import "./App.css";
 
-// Plex-style navigation: Home, then one entry per *active* library (a media
-// type appears only once its library is set up), then the app-level pages.
+// Music is the only library — Plex-style, its nav entry appears once a
+// music root folder is set up (see hasMusicRoot).
 type Page =
-  | { name: "home" }
-  | { name: "library"; mediaType: string }
-  | { name: "author"; id: number; library: "ebook" }
-  | { name: "book"; id: number; library: "ebook"; authorId: number }
-  | { name: "series-detail"; id: number; mediaType: string }
+  | { name: "library" }
   | { name: "artist"; id: number }
   | { name: "album"; id: number; artistId: number }
   | { name: "search"; q: string }
-  | { name: "calendar" }
   | { name: "activity" }
   | { name: "settings" }
   | { name: "system" };
 
-export const libraryLabels: Record<string, string> = {
-  ebook: "Ebooks",
-  comic: "Comics",
-};
-
-const libraryIcons: Record<string, string> = {
-  ebook: "📖",
-  comic: "💥",
-};
-
-// Hash routing: every page has a URL (#/library/comic, #/book/34?lib=ebook…),
-// so refresh keeps the page, back/forward work, and any view can be
-// bookmarked or shared. The hash is the single source of truth — navigation
-// writes it, a hashchange listener drives the page state.
+// Hash routing: every page has a URL (#/artist/34, #/search?q=…), so refresh
+// keeps the page, back/forward work, and any view can be bookmarked or
+// shared. The hash is the single source of truth — navigation writes it, a
+// hashchange listener drives the page state.
 function pageToHash(p: Page): string {
   switch (p.name) {
-    case "home":
-      return "#/";
     case "library":
-      return `#/library/${p.mediaType}`;
-    case "author":
-      return `#/author/${p.id}?lib=${p.library}`;
-    case "book":
-      return `#/book/${p.id}?lib=${p.library}&author=${p.authorId}`;
-    case "series-detail":
-      return `#/series/${p.id}?type=${p.mediaType}`;
+      return "#/";
     case "artist":
       return `#/artist/${p.id}`;
     case "album":
@@ -84,33 +53,18 @@ function hashToPage(hash: string): Page {
   const [path, query] = hash.replace(/^#\/?/, "").split("?");
   const q = new URLSearchParams(query ?? "");
   const seg = path.split("/").filter(Boolean);
-  const lib = "ebook" as const;
   const id = Number(seg[1]);
   switch (seg[0]) {
     case undefined:
-      return { name: "home" };
-    case "library":
-      return seg[1] ? { name: "library", mediaType: seg[1] } : { name: "home" };
-    case "author":
-      return id > 0 ? { name: "author", id, library: lib } : { name: "home" };
-    case "book":
-      return id > 0
-        ? { name: "book", id, library: lib, authorId: Number(q.get("author")) || 0 }
-        : { name: "home" };
-    case "series":
-      return id > 0
-        ? { name: "series-detail", id, mediaType: q.get("type") ?? "comic" }
-        : { name: "home" };
+      return { name: "library" };
     case "artist":
-      return id > 0 ? { name: "artist", id } : { name: "home" };
+      return id > 0 ? { name: "artist", id } : { name: "library" };
     case "album":
       return id > 0
         ? { name: "album", id, artistId: Number(q.get("artist")) || 0 }
-        : { name: "home" };
+        : { name: "library" };
     case "search":
       return { name: "search", q: q.get("q") ?? "" };
-    case "calendar":
-      return { name: "calendar" };
     case "activity":
       return { name: "activity" };
     case "settings":
@@ -118,7 +72,7 @@ function hashToPage(hash: string): Page {
     case "system":
       return { name: "system" };
     default:
-      return { name: "home" };
+      return { name: "library" };
   }
 }
 
@@ -136,7 +90,6 @@ function AppInner() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [setupNeeded, setSetupNeeded] = useState<boolean | null>(null);
   const [connected, setConnected] = useState(false);
-  const [libraries, setLibraries] = useState<LibraryStatus[]>([]);
   const [hasMusicRoot, setHasMusicRoot] = useState(false);
   const [health, setHealth] = useState<HealthIssue[]>([]);
   const [page, setPage] = useState<Page>(() => hashToPage(location.hash));
@@ -160,14 +113,8 @@ function AppInner() {
       .catch(() => setSetupNeeded(false));
   }, []);
 
+  // Music's nav entry appears once a music root folder is set up.
   const reloadLibraries = useCallback(() => {
-    api
-      .libraries()
-      .then(setLibraries)
-      .catch(() => setLibraries([]));
-    // Music isn't part of the ebook/comic library-status system (it's a
-    // separate domain — see internal/musiclibrary); Plex-style, its nav
-    // entry appears once a music root folder exists.
     api
       .listRootFolders()
       .then((folders) => setHasMusicRoot(folders.some((f) => f.mediaType === "music")))
@@ -207,7 +154,6 @@ function AppInner() {
       });
   }, [auth, key, reloadLibraries]);
 
-  const active = libraries.filter((l) => l.active);
   // API-key access (no login system, or not yet signed in via session) is
   // root-equivalent, matching the backend's requireAdmin check; a signed-in
   // session is admin only if its account role says so.
@@ -232,10 +178,7 @@ function AppInner() {
   };
 
   const navButton = (p: Page, label: string, icon: string) => {
-    const current =
-      page.name === p.name &&
-      (p.name !== "library" ||
-        (page.name === "library" && page.mediaType === (p as { mediaType?: string }).mediaType));
+    const current = page.name === p.name;
     return (
       <button
         key={label}
@@ -255,19 +198,9 @@ function AppInner() {
           <h1 className="brand">🖋️ LibriNode</h1>
           <SidebarSearch onSearch={(q) => go({ name: "search", q })} />
           <nav>
-            {navButton({ name: "home" }, "Home", "🏠")}
-            {(active.length > 0 || hasMusicRoot) && <div className="nav-group">Libraries</div>}
-            {active.map((l) =>
-              navButton(
-                { name: "library", mediaType: l.mediaType },
-                libraryLabels[l.mediaType] ?? l.mediaType,
-                libraryIcons[l.mediaType] ?? "📚",
-              ),
-            )}
-            {hasMusicRoot &&
-              navButton({ name: "library", mediaType: "music" }, "Music", "🎵")}
+            {hasMusicRoot && <div className="nav-group">Libraries</div>}
+            {hasMusicRoot && navButton({ name: "library" }, "Music", "🎵")}
             <div className="nav-group">App</div>
-            {navButton({ name: "calendar" }, "Calendar", "📅")}
             {navButton({ name: "activity" }, "Activity", "⬇️")}
             {isAdmin && navButton({ name: "settings" }, "Settings", "⚙️")}
             {isAdmin && navButton({ name: "system" }, "System", "🖥️")}
@@ -352,83 +285,17 @@ function AppInner() {
           </section>
         )}
 
-        {connected && page.name === "home" && (
-          <HomeView
+        {connected && page.name === "library" && (
+          <MusicLibraryView
             onError={onError}
-            onOpenLibrary={(mediaType) => go({ name: "library", mediaType })}
-            onOpenItem={(mediaType, it) => {
-              // Prose books open their detail page; volumes/issues live as
-              // rows on their series page. Without the id, the library grid.
-              if (mediaType === "ebook" && it.authorId) {
-                go({ name: "book", id: it.bookId, library: "ebook", authorId: it.authorId });
-              } else if (it.seriesId) {
-                go({ name: "series-detail", id: it.seriesId, mediaType });
-              } else {
-                go({ name: "library", mediaType });
-              }
-            }}
-          />
-        )}
-        {connected && page.name === "library" &&
-          (page.mediaType === "ebook" ? (
-            <BooksLibraryView
-              key={page.mediaType}
-              library="ebook"
-              onError={onError}
-              onOpenAuthor={(id) => go({ name: "author", id, library: "ebook" })}
-            />
-          ) : page.mediaType === "music" ? (
-            <MusicLibraryView
-              onError={onError}
-              onOpenArtist={(id) => go({ name: "artist", id })}
-            />
-          ) : (
-            <SeriesLibraryView
-              key={page.mediaType}
-              mediaType={page.mediaType}
-              onError={onError}
-              onOpenSeries={(id) => go({ name: "series-detail", id, mediaType: page.mediaType })}
-            />
-          ))}
-        {connected && page.name === "author" && (
-          <AuthorDetailView
-            id={page.id}
-            library={page.library}
-            onError={onError}
-            onBack={() => go({ name: "library", mediaType: page.library })}
-            onOpenBook={(bookId) =>
-              go({ name: "book", id: bookId, library: page.library, authorId: page.id })
-            }
-          />
-        )}
-        {connected && page.name === "book" && (
-          <BookDetailView
-            key={`${page.id}-${page.library}`}
-            id={page.id}
-            library={page.library}
-            onError={onError}
-            onBack={() =>
-              // Deep-linked book URLs may not carry the author id — fall back
-              // to the library grid rather than a broken author page.
-              page.authorId > 0
-                ? go({ name: "author", id: page.authorId, library: page.library })
-                : go({ name: "library", mediaType: page.library })
-            }
-          />
-        )}
-        {connected && page.name === "series-detail" && (
-          <SeriesDetailView
-            id={page.id}
-            mediaType={page.mediaType}
-            onError={onError}
-            onBack={() => go({ name: "library", mediaType: page.mediaType })}
+            onOpenArtist={(id) => go({ name: "artist", id })}
           />
         )}
         {connected && page.name === "artist" && (
           <ArtistDetailView
             id={page.id}
             onError={onError}
-            onBack={() => go({ name: "library", mediaType: "music" })}
+            onBack={() => go({ name: "library" })}
             onOpenAlbum={(albumId) => go({ name: "album", id: albumId, artistId: page.id })}
           />
         )}
@@ -440,7 +307,7 @@ function AppInner() {
             onBack={() =>
               page.artistId > 0
                 ? go({ name: "artist", id: page.artistId })
-                : go({ name: "library", mediaType: "music" })
+                : go({ name: "library" })
             }
           />
         )}
@@ -449,28 +316,7 @@ function AppInner() {
             key={page.q}
             query={page.q}
             onError={onError}
-            onOpenAuthor={(id, library) => go({ name: "author", id, library })}
-            onOpenBook={(b, library) =>
-              go({ name: "book", id: b.id, library, authorId: b.authorId })
-            }
-            onOpenSeries={(id, mediaType) => go({ name: "series-detail", id, mediaType })}
             onOpenArtist={(id) => go({ name: "artist", id })}
-          />
-        )}
-        {connected && page.name === "calendar" && (
-          <CalendarView
-            onError={onError}
-            onOpenBook={(it) =>
-              go({
-                name: "book",
-                id: it.bookId,
-                library: "ebook",
-                authorId: it.authorId ?? 0,
-              })
-            }
-            onOpenSeries={(it) =>
-              go({ name: "series-detail", id: it.seriesId ?? 0, mediaType: it.mediaType })
-            }
           />
         )}
         {connected && page.name === "activity" && <ActivityView onError={onError} />}

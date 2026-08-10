@@ -6,13 +6,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/librinode/librinode/internal/indexer"
-	"github.com/librinode/librinode/internal/library"
-	"github.com/librinode/librinode/internal/release"
 )
 
 const indexerTestTimeout = 30 * time.Second
@@ -95,14 +92,8 @@ func decodeIndexer(r *http.Request) (*indexer.Indexer, string) {
 	if !strings.HasPrefix(in.BaseURL, "http://") && !strings.HasPrefix(in.BaseURL, "https://") {
 		return nil, "baseUrl must be an http(s) URL"
 	}
-	if in.Categories == "" {
-		in.Categories = "7000,7020"
-	}
 	if in.AudioCategories == "" {
 		in.AudioCategories = "3030"
-	}
-	if in.ComicCategories == "" {
-		in.ComicCategories = "7030"
 	}
 	return &in, ""
 }
@@ -230,129 +221,4 @@ func (s *server) handleTestIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
-// handleSearchReleases searches every enabled indexer and returns parsed,
-// scored candidates. Two modes: ?term= is a free search (generic scoring
-// only), ?bookId=N builds the query from the book and rejects releases that
-// aren't it — the interactive-search backend. Per-indexer failures come back
-// in "errors" alongside the results that did arrive.
-func (s *server) handleSearchReleases(w http.ResponseWriter, r *http.Request) {
-	term := r.URL.Query().Get("term")
-
-	mediaType := r.URL.Query().Get("mediaType")
-	if mediaType == "" {
-		mediaType = "ebook"
-	}
-
-	var book *library.Book
-	var author *library.Author
-	var seriesTitle string
-	var volumeNumber float64
-	var otherTitles []string // author's other prose titles — pack detection only
-	if v := r.URL.Query().Get("bookId"); v != "" {
-		id, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid bookId")
-			return
-		}
-		if book, err = s.store.GetBook(id); err != nil {
-			writeStoreError(w, err)
-			return
-		}
-		if book.MediaType == "comic" {
-			// Volumes dictate their own media type and search by series.
-			mediaType = book.MediaType
-			links, err := s.store.ListSeriesForBook(book.ID)
-			if err != nil || len(links) == 0 {
-				writeError(w, http.StatusInternalServerError, "volume has no series link")
-				return
-			}
-			seriesTitle, volumeNumber = links[0].Title, links[0].Position
-			if term == "" {
-				term = seriesTitle
-			}
-		} else {
-			if author, err = s.store.GetAuthor(book.AuthorID); err != nil {
-				writeStoreError(w, err)
-				return
-			}
-			if term == "" {
-				term = author.Name + " " + book.Title
-			}
-			if books, err := s.store.ListBooks(author.ID); err == nil {
-				for _, b := range books {
-					if b.MediaType == "book" && b.ID != book.ID {
-						otherTitles = append(otherTitles, b.Title)
-					}
-				}
-			}
-		}
-	}
-	if term == "" {
-		writeError(w, http.StatusBadRequest, "term or bookId is required")
-		return
-	}
-	switch mediaType {
-	case "ebook", "comic", "music":
-	default:
-		writeError(w, http.StatusBadRequest, "mediaType must be ebook, comic, or music")
-		return
-	}
-
-	ctx, cancel := s.metadataCtx(r)
-	defer cancel()
-
-	// Native scraped sources match a title as a contiguous phrase, so hand them
-	// the bare title rather than the author-prefixed term.
-	nativeTerm := term
-	if seriesTitle != "" {
-		nativeTerm = seriesTitle
-	} else if book != nil {
-		nativeTerm = book.Title
-	}
-	found, errs, err := s.indexers.SearchAll(ctx, term, nativeTerm, mediaType)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	prefs := release.PreferencesFor(s.store, mediaType)
-	candidates := make([]release.Candidate, 0, len(found))
-	for _, rel := range found {
-		if seriesTitle != "" {
-			candidates = append(candidates, release.ScoreVolume(rel, prefs, seriesTitle, volumeNumber))
-		} else {
-			candidates = append(candidates, release.Score(rel, prefs, book, author, otherTitles))
-		}
-	}
-	release.Rank(candidates)
-	writeJSON(w, http.StatusOK, map[string]any{"releases": candidates, "errors": errs})
-}
-
-// handleSearchSeriesPacks serves the series-level pack search:
-// GET /api/v1/release/packs?seriesId=N. Candidates are whole-series /
-// multi-volume releases; the UI grabs one through the normal grab endpoint
-// using the returned grabBookId, and the pack importer files every matching
-// volume when the download lands.
-func (s *server) handleSearchSeriesPacks(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.URL.Query().Get("seriesId"), 10, 64)
-	if err != nil || id <= 0 {
-		writeError(w, http.StatusBadRequest, "seriesId is required")
-		return
-	}
-
-	ctx, cancel := s.metadataCtx(r)
-	defer cancel()
-
-	result, err := s.search.SearchSeriesPacks(ctx, id)
-	if err != nil {
-		if errors.Is(err, library.ErrNotFound) {
-			writeStoreError(w, err)
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }

@@ -2,10 +2,9 @@
 // audio file's tags (internal/tagreader), matches it against MusicBrainz
 // (internal/musicbrainz), and organizes matched files on disk into a
 // consistent layout. Ported from CantiNode's own original (pre-LibriNode-
-// fork) internal/scanner package — kept as its own package (rather than
-// folded into internal/scanner, which serves ebook/comic) since that
-// package's matching model (parse-filename-then-lookup-metadata-provider)
-// doesn't fit the audio-tag/whole-album matching this domain needs.
+// fork) scanner package, whose parse-filename-then-lookup-metadata-provider
+// matching model didn't fit the audio-tag/whole-album matching this domain
+// needs.
 package musicscanner
 
 import (

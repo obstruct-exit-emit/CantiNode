@@ -33,33 +33,6 @@ func TestLoadFirstRunCreatesConfigWithAPIKey(t *testing.T) {
 	}
 }
 
-func TestImportSettingsDefaultOnAndPersistOff(t *testing.T) {
-	dir := t.TempDir()
-
-	// First run: all Completed Download Handling options default to on.
-	cfg, err := Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	is := cfg.ImportSettings()
-	if !is.PackImportAll || !is.RemoveCompleted || !is.DeleteCompletedFiles {
-		t.Fatalf("defaults not all on: %+v", is)
-	}
-
-	// Turning them all off must persist — not get dropped and re-defaulted.
-	if err := cfg.SetImport(ImportSettings{}); err != nil {
-		t.Fatalf("SetImport: %v", err)
-	}
-	reloaded, err := Load(dir)
-	if err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	is = reloaded.ImportSettings()
-	if is.PackImportAll || is.RemoveCompleted || is.DeleteCompletedFiles {
-		t.Errorf("explicit off did not persist: %+v", is)
-	}
-}
-
 // TestAuthUserMigrationAndManagement: a legacy single-account config migrates
 // into the user list as the default; users can be added, promoted, and
 // removed — but never the default.

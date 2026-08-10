@@ -2,9 +2,9 @@
 
 # 🖋️ LibriNode
 
-**Self-hosted automation for written media — ebooks, audiobooks, and comics.**
+**Self-hosted automation for your music library.**
 
-An alternative in the *arr tradition: monitor what you want, search your indexers, hand releases to your download client, and import everything into clean, reader-ready libraries — automatically.
+An alternative in the *arr tradition: monitor artists you want, search your indexers, hand releases to your download client, and match/organize everything into a clean, tagged music library — automatically.
 
 [![Release](https://img.shields.io/github/v/release/obstruct-exit-emit/LibriNode?include_prereleases&label=release)](https://github.com/obstruct-exit-emit/LibriNode/releases)
 [![CI](https://github.com/obstruct-exit-emit/LibriNode/actions/workflows/ci.yml/badge.svg)](https://github.com/obstruct-exit-emit/LibriNode/actions/workflows/ci.yml)
@@ -13,41 +13,38 @@ An alternative in the *arr tradition: monitor what you want, search your indexer
 
 </div>
 
-> 🚧 **Pre-1.0, but feature-complete.** All three media types work end to end — metadata search through automatic grabbing to organized imports. What remains before 1.0 is hardening: real-world burn-in. See the [roadmap](ROADMAP.md).
+> 🚧 **Pre-1.0, but feature-complete.** Metadata search through automatic grabbing to matched, organized imports all work end to end. What remains before 1.0 is hardening: real-world burn-in. See the [roadmap](ROADMAP.md).
 
 ---
 
 ## Why LibriNode?
 
-LibriNode is an **alternative** to tools like Readarr (books; development has ended) and Mylar (comics), with a different scope: **all three written-media types managed in one app**, in the familiar *arr style. It sits alongside readers like Kavita, Komga, Calibre, and Audiobookshelf — it feeds them organized libraries rather than replacing them.
+LibriNode is an **alternative** to tools like Lidarr, in the familiar *arr style, focused entirely on music. It sits alongside players/servers like Navidrome and Plex — it feeds them a matched, tagged, organized library rather than replacing them.
 
 ## Features
 
-**📚 Three independent libraries** — each media type gets its own root folders, naming templates, quality profiles, and monitoring. Plex-style: a library appears only once you create it.
+**🎵 One library, done well** — a Plex-style library that appears once you point a root folder at your music.
 
 | Library | Metadata | Formats |
 |---|---|---|
-| Ebooks | Hardcover, + Open Library / Google Books fallbacks | epub, mobi, azw3, pdf |
-| Audiobooks | Hardcover, + fallbacks | m4b, m4a, mp3, flac, opus |
-| Comics | Hardcover or ComicVine | cbz, cbr, pdf |
+| Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a, opus, wav |
 
 **🔍 One acquisition pipeline**
 - **Prowlarr application sync** — add LibriNode as a *Readarr* app and Prowlarr pushes its indexers automatically; manual Newznab/Torznab entry works too
-- Release parsing and scoring that understands formats, retail editions, narrators, volume ranges, and whole-series packs
+- Release parsing and scoring that understands formats and retail editions
 - Quality profiles with upgrade handling, a failed-release blocklist, and per-indexer failure backoff
 
 **⬇️ Three download protocols**
 - **qBittorrent** (torrents) and **SABnzbd** (usenet) — category-scoped, seed-goal aware, debrid-bridge compatible (Real-Debrid/TorBox)
 - A built-in **direct fetcher** for plain-HTTP sources — mirror failover, no external program
-- Completed Download Handling: finished grabs import, rename, and organize themselves; remote path mappings for clients on other machines
 
-**🏷️ Reader-ready output**
-- Audiobookshelf folder layouts with `metadata.opf`; Kavita/Komga layouts with `ComicInfo.xml`; OPF sidecars for Calibre
-- Smart scanning: ISBN/ASIN identifier matching (filename + embedded epub metadata), exact title matching, and fuzzy suggestions for everything else
-- Multi-book pack imports, multi-file audiobooks as single units
+**🏷️ Tag-matched, organized output**
+- Every scanned file is matched against MusicBrainz — by embedded `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID` tags first (exact), then whole-folder release matching, then fuzzy title search
+- Matched files are organized into a configurable `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}` layout, and can have their tags rewritten to match
+- Artist bio/photo (TheAudioDB) and album art (Cover Art Archive) are cached automatically the first time an artist is added — never re-fetched just from browsing
 
 **🖥️ A modern web UI**
-- Poster-grid libraries with detail pages, per-author/series **Missing** sections, per-library **Wanted** cards, a release **Calendar**, and live **Activity**
+- A poster-grid artist library with per-artist detail pages — owned albums (grouped by type: Album/EP/Single/Live/Compilation/…), a **Missing** section for the rest of the discography, and a **Wanted** section for what's queued
 - Multi-user login with **admin/member roles**, enforced by the backend; first-run setup wizard
 - Health checks with self-explaining banners, scheduled backups with staged restore, a built-in log viewer
 
@@ -57,7 +54,7 @@ Grab a binary from [Releases](https://github.com/obstruct-exit-emit/LibriNode/re
 
 > Docker and Windows builds are on hold for now (see the [roadmap](ROADMAP.md)) — planned to return later.
 
-Then open `http://localhost:7845` — a first-run wizard walks you through your account, libraries, metadata, an indexer, and a download client. Full steps: [Installation](docs/installation.md) · [Quickstart](docs/quickstart.md).
+Then open `http://localhost:7845` — a first-run wizard walks you through your account, your music folder, an indexer, and a download client. Full steps: [Installation](docs/installation.md) · [Quickstart](docs/quickstart.md).
 
 ## Documentation
 
@@ -65,7 +62,7 @@ Then open `http://localhost:7845` — a first-run wizard walks you through your 
 |---|---|
 | [Installation](docs/installation.md) | Linux, from source |
 | [Quickstart](docs/quickstart.md) | First-run walkthrough |
-| [Libraries](docs/libraries.md) | How each of the three libraries behaves |
+| [Libraries](docs/libraries.md) | How the music library behaves |
 | [Acquisition](docs/acquisition.md) | Indexers, native sources, scoring, download clients |
 | [Configuration](docs/configuration.md) | config.yaml, auth & roles, naming, backups, HTTPS |
 | [API](docs/api.md) | The full REST API — everything the UI does is scriptable |

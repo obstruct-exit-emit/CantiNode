@@ -1,12 +1,11 @@
 // Package health runs LibriNode's background health checks: root folders
-// still reachable, indexers answering, download clients up, metadata token
-// valid. Results are cached; the UI shows them as a warning banner and the
-// System page lists them with a re-check button.
+// still reachable, indexers answering, download clients up. Results are
+// cached; the UI shows them as a warning banner and the System page lists
+// them with a re-check button.
 package health
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,7 +16,6 @@ import (
 	"github.com/librinode/librinode/internal/download"
 	"github.com/librinode/librinode/internal/indexer"
 	"github.com/librinode/librinode/internal/library"
-	"github.com/librinode/librinode/internal/metadata"
 )
 
 // Issue levels: errors mean something configured is broken; warnings flag a
@@ -47,14 +45,13 @@ type Service struct {
 	store     *library.Store
 	indexers  *indexer.Service
 	downloads *download.Service
-	metadata  *metadata.Manager
 
 	mu   sync.RWMutex
 	last Result
 }
 
-func New(store *library.Store, indexers *indexer.Service, downloads *download.Service, providers *metadata.Manager) *Service {
-	return &Service{store: store, indexers: indexers, downloads: downloads, metadata: providers}
+func New(store *library.Store, indexers *indexer.Service, downloads *download.Service) *Service {
+	return &Service{store: store, indexers: indexers, downloads: downloads}
 }
 
 // Last returns the most recent result; CheckedAt is zero when no check has
@@ -70,7 +67,6 @@ func (s *Service) Last() Result {
 func (s *Service) Check(ctx context.Context) Result {
 	issues := []Issue{}
 	issues = append(issues, s.checkRootFolders()...)
-	issues = append(issues, s.checkMetadata(ctx)...)
 	issues = append(issues, s.checkIndexers(ctx)...)
 	issues = append(issues, s.checkDownloadClients(ctx)...)
 	sort.SliceStable(issues, func(i, j int) bool {
@@ -126,83 +122,6 @@ func (s *Service) checkRootFolders() []Issue {
 		}
 	}
 	return issues
-}
-
-func (s *Service) checkMetadata(ctx context.Context) []Issue {
-	issues := []Issue{}
-
-	p := s.metadata.Current()
-	if p == nil {
-		issues = append(issues, Issue{
-			Source:  "metadata",
-			Level:   LevelWarning,
-			Message: "No metadata provider configured — search, add, and refresh are disabled. Add a token under Settings → Metadata.",
-		})
-	} else {
-		issues = append(issues, s.validateProvider(ctx, "metadata", p.Name(), p)...)
-	}
-
-	// The comic series provider, checked only when the comics library is
-	// actually set up — a user who never touches comics shouldn't see
-	// banners about it. "None" (deliberately disabled) reports nil here,
-	// same as an unconfigured book provider would, but that's a valid
-	// choice, not a problem, so it's silent rather than a warning.
-	statuses, err := s.store.LibraryStatuses()
-	if err != nil {
-		return issues
-	}
-	for _, st := range statuses {
-		if !st.Active {
-			continue
-		}
-		var sp metadata.SeriesProvider
-		switch st.MediaType {
-		case "comic":
-			sp = s.metadata.SeriesFor("comic")
-		default:
-			continue
-		}
-		if sp == nil {
-			continue
-		}
-		issues = append(issues, s.validateProvider(ctx, "metadata-"+st.MediaType, sp.Name(), sp)...)
-	}
-	return issues
-}
-
-// providerNamer is the sliver of metadata.Provider/SeriesProvider that
-// validateProvider needs — satisfied by both.
-type providerNamer interface {
-	Name() string
-}
-
-// validateProvider runs a provider's cheap Validate() call, if it has one,
-// and turns a failure into an Issue — worded as "unreachable" (warning,
-// self-healing) when the provider never responded, or "rejected its
-// token/key" (error, needs a fix) otherwise.
-func (s *Service) validateProvider(ctx context.Context, source, name string, p providerNamer) []Issue {
-	v, ok := p.(metadata.Validator)
-	if !ok {
-		return nil // no cheap validation call; don't burn quota on searches
-	}
-	cctx, cancel := context.WithTimeout(ctx, checkTimeout)
-	defer cancel()
-	err := v.Validate(cctx)
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, metadata.ErrUnreachable) {
-		return []Issue{{
-			Source:  source,
-			Level:   LevelWarning,
-			Message: fmt.Sprintf("Metadata provider %s is unreachable: %v", name, err),
-		}}
-	}
-	return []Issue{{
-		Source:  source,
-		Level:   LevelError,
-		Message: fmt.Sprintf("Metadata provider %s rejected its token: %v", name, err),
-	}}
 }
 
 func (s *Service) checkIndexers(ctx context.Context) []Issue {
