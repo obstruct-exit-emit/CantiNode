@@ -277,8 +277,8 @@ function AutoMatchPanel({
   const fileById = new Map(files.map((f) => [f.id, f]));
 
   return (
-    <div className="missing-detail">
-      <div className="settings-actions">
+    <div className="add-panel">
+      <form className="search-form" onSubmit={(e) => { e.preventDefault(); suggest(); }}>
         <select
           value={artistId}
           onChange={(e) => pickArtist(e.target.value === "" ? "" : Number(e.target.value))}
@@ -302,21 +302,32 @@ function AutoMatchPanel({
             </option>
           ))}
         </select>
-        <button disabled={!albumMbid || suggesting} onClick={suggest}>
+        <button type="submit" disabled={!albumMbid || suggesting}>
           {suggesting ? "Matching…" : "Suggest matches"}
         </button>
-      </div>
+      </form>
       {albums && albums.length === 0 && (
         <p className="muted">This artist has no wanted or missing albums to match against.</p>
       )}
 
       {suggestions && (
         <>
-          <p className="muted">
-            {releaseTitle && <>Matched against <strong>{releaseTitle}</strong> — </>}
-            {suggestions.length} of {files.length} file(s) confidently slotted.
-            {suggestions.length === 0 && " Try a different album, or match these by hand below."}
-          </p>
+          <div className="row">
+            <span className="muted">
+              {releaseTitle && (
+                <>
+                  Matched against <strong>{releaseTitle}</strong> —{" "}
+                </>
+              )}
+              {suggestions.length} of {files.length} file(s) confidently slotted.
+              {suggestions.length === 0 && " Try a different album, or match these by hand below."}
+            </span>
+            {pending.length > 1 && (
+              <button className="toggle" disabled={applyingId !== null} onClick={approveAll}>
+                Approve all ({pending.length})
+              </button>
+            )}
+          </div>
           {pending.length > 0 && (
             <ul className="rows nested">
               {pending.map((s) => {
@@ -342,13 +353,6 @@ function AutoMatchPanel({
                 );
               })}
             </ul>
-          )}
-          {pending.length > 1 && (
-            <div className="settings-actions">
-              <button disabled={applyingId !== null} onClick={approveAll}>
-                Approve all ({pending.length})
-              </button>
-            </div>
           )}
           {pending.length === 0 && suggestions.length > 0 && (
             <p className="notice ok">✓ All suggested matches approved.</p>
