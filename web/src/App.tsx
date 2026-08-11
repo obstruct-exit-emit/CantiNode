@@ -17,6 +17,7 @@ import MusicLibraryView from "./views/MusicLibraryView";
 import SearchView from "./views/SearchView";
 import SettingsView from "./views/SettingsView";
 import SystemView from "./views/SystemView";
+import UnmatchedFilesView from "./views/UnmatchedFilesView";
 import "./App.css";
 
 // Music is the only library — Plex-style, its nav entry appears once a
@@ -25,6 +26,7 @@ type Page =
   | { name: "library" }
   | { name: "artist"; id: number }
   | { name: "album"; id: number; artistId: number }
+  | { name: "unmatched" }
   | { name: "search"; q: string }
   | { name: "activity" }
   | { name: "settings" }
@@ -63,6 +65,8 @@ function hashToPage(hash: string): Page {
       return id > 0
         ? { name: "album", id, artistId: Number(q.get("artist")) || 0 }
         : { name: "library" };
+    case "unmatched":
+      return { name: "unmatched" };
     case "search":
       return { name: "search", q: q.get("q") ?? "" };
     case "activity":
@@ -200,6 +204,7 @@ function AppInner() {
           <nav>
             {hasMusicRoot && <div className="nav-group">Libraries</div>}
             {hasMusicRoot && navButton({ name: "library" }, "Music", "🎵")}
+            {hasMusicRoot && navButton({ name: "unmatched" }, "Unmatched Files", "❓")}
             <div className="nav-group">App</div>
             {navButton({ name: "activity" }, "Activity", "⬇️")}
             {isAdmin && navButton({ name: "settings" }, "Settings", "⚙️")}
@@ -311,6 +316,7 @@ function AppInner() {
             }
           />
         )}
+        {connected && page.name === "unmatched" && <UnmatchedFilesView onError={onError} />}
         {connected && page.name === "search" && (
           <SearchView
             key={page.q}

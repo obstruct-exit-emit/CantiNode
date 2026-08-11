@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  api,
-  proxiedImage,
-  type MusicArtist,
-  type MusicBrainzArtistResult,
-  type MusicTrackFile,
-} from "../api";
+import { api, proxiedImage, type MusicArtist, type MusicBrainzArtistResult } from "../api";
 import { PosterGridSkeleton } from "../components/Skeleton";
 
 // The Music library — a *arr-style poster grid of artists; clicking one
@@ -138,8 +132,6 @@ export default function MusicLibraryView({
           })()
         )}
       </section>
-
-      <UnmatchedTrackFilesCard onError={onError} />
     </>
   );
 }
@@ -234,144 +226,3 @@ function AddArtistPanel({
   );
 }
 
-// UnmatchedTrackFilesCard: scanned audio files the scanner couldn't
-// confidently match — the manual-review queue. Each row can search
-// MusicBrainz by artist/album/title and pick the right recording.
-function UnmatchedTrackFilesCard({ onError }: { onError: (message: string) => void }) {
-  const [files, setFiles] = useState<MusicTrackFile[] | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-
-  const reload = useCallback(() => {
-    api
-      .listUnmatchedTrackFiles()
-      .then(setFiles)
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
-  }, [onError]);
-
-  useEffect(reload, [reload]);
-
-  if (!files || files.length === 0) return null;
-
-  const remove = (id: number) => {
-    setBusyId(id);
-    api
-      .deleteTrackFile(id)
-      .then(reload)
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setBusyId(null));
-  };
-
-  return (
-    <section className="card">
-      <h2>Unmatched files ({files.length})</h2>
-      <p className="muted">
-        Scanned but not confidently matched to a MusicBrainz recording.
-        Search for the right one, or delete the file.
-      </p>
-      <ul className="rows">
-        {files.map((f) => (
-          <li key={f.id}>
-            <UnmatchedTrackFileRow
-              file={f}
-              busy={busyId === f.id}
-              onBusy={() => setBusyId(f.id)}
-              onDone={reload}
-              onRemove={() => remove(f.id)}
-              onError={onError}
-            />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function UnmatchedTrackFileRow({
-  file,
-  busy,
-  onBusy,
-  onDone,
-  onRemove,
-  onError,
-}: {
-  file: MusicTrackFile;
-  busy: boolean;
-  onBusy: () => void;
-  onDone: () => void;
-  onRemove: () => void;
-  onError: (message: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [artist, setArtist] = useState("");
-  const [album, setAlbum] = useState("");
-  const [title, setTitle] = useState("");
-  const [results, setResults] = useState<
-    { id: string; title: string; length: number; score: number }[]
-  >([]);
-  const [searching, setSearching] = useState(false);
-
-  const search = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSearching(true);
-    api
-      .searchMusicBrainzRecordings(artist, album, title)
-      .then(setResults)
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setSearching(false));
-  };
-
-  const match = (recordingMbid: string) => {
-    onBusy();
-    api
-      .matchTrackFile(file.id, recordingMbid)
-      .then(() => {
-        setOpen(false);
-        onDone();
-      })
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
-  };
-
-  return (
-    <>
-      <div className="row">
-        <button className="link" onClick={() => setOpen(!open)}>
-          {open ? "▾" : "▸"} {file.path}
-        </button>
-        <span className="row-actions">
-          <span className="muted">{file.format}</span>
-          <button className="danger" disabled={busy} onClick={onRemove}>
-            delete
-          </button>
-        </span>
-      </div>
-      {open && (
-        <div className="missing-detail">
-          <form onSubmit={search} className="search-form">
-            <input placeholder="Artist" value={artist} onChange={(e) => setArtist(e.target.value)} />
-            <input placeholder="Album" value={album} onChange={(e) => setAlbum(e.target.value)} />
-            <input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <button type="submit" disabled={searching}>
-              {searching ? "Searching…" : "Search MusicBrainz"}
-            </button>
-          </form>
-          {results.length > 0 && (
-            <ul className="rows nested">
-              {results.map((r) => (
-                <li key={r.id}>
-                  <div className="row">
-                    <span>{r.title}</span>
-                    <span className="row-actions">
-                      <button disabled={busy} onClick={() => match(r.id)}>
-                        Match
-                      </button>
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </>
-  );
-}
