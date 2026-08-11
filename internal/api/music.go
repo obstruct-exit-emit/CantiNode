@@ -406,7 +406,7 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	deleteFiles := r.URL.Query().Get("deleteFiles") == "true"
+	deleteFiles := wantsFileDeletion(r)
 
 	files, err := s.musicStore.ListTrackFilesByArtist(id)
 	if err != nil {
@@ -427,6 +427,49 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 		writeMusicStoreError(w, err)
 		return
 	}
+	s.writeDeleteResult(w, deleteFiles, paths)
+}
+
+// handleRemoveMusicAlbum is handleRemoveMusicArtist's single-album
+// counterpart — removes just this album (and its tracks), leaving the
+// artist and its other albums untouched.
+func (s *server) handleRemoveMusicAlbum(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	deleteFiles := wantsFileDeletion(r)
+
+	files, err := s.musicStore.ListTrackFilesByAlbum(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var paths []string
+	for _, f := range files {
+		if deleteFiles {
+			paths = append(paths, f.Path)
+		}
+		if err := s.musicStore.SetTrackFileMatch(f.ID, nil, musiclibrary.StatusUnmatched, 0); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if err := s.musicStore.DeleteAlbum(id); err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	s.writeDeleteResult(w, deleteFiles, paths)
+}
+
+// writeDeleteResult is the artist/album-remove response shape both
+// handlers share: always 200, "deleted": true, plus a per-path fileErrors
+// list only when deleteFiles was actually requested and something failed —
+// deliberately not internal/api's own finishDelete (204 when deleteFiles is
+// false), since these two endpoints' 200-always contract predates that
+// helper and frontend/tests already depend on it.
+func (s *server) writeDeleteResult(w http.ResponseWriter, deleteFiles bool, paths []string) {
 	if deleteFiles {
 		if _, errs := s.removeFilesFromDisk(paths); len(errs) > 0 {
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "fileErrors": errs})
@@ -676,6 +719,34 @@ func (s *server) handleOrganizeMusicArtist(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"moves": moves, "errors": errs})
 }
 
+func (s *server) handlePreviewOrganizeMusicAlbum(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	moves, err := s.musicScanner.PlanOrganizeAlbum(id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"moves": moves})
+}
+
+func (s *server) handleOrganizeMusicAlbum(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	moves, errs, err := s.musicScanner.OrganizeAlbum(id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"moves": moves, "errors": errs})
+}
+
 // --- Scan control ---
 
 // musicScanState is the last (or currently running) music scan's status,
@@ -756,6 +827,27 @@ func (s *server) cacheNewArtistsMetadata(ctx context.Context) {
 			slog.Warn("music scan: caching metadata for new artist", "artist", a.Name, "error", err)
 		}
 	}
+}
+
+// handleScanMusicAlbum rescans a single album's own folder — the album
+// page's "Scan files" action. Unlike handleTriggerMusicScan, this runs
+// synchronously and isn't tracked by s.musicScanState: it walks one small
+// directory rather than every root folder, so there's no need for the
+// background-job/polling dance a full library scan requires.
+func (s *server) handleScanMusicAlbum(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	ctx, cancel := s.metadataCtx(r)
+	defer cancel()
+	result, err := s.musicScanner.ScanAlbumFolder(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *server) handleMusicScanStatus(w http.ResponseWriter, r *http.Request) {

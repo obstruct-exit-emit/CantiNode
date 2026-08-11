@@ -157,6 +157,10 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// header, so covers ride the API key via ?apikey= — handled by s.auth
 	// already accepting the query form (see apiKeyMatches).
 	mux.HandleFunc("GET /api/v1/music/album/{id}/cover", s.auth(s.handleMusicAlbumCover))
+	mux.HandleFunc("GET /api/v1/music/album/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicAlbum))
+	mux.HandleFunc("POST /api/v1/music/album/{id}/organize", s.auth(s.handleOrganizeMusicAlbum))
+	mux.HandleFunc("POST /api/v1/music/album/{id}/scan", s.auth(s.handleScanMusicAlbum))
+	mux.HandleFunc("DELETE /api/v1/music/album/{id}", s.auth(s.handleRemoveMusicAlbum))
 	mux.HandleFunc("GET /api/v1/music/track/{id}/files", s.auth(s.handleListMusicTrackFilesByTrack))
 	mux.HandleFunc("GET /api/v1/music/trackfile/unmatched", s.auth(s.handleListUnmatchedTrackFiles))
 	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/match", s.auth(s.handleManualMatchTrackFile))

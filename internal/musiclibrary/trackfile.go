@@ -193,6 +193,24 @@ func (s *Store) ListTrackFilesByArtist(artistID int64) ([]TrackFile, error) {
 	return scanTrackFileRows(rows)
 }
 
+// ListTrackFilesByAlbum returns every track file under any track belonging
+// to albumID (joined track_files -> tracks), ordered by path. Backs the
+// album page's Scan/Organize/Remove actions, which — unlike the artist-wide
+// versions — must never touch a sibling album's files.
+func (s *Store) ListTrackFilesByAlbum(albumID int64) ([]TrackFile, error) {
+	rows, err := s.db.Query(`
+		SELECT tf.id, tf.root_folder_id, tf.track_id, tf.path, tf.size_bytes, tf.format, tf.bitrate_kbps, tf.duration_ms, tf.tags_json, tf.match_status, tf.match_confidence, tf.scanned_at, tf.organized_at
+		FROM track_files tf
+		JOIN tracks t ON t.id = tf.track_id
+		WHERE t.album_id = ?
+		ORDER BY tf.path`, albumID)
+	if err != nil {
+		return nil, fmt.Errorf("list track files by album: %w", err)
+	}
+	defer rows.Close()
+	return scanTrackFileRows(rows)
+}
+
 // ListTrackFilesByRootFolder returns every file scanned from rootFolderID.
 func (s *Store) ListTrackFilesByRootFolder(rootFolderID int64) ([]TrackFile, error) {
 	rows, err := s.db.Query(trackFileSelect+` WHERE root_folder_id = ? ORDER BY path`, rootFolderID)

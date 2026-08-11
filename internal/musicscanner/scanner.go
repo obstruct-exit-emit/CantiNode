@@ -199,6 +199,70 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 	return result, nil
 }
 
+// ScanAlbumFolder rescans a single album's own folder for new or changed
+// audio files and matches them against this album's own tracks — the album
+// page's "Scan files" action, scoped to just this album's directory rather
+// than every root folder. The directory scanned is the common parent of
+// the album's existing track files (there's no other reliable way to know
+// where an album's files live), so this errors on an album with none yet.
+//
+// Deliberately never prunes track_files rows for paths no longer found:
+// DeleteTrackFilesMissing reconciles a whole root folder against
+// seenPaths, so running it here with a directory-scoped seenPaths list
+// would wrongly delete every OTHER album's rows under the same root
+// folder — this pass only ever adds/matches, it never removes.
+func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResult, error) {
+	existing, err := s.db.ListTrackFilesByAlbum(albumID)
+	if err != nil {
+		return nil, fmt.Errorf("list track files by album: %w", err)
+	}
+	if len(existing) == 0 {
+		return nil, fmt.Errorf("album has no files yet to locate its folder from")
+	}
+	rootFolder, err := s.db.GetRootFolder(existing[0].RootFolderID)
+	if err != nil {
+		return nil, fmt.Errorf("get root folder: %w", err)
+	}
+	dir := filepath.Dir(existing[0].Path)
+
+	result := &ScanResult{Errors: []string{}}
+	groups := map[string][]folderEntry{}
+
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("walk %s: %v", path, err))
+			return nil
+		}
+		if d.IsDir() || !tagreader.IsAudioFile(path) {
+			return nil
+		}
+		tf, tags, err := s.upsertFile(*rootFolder, path, result)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", path, err))
+			return nil
+		}
+		if tf.MatchStatus != musiclibrary.StatusUnmatched {
+			return nil
+		}
+		fdir := filepath.Dir(path)
+		groups[fdir] = append(groups[fdir], folderEntry{tf: tf, tags: tags})
+		return nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("walk %s: %w", dir, err)
+	}
+
+	dirs := make([]string, 0, len(groups))
+	for d := range groups {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	for _, d := range dirs {
+		s.matchFolder(ctx, groups[d], result)
+	}
+	return result, nil
+}
+
 // upsertFile reads path's tags, stats it, and upserts its track_files
 // row — the part of matching that must run inline during the walk (every
 // file needs a row before folder-grouping can even key on it). Matching

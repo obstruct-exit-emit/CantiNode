@@ -604,6 +604,20 @@ export const api = {
   getMusicAlbum: (id: number) => request<MusicAlbum>(`/api/v1/music/album/${id}`),
   listMusicTracks: (albumId: number) =>
     request<MusicTrack[]>(`/api/v1/music/album/${albumId}/tracks`),
+  removeMusicAlbum: (id: number, deleteFiles = false) =>
+    request<{ deleted: boolean }>(
+      `/api/v1/music/album/${id}${deleteFiles ? "?deleteFiles=true" : ""}`,
+      { method: "DELETE" },
+    ),
+  previewOrganizeMusicAlbum: (id: number) =>
+    request<{ moves: RenameMove[] }>(`/api/v1/music/album/${id}/organize/preview`),
+  organizeMusicAlbum: (id: number) =>
+    request<{ moves: RenameMove[]; errors: string[] }>(
+      `/api/v1/music/album/${id}/organize`,
+      { method: "POST" },
+    ),
+  scanMusicAlbum: (id: number) =>
+    request<MusicScanResult>(`/api/v1/music/album/${id}/scan`, { method: "POST" }),
   listMusicTrackFiles: (trackId: number) =>
     request<MusicTrackFile[]>(`/api/v1/music/track/${trackId}/files`),
   listUnmatchedTrackFiles: () =>

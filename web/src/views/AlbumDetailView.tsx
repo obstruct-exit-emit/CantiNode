@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, musicAlbumCoverUrl, type MusicAlbum, type MusicTrack, type MusicTrackFile } from "../api";
+import {
+  api,
+  musicAlbumCoverUrl,
+  type MusicAlbum,
+  type MusicTrack,
+  type MusicTrackFile,
+  type RenameMove,
+} from "../api";
+import RemovePanel from "../components/RemovePanel";
 import { DetailSkeleton } from "../components/Skeleton";
 import { formatBytes } from "../format";
 import { useUi } from "../ui";
 
-// Full-page album detail: header with cover art and release info, then its
-// tracks — each with the file(s) matched to it (path, format, organize/
-// write-tags/delete actions), mirroring the book page's Files section.
+// Full-page album detail: header with cover art, release info, and
+// album-scoped Scan/Organize/Remove actions (unlike the artist page's
+// versions, these never touch a sibling album's files), then its tracks —
+// each with the file(s) matched to it (path, format, organize/write-tags/
+// delete actions), mirroring the book page's Files section.
 export default function AlbumDetailView({
   id,
   onError,
@@ -21,6 +31,9 @@ export default function AlbumDetailView({
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [files, setFiles] = useState<Record<number, MusicTrackFile[]>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [headerBusy, setHeaderBusy] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null);
   const [notice, setNotice] = useState("");
 
   const reload = useCallback(() => {
@@ -41,6 +54,60 @@ export default function AlbumDetailView({
   useEffect(reload, [reload]);
 
   if (!album) return <DetailSkeleton />;
+
+  const scan = () => {
+    setHeaderBusy(true);
+    setNotice("");
+    api
+      .scanMusicAlbum(album.id)
+      .then((r) => {
+        setNotice(
+          `✓ Scan complete — ${r.filesFound} file(s) found, ${r.filesMatched} matched` +
+            (r.filesOrganized ? `, ${r.filesOrganized} organized` : "") +
+            (r.errors && r.errors.length ? `, ${r.errors.length} error(s)` : "") +
+            ".",
+        );
+        reload();
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setHeaderBusy(false));
+  };
+
+  const previewOrganize = async () => {
+    setHeaderBusy(true);
+    setNotice("");
+    try {
+      const r = await api.previewOrganizeMusicAlbum(album.id);
+      setRenamePlan(r.moves);
+      if (r.moves.length === 0) setNotice("This album's files already match the naming template.");
+    } catch (err) {
+      onError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setHeaderBusy(false);
+    }
+  };
+
+  const applyOrganize = () => {
+    setHeaderBusy(true);
+    api
+      .organizeMusicAlbum(album.id)
+      .then((r) => {
+        setNotice(`✓ Moved ${r.moves.length} file(s)${r.errors.length ? `, ${r.errors.length} failed` : ""}.`);
+        setRenamePlan(null);
+        reload();
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setHeaderBusy(false));
+  };
+
+  const removeAlbum = (deleteFiles: boolean) => {
+    setHeaderBusy(true);
+    api
+      .removeMusicAlbum(album.id, deleteFiles)
+      .then(onBack)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setHeaderBusy(false));
+  };
 
   const organizeFile = async (f: MusicTrackFile) => {
     setBusyId(f.id);
@@ -119,7 +186,46 @@ export default function AlbumDetailView({
           <p className="muted">
             {album.primaryType || "Album"} · {tracks.length} track{tracks.length === 1 ? "" : "s"}
           </p>
+          <div className="settings-actions">
+            <button disabled={headerBusy} onClick={scan} title="Scan this album's own folder for new or changed files">
+              Scan files
+            </button>
+            <button disabled={headerBusy} onClick={previewOrganize} title="Preview naming-template moves for this album's files only">
+              Organize…
+            </button>
+            <button className="danger" disabled={headerBusy} onClick={() => setConfirmRemove(!confirmRemove)}>
+              Remove album
+            </button>
+          </div>
           {notice && <p className="muted">{notice}</p>}
+          {renamePlan && renamePlan.length > 0 && (
+            <div className="rename-plan">
+              <p>{renamePlan.length} file(s) would move to match the naming template:</p>
+              <ul className="rows">
+                {renamePlan.map((m) => (
+                  <li key={m.fileId}>
+                    <div className="move">
+                      <span className="file-path muted">{m.from}</span>
+                      <span className="file-path">→ {m.to}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="settings-actions">
+                <button disabled={headerBusy} onClick={applyOrganize}>Apply</button>
+                <button className="toggle" onClick={() => setRenamePlan(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
+          {confirmRemove && (
+            <RemovePanel
+              message={`Remove "${album.title}" from the library? The artist and its other albums are untouched.`}
+              checkboxLabel="Also delete its files from disk"
+              busy={headerBusy}
+              onConfirm={removeAlbum}
+              onCancel={() => setConfirmRemove(false)}
+            />
+          )}
         </div>
       </section>
 

@@ -98,6 +98,22 @@ func (s *Store) getAlbumByReleaseGroupMBID(artistID int64, releaseGroupMBID stri
 	return &a, nil
 }
 
+// DeleteAlbum deletes id outright — the album page's own "Remove album"
+// action, distinct from DeleteArtist's whole-discography version. Cascades
+// (per the schema's own FK setup) to the album's tracks. Deliberately does
+// NOT cascade to track_files, for the same reason DeleteArtist doesn't
+// (see its own comment): track_files.track_id is ON DELETE SET NULL, not
+// CASCADE, so calling this before every one of the album's own track_files
+// rows has already been unlinked (via SetTrackFileMatch) would silently
+// orphan them — track_id goes NULL but match_status stays whatever it was.
+// RemoveAlbum is the only intended caller, and it does that cleanup first.
+func (s *Store) DeleteAlbum(id int64) error {
+	if _, err := s.db.Exec(`DELETE FROM albums WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete album %d: %w", id, err)
+	}
+	return nil
+}
+
 const albumSelect = `SELECT id, artist_id, mbid, release_group_mbid, title, release_date, primary_type, created_at, updated_at FROM albums`
 
 // GetAlbum returns a single album by ID, or ErrNotFound.

@@ -165,19 +165,57 @@ func (s *Scanner) PlanOrganizeArtist(artistID int64) ([]RenameMove, error) {
 	return moves, nil
 }
 
-// OrganizeArtist applies PlanOrganizeArtist's plan, one file at a time via
-// OrganizeFile — a failure moving one file is recorded in errs and does
-// not stop the rest, the same non-aborting pattern ScanResult.Errors uses
-// for a whole scan pass. moves holds only the files that actually moved
-// successfully; the returned error is non-nil only for a failure that
-// aborts before any per-file attempt (e.g. can't even list the artist's
-// files).
+// OrganizeArtist applies PlanOrganizeArtist's plan — see applyOrganizePlan
+// for how per-file failures are handled.
 func (s *Scanner) OrganizeArtist(artistID int64) (moves []RenameMove, errs []string, err error) {
 	plan, err := s.PlanOrganizeArtist(artistID)
 	if err != nil {
 		return nil, nil, err
 	}
+	return s.applyOrganizePlan(plan)
+}
 
+// PlanOrganizeAlbum is PlanOrganizeArtist scoped to a single album — the
+// album page's own Organize preview, which must never plan a move for a
+// sibling album's files.
+func (s *Scanner) PlanOrganizeAlbum(albumID int64) ([]RenameMove, error) {
+	files, err := s.db.ListTrackFilesByAlbum(albumID)
+	if err != nil {
+		return nil, fmt.Errorf("list track files by album: %w", err)
+	}
+
+	moves := []RenameMove{}
+	for _, tf := range files {
+		if tf.MatchStatus == musiclibrary.StatusUnmatched {
+			continue
+		}
+		newPath, err := s.PlanOrganizePath(tf.ID)
+		if err != nil {
+			return nil, fmt.Errorf("plan organize %s: %w", tf.Path, err)
+		}
+		if newPath == tf.Path {
+			continue
+		}
+		moves = append(moves, RenameMove{TrackFileID: tf.ID, From: tf.Path, To: newPath})
+	}
+	return moves, nil
+}
+
+// OrganizeAlbum applies PlanOrganizeAlbum's plan — the album-scoped
+// counterpart to OrganizeArtist.
+func (s *Scanner) OrganizeAlbum(albumID int64) (moves []RenameMove, errs []string, err error) {
+	plan, err := s.PlanOrganizeAlbum(albumID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s.applyOrganizePlan(plan)
+}
+
+// applyOrganizePlan moves each planned file one at a time via OrganizeFile —
+// a failure moving one file is recorded in errs and does not stop the rest,
+// the same non-aborting pattern ScanResult.Errors uses for a whole scan
+// pass. moves holds only the files that actually moved successfully.
+func (s *Scanner) applyOrganizePlan(plan []RenameMove) (moves []RenameMove, errs []string, err error) {
 	moves = []RenameMove{}
 	errs = []string{}
 	for _, m := range plan {
