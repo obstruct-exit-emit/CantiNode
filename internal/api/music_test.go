@@ -88,12 +88,15 @@ func seedWantedAlbum(t *testing.T, a *testAPI) int64 {
 // real bug: handleSearchWantedMusicAlbum used to return SearchAll's raw,
 // unranked results straight to the caller — internal/release's scoring
 // engine (quality profiles, spam rejection, dead-torrent rejection) had no
-// caller anywhere in the codebase at all. A release naming an executable
-// and a torrent with zero seeders must be filtered out; the legitimate FLAC
+// caller anywhere in the codebase at all. It now returns every candidate,
+// scored (approved and rejected alike, blocklisted ones dropped outright)
+// — like ReleaseBrowser, the UI decides what to show, not the API — so a
+// release naming an executable and a dead torrent still come back, just
+// marked not approved with their rejection reason; the legitimate FLAC
 // release and the format-less one (real music release titles routinely
 // name the source — "SHM-CD", "24-96 hdtracks" — rather than the codec, so
 // an unstated format must not be an automatic rejection; see
-// internal/release.PreferencesFor) both come back, best-scored first.
+// internal/release.PreferencesFor) are approved, best-scored first.
 func TestSearchWantedMusicAlbumScoresAndFilters(t *testing.T) {
 	a := newTestAPI(t)
 	mock := mockTorznabIndexer(t, musicSearchXML)
@@ -106,21 +109,29 @@ func TestSearchWantedMusicAlbumScoresAndFilters(t *testing.T) {
 
 	var resp struct {
 		Releases []struct {
-			Title string `json:"title"`
-			GUID  string `json:"guid"`
+			Title      string   `json:"title"`
+			GUID       string   `json:"guid"`
+			Approved   bool     `json:"approved"`
+			Score      int      `json:"score"`
+			Rejections []string `json:"rejections,omitempty"`
 		} `json:"releases"`
 		Errors []string `json:"errors"`
 	}
 	a.want(a.call("GET", fmt.Sprintf("/api/v1/music/wanted/%d/search", wantedID), nil, &resp), http.StatusOK)
 
-	if len(resp.Releases) != 2 {
-		t.Fatalf("releases = %+v, want exactly 2 (spam/dead rejected; format-less approved)", resp.Releases)
+	if len(resp.Releases) != 4 {
+		t.Fatalf("releases = %+v, want all 4 candidates back (approved and rejected)", resp.Releases)
 	}
-	if resp.Releases[0].GUID != "https://mock/torrent/good" {
-		t.Errorf("best-scored survivor = %+v, want the good (FLAC) release first", resp.Releases[0])
+	if !resp.Releases[0].Approved || resp.Releases[0].GUID != "https://mock/torrent/good" {
+		t.Errorf("best-scored survivor = %+v, want the good (FLAC) release first, approved", resp.Releases[0])
 	}
-	if resp.Releases[1].GUID != "https://mock/torrent/unknown" {
-		t.Errorf("second survivor = %+v, want the format-less release", resp.Releases[1])
+	if !resp.Releases[1].Approved || resp.Releases[1].GUID != "https://mock/torrent/unknown" {
+		t.Errorf("second survivor = %+v, want the format-less release, approved", resp.Releases[1])
+	}
+	for _, r := range resp.Releases[2:] {
+		if r.Approved || len(r.Rejections) == 0 {
+			t.Errorf("release %+v: want rejected with a reason", r)
+		}
 	}
 }
 

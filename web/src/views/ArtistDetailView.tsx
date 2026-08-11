@@ -11,11 +11,11 @@ import {
   type WantedAlbum,
 } from "../api";
 import RemovePanel from "../components/RemovePanel";
+import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import {
   SortSelect,
   DirectionButtons,
-  sortAlbums,
   sortReleaseGroups,
   releaseCategory,
   groupByReleaseCategory,
@@ -28,10 +28,41 @@ import { formatDuration } from "../format";
 // (same grid, smaller covers), or "list" (a plain title + status row).
 type AlbumsView = "grid" | "compact" | "list";
 
+// GridAlbum unifies owned albums and wanted albums into one list for the
+// Albums grid — mirroring how a library-member book shows up whether or not
+// it's downloaded yet, rather than owned/wanted living in separate sections.
+type GridAlbum =
+  | { kind: "owned"; key: string; id: number; title: string; releaseDate: string; primaryType: string; mbid: string }
+  | {
+      kind: "wanted";
+      key: string;
+      id: number;
+      title: string;
+      releaseDate: string;
+      primaryType: string;
+      status: WantedAlbum["status"];
+    };
+
+function sortGridAlbums(items: GridAlbum[], key: string, dir: SortDir): GridAlbum[] {
+  const by = [...items];
+  switch (key) {
+    case "title":
+      by.sort((a, b) => a.title.localeCompare(b.title));
+      break;
+    case "date": // ascending = oldest first
+      by.sort((a, b) => (a.releaseDate || "").localeCompare(b.releaseDate || ""));
+      break;
+    default:
+      break;
+  }
+  return dir === "desc" ? by.reverse() : by;
+}
+
 // Full-page artist detail, mirroring the author page: header with portrait,
-// bio and artist-level actions, then owned albums as a cover grid, a
-// Missing section (cached discography not yet owned/wanted), and a Wanted
-// section (albums queued for search/grab).
+// bio and artist-level actions, then one Albums grid holding both owned and
+// wanted albums (badged accordingly — clicking a wanted one opens its
+// release search inline), and a Missing section for discography gaps that
+// aren't wanted yet.
 export default function ArtistDetailView({
   id,
   onError,
@@ -45,6 +76,9 @@ export default function ArtistDetailView({
 }) {
   const [artist, setArtist] = useState<MusicArtist | null>(null);
   const [albums, setAlbums] = useState<MusicAlbum[]>([]);
+  const [wanted, setWanted] = useState<WantedAlbum[]>([]);
+  const [selectedWantedId, setSelectedWantedId] = useState<number | null>(null);
+  const [removingWanted, setRemovingWanted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notice, setNotice] = useState("");
@@ -59,10 +93,11 @@ export default function ArtistDetailView({
   };
 
   const reload = useCallback(() => {
-    Promise.all([api.getMusicArtist(id), api.listMusicAlbums(id)])
-      .then(([a, al]) => {
+    Promise.all([api.getMusicArtist(id), api.listMusicAlbums(id), api.listWantedMusicAlbums(id)])
+      .then(([a, al, w]) => {
         setArtist(a);
         setAlbums(al);
+        setWanted(w);
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   }, [id, onError]);
@@ -152,6 +187,40 @@ export default function ArtistDetailView({
       .finally(() => setBusy(false));
   };
 
+  const removeWanted = (wantedId: number) => {
+    setRemovingWanted(true);
+    api
+      .removeWantedMusicAlbum(wantedId)
+      .then(() => {
+        setSelectedWantedId(null);
+        refreshMissingAndWanted();
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setRemovingWanted(false));
+  };
+
+  const gridAlbums: GridAlbum[] = [
+    ...albums.map((a) => ({
+      kind: "owned" as const,
+      key: `o${a.id}`,
+      id: a.id,
+      title: a.title,
+      releaseDate: a.releaseDate,
+      primaryType: a.primaryType,
+      mbid: a.mbid,
+    })),
+    ...wanted.map((w) => ({
+      kind: "wanted" as const,
+      key: `w${w.id}`,
+      id: w.id,
+      title: w.title,
+      releaseDate: w.releaseDate,
+      primaryType: w.primaryType,
+      status: w.status,
+    })),
+  ];
+  const selectedWantedAlbum = wanted.find((w) => w.id === selectedWantedId) ?? null;
+
   return (
     <>
       <button className="link back" onClick={onBack}>
@@ -168,6 +237,7 @@ export default function ArtistDetailView({
           <h2>{artist.name}</h2>
           <p className="muted">
             {albums.length} album{albums.length === 1 ? "" : "s"} owned
+            {wanted.length > 0 ? `, ${wanted.length} wanted` : ""}
           </p>
           {artist.bio && <p className="detail-desc">{artist.bio}</p>}
           <div className="settings-actions">
@@ -226,7 +296,10 @@ export default function ArtistDetailView({
 
       <section className="card">
         <div className="card-head">
-          <h2>Albums ({albums.length})</h2>
+          <h2>
+            Albums ({albums.length}
+            {wanted.length > 0 ? ` owned, ${wanted.length} wanted` : ""})
+          </h2>
           <span className="row-actions">
             <span className="view-toggle">
               {(["grid", "compact", "list"] as const).map((v) => (
@@ -241,7 +314,7 @@ export default function ArtistDetailView({
                 </button>
               ))}
             </span>
-            {albums.length > 1 && (
+            {gridAlbums.length > 1 && (
               <>
                 <SortSelect
                   value={albumsSort}
@@ -256,21 +329,38 @@ export default function ArtistDetailView({
             )}
           </span>
         </div>
-        {albums.length === 0 ? (
+        {gridAlbums.length === 0 ? (
           <p className="muted">
-            Nothing owned yet — pick albums to want from <strong>Missing</strong>{" "}
+            Nothing owned or wanted yet — pick albums from <strong>Missing</strong>{" "}
             below, or scan a root folder with their files.
           </p>
         ) : albumsView === "list" ? (
           <ul className="rows">
-            {sortAlbums(albums, albumsSort, albumsDir).map((al) => (
-              <li key={al.id}>
+            {sortGridAlbums(gridAlbums, albumsSort, albumsDir).map((g) => (
+              <li key={g.key}>
                 <div className="row">
-                  <button className="link" onClick={() => onOpenAlbum(al.id)}>
-                    {al.title}
+                  <button
+                    className="link"
+                    onClick={() =>
+                      g.kind === "owned"
+                        ? onOpenAlbum(g.id)
+                        : setSelectedWantedId(selectedWantedId === g.id ? null : g.id)
+                    }
+                    title={g.kind === "wanted" ? "Search releases for this album" : undefined}
+                  >
+                    {g.title}
                   </button>
-                  <span className="muted">
-                    {al.releaseDate ? al.releaseDate.slice(0, 4) : al.primaryType}
+                  <span className="row-actions">
+                    <span className="muted">
+                      {g.releaseDate ? g.releaseDate.slice(0, 4) : g.primaryType}
+                    </span>
+                    <span
+                      className={
+                        g.kind === "owned" ? "owned yes" : g.status === "downloading" ? "owned dl" : "owned no"
+                      }
+                    >
+                      {g.kind === "owned" ? "owned" : g.status === "downloading" ? "downloading" : "wanted"}
+                    </span>
                   </span>
                 </div>
               </li>
@@ -278,142 +368,66 @@ export default function ArtistDetailView({
           </ul>
         ) : (
           <div className={albumsView === "compact" ? "poster-grid compact" : "poster-grid"}>
-            {sortAlbums(albums, albumsSort, albumsDir).map((al) => (
-              <button key={al.id} className="poster-card" onClick={() => onOpenAlbum(al.id)}>
-                {al.mbid ? (
-                  <img className="poster" src={musicAlbumCoverUrl(al.id)} alt="" loading="lazy" />
-                ) : (
-                  <div className="poster fallback">{al.title.charAt(0)}</div>
-                )}
-                <span className="poster-title">{al.title}</span>
-                <span className="poster-sub">
-                  {al.releaseDate ? al.releaseDate.slice(0, 4) : al.primaryType}
-                </span>
-              </button>
-            ))}
+            {sortGridAlbums(gridAlbums, albumsSort, albumsDir).map((g) =>
+              g.kind === "owned" ? (
+                <button key={g.key} className="poster-card" onClick={() => onOpenAlbum(g.id)}>
+                  {g.mbid ? (
+                    <img className="poster" src={musicAlbumCoverUrl(g.id)} alt="" loading="lazy" />
+                  ) : (
+                    <div className="poster fallback">{g.title.charAt(0)}</div>
+                  )}
+                  <span className="poster-title">{g.title}</span>
+                  <span className="poster-sub">
+                    {g.releaseDate ? g.releaseDate.slice(0, 4) + " · " : ""}
+                    <span className="owned yes">owned</span>
+                  </span>
+                </button>
+              ) : (
+                <button
+                  key={g.key}
+                  className={selectedWantedId === g.id ? "poster-card selected" : "poster-card"}
+                  onClick={() => setSelectedWantedId(selectedWantedId === g.id ? null : g.id)}
+                  title="Search releases for this album"
+                >
+                  <div className="poster fallback">{g.title.charAt(0)}</div>
+                  <span className="poster-title">{g.title}</span>
+                  <span className="poster-sub">
+                    {g.releaseDate ? g.releaseDate.slice(0, 4) + " · " : ""}
+                    <span className={g.status === "downloading" ? "owned dl" : "owned no"}>
+                      {g.status === "downloading" ? "downloading" : "wanted"}
+                    </span>
+                  </span>
+                </button>
+              ),
+            )}
+          </div>
+        )}
+        {selectedWantedAlbum && (
+          <div className="missing-detail">
+            <div className="row">
+              <strong>{selectedWantedAlbum.title}</strong>
+              <span className="row-actions">
+                <button
+                  className="toggle"
+                  disabled={removingWanted}
+                  title="Stop wanting this album — it moves back to Missing"
+                  onClick={() => removeWanted(selectedWantedAlbum.id)}
+                >
+                  Stop wanting
+                </button>
+              </span>
+            </div>
+            <ReleaseBrowser
+              wantedAlbumId={selectedWantedAlbum.id}
+              onGrabbed={refreshMissingAndWanted}
+              onClose={() => setSelectedWantedId(null)}
+            />
           </div>
         )}
       </section>
 
-      <WantedAlbumsCard artistId={id} onChanged={refreshMissingAndWanted} onError={onError} refreshKey={reloadTick} />
       <MissingAlbumsCard artistId={id} onChanged={refreshMissingAndWanted} onError={onError} refreshKey={reloadTick} />
     </>
-  );
-}
-
-// WantedAlbumsCard lists albums queued for acquisition — search indexers and
-// grab, or remove (stop wanting it — it falls back into Missing).
-function WantedAlbumsCard({
-  artistId,
-  onChanged,
-  onError,
-  refreshKey,
-}: {
-  artistId: number;
-  onChanged: () => void;
-  onError: (message: string) => void;
-  refreshKey: number;
-}) {
-  const [wanted, setWanted] = useState<WantedAlbum[]>([]);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [releases, setReleases] = useState<Record<number, { title: string; downloadUrl: string; guid: string; protocol: string; indexer: string; size: number }[]>>({});
-  const [openMbid, setOpenMbid] = useState<string | null>(null);
-
-  const reload = useCallback(() => {
-    api
-      .listWantedMusicAlbums(artistId)
-      .then(setWanted)
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
-  }, [artistId, onError]);
-
-  useEffect(reload, [reload, refreshKey]);
-
-  if (wanted.length === 0) return null;
-
-  const search = (w: WantedAlbum) => {
-    setBusyId(w.id);
-    api
-      .searchWantedMusicAlbum(w.id)
-      .then((r) => setReleases((prev) => ({ ...prev, [w.id]: r.releases })))
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setBusyId(null));
-  };
-
-  const grab = (w: WantedAlbum, rel: { title: string; downloadUrl: string; guid: string; protocol: string }) => {
-    setBusyId(w.id);
-    api
-      .grabWantedMusicAlbum(w.id, rel.title, rel.downloadUrl, rel.protocol, rel.guid)
-      .then(reload)
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setBusyId(null));
-  };
-
-  const remove = (w: WantedAlbum) => {
-    setBusyId(w.id);
-    api
-      .removeWantedMusicAlbum(w.id)
-      .then(onChanged)
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setBusyId(null));
-  };
-
-  return (
-    <section className="card">
-      <h2>Wanted ({wanted.length})</h2>
-      <ul className="rows">
-        {wanted.map((w) => (
-          <li key={w.id}>
-            <div className="row">
-              <span>
-                <button
-                  className="link"
-                  onClick={() => setOpenMbid(openMbid === w.releaseGroupMbid ? null : w.releaseGroupMbid)}
-                  title="Show this album's tracklist"
-                >
-                  {openMbid === w.releaseGroupMbid ? "▾" : "▸"} {w.title}
-                </button>
-                <span className="muted"> · {w.status}</span>
-              </span>
-              <span className="row-actions">
-                <button disabled={busyId !== null} onClick={() => search(w)}>
-                  {busyId === w.id ? "Searching…" : "Search releases"}
-                </button>
-                <button
-                  disabled={busyId !== null}
-                  className="toggle"
-                  title="Stop wanting this album — it moves back to Missing"
-                  onClick={() => remove(w)}
-                >
-                  Remove
-                </button>
-              </span>
-            </div>
-            {openMbid === w.releaseGroupMbid && (
-              <div className="missing-detail">
-                <ReleaseTracklistPreview releaseGroupMbid={w.releaseGroupMbid} />
-              </div>
-            )}
-            {releases[w.id] && (
-              <ul className="rows nested">
-                {releases[w.id].length === 0 && <li className="muted">No releases found.</li>}
-                {releases[w.id].map((r, i) => (
-                  <li key={i}>
-                    <div className="row">
-                      <span>
-                        {r.title} <span className="muted">· {r.indexer}</span>
-                      </span>
-                      <button disabled={busyId !== null} onClick={() => grab(w, r)}>
-                        Grab
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

@@ -77,7 +77,7 @@ export interface QueueItem {
 export interface Release {
   indexerId: number;
   indexer: string;
-  protocol: "usenet" | "torrent";
+  protocol: "usenet" | "torrent" | "direct";
   title: string;
   guid: string;
   infoUrl?: string;
@@ -86,6 +86,33 @@ export interface Release {
   publishDate?: string;
   seeders: number;
   peers: number;
+}
+
+// Parsed is what internal/release.Parse read out of a release's own title —
+// best-effort, zero values mean "not stated". Music release titles can
+// carry all of these (a bitrate token or a "Complete Discography"-style
+// pack declaration are as real for music as anywhere else); narrator and
+// abridged are audiobook-only concepts that never populate for music.
+export interface ParsedRelease {
+  formats?: string[];
+  language?: string;
+  retail: boolean;
+  year?: number;
+  group?: string;
+  bitrate?: number;
+  volume?: number;
+  volumeEnd?: number;
+  pack?: boolean;
+}
+
+// ReleaseCandidate is one release scored against the active quality
+// profile — internal/release.Candidate embeds Release flat, so this does
+// too. approved false always comes with at least one rejection reason.
+export interface ReleaseCandidate extends Release {
+  parsed: ParsedRelease;
+  score: number;
+  approved: boolean;
+  rejections?: string[];
 }
 
 export interface GrabRecord {
@@ -620,7 +647,7 @@ export const api = {
   removeWantedMusicAlbum: (id: number) =>
     request<void>(`/api/v1/music/wanted/${id}`, { method: "DELETE" }),
   searchWantedMusicAlbum: (id: number) =>
-    request<{ releases: Release[]; errors: string[] }>(`/api/v1/music/wanted/${id}/search`),
+    request<{ releases: ReleaseCandidate[]; errors: string[] }>(`/api/v1/music/wanted/${id}/search`),
   grabWantedMusicAlbum: (
     id: number,
     title: string,

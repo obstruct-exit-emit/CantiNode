@@ -18,7 +18,6 @@ import (
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/download"
-	"github.com/cantinode/cantinode/internal/indexer"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
@@ -853,11 +852,12 @@ func (s *server) handleRemoveWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 // handleSearchWantedMusicAlbum searches every enabled indexer for a wanted
 // album — the query is the artist's name plus the album's own title, which
 // in practice finds the right release across arbitrary indexer naming
-// conventions far more reliably than either alone. Results are scored
-// against the default quality profile and filtered to the ones actually
-// worth grabbing (right format, sane size, not spam, not already
-// blocklisted from a past failure) — SearchAll itself has no opinion on
-// any of that, it just fans a query out across indexers.
+// conventions far more reliably than either alone. Every candidate comes
+// back scored against the default quality profile — approved and rejected
+// alike, blocklisted ones dropped outright — so the UI can show the whole
+// picture (score, parsed format/retail, why a rejected one was rejected)
+// the way ReleaseBrowser does, rather than a stripped-down approved-only
+// list with no way to see or force-grab a near-miss.
 func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -898,13 +898,7 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 	}
 	release.Rank(candidates)
 
-	releases := make([]indexer.Release, 0, len(candidates))
-	for _, c := range candidates {
-		if c.Approved {
-			releases = append(releases, c.Release)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"releases": releases, "errors": errs})
+	writeJSON(w, http.StatusOK, map[string]any{"releases": candidates, "errors": errs})
 }
 
 // handleGrabWantedMusicAlbum sends a release (a result from a prior
