@@ -27,13 +27,21 @@ add a root folder for it.
   and SABnzbd.
 - A built-in **direct** HTTP fetcher for plain-HTTP sources, alongside
   Newznab/Torznab. See [Acquisition](acquisition.md).
+- **Automatic acquisition end to end**: a background sweep searches and
+  grabs monitored artists' wanted albums on its own (default daily, tunable),
+  and a finished download is copied into the library and scanned in
+  automatically — no manual "Search releases" or "Scan files" step needed
+  unless you want one (e.g. to search an unmonitored artist, or grab a
+  quality upgrade for something you already own).
 - Tag-first matching: a file's own `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID`
   tags resolve it exactly; otherwise whole-folder release matching, then
   fuzzy title search, fill the gap. Matched files can be renamed into a
   configurable layout and have their tags rewritten.
-- Poster-grid browsing with artist detail pages (owned albums, a Missing
-  section grouped by release type, a Wanted section), health checks,
-  backups, and a log viewer.
+- Poster-grid browsing with artist detail pages — one **Albums** grid holding
+  both owned and wanted albums (badged accordingly, with an inline release
+  browser to search/grab a wanted one) and a **Missing** section grouped by
+  release type for the rest of the discography — health checks, backups,
+  and a log viewer.
 - Optional login with **admin/member roles**: members get everyday use,
   admins get the server's configuration and accounts.
 - Artist bio/photo and album art are cached automatically the moment an

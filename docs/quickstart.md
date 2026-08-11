@@ -29,9 +29,13 @@
    everything Prowlarr already has configured — and a download client
    (**Settings → Download Clients**, with **Test** buttons).
    From an artist's **Missing** section, **+ Add** (or **+ Add & Monitor**)
-   an album to want it; from **Wanted**, **Search releases** and **Grab**
-   the one you want. Grabbed files are picked up the same way any other
-   file is — the next scan of your music folder matches them in.
+   an album to want it — it now shows in the **Albums** grid badged
+   "wanted". A monitored artist's wanted albums are searched and grabbed
+   automatically on a schedule (default daily — **Settings → General →
+   Background timings**); to do it yourself right away, click into the
+   wanted album and use **Search releases** to pick a specific one. Either
+   way, once a download finishes it's copied into the library and scanned
+   in on its own — no manual **Scan files** needed.
 
 6. **Check Activity** for the download queue and grab history, and
    **System** for health checks, logs, and backups.

@@ -62,8 +62,14 @@ preferences, size bounds. Candidates that can't be a real release are
 rejected outright (an executable/installer named outright, no seeders on a
 torrent, no download link).
 
-With **upgrades allowed**, owning a lesser format keeps the album wanted
-until the profile's cutoff; upgrade grabs must be strictly better.
+With **upgrades allowed** (per quality profile) and a **cutoff** format set
+(blank = the profile's own best format), an already-owned album whose
+format hasn't reached the cutoff gets a **Search upgrade** button on its
+own page — manually triggered, not swept automatically. Every candidate is
+scored against the owned format itself, so only a release that's a genuine
+step up ever approves; a rejected one still shows why. A grabbed upgrade
+lands alongside the existing file once imported, not in place of it —
+removing the old one afterward is a manual per-file action.
 
 ## Download clients
 
@@ -84,22 +90,32 @@ uploader's own torrent name instead — sometimes wildly different from, or a
 typo of, the release title — so tracking by hash keeps the queue's album
 linking working regardless of what name the bridge shows.
 
-- Search and grab are both per-item, from the artist page's **Wanted**
-  section: **Search releases** lists scored candidates, then **Grab** sends
-  the one you pick. There is no automatic background search sweep today —
-  acquisition is user-triggered.
-- Grabbed files land in your download client's output folder like any other
-  file. **They aren't imported automatically** — the next **Scan files**
-  pass (on the Music page, or an artist's own page) matches them against
-  MusicBrainz and, if **Organize on match** is enabled (**Settings →
-  Music**, off by default), moves them into the naming-template layout
-  right away; otherwise run **Organize…** yourself once you've reviewed the
-  scan.
-- **Failed and junk downloads** are blocklisted (never grabbed again; a
-  replacement search starts immediately) and deleted — out of the client and
-  off disk. This covers client-side failures and spam whose content isn't
-  the media (an `.exe` instead of an audio file). The blocklist is managed
-  from the Activity page.
+- **A background sweep searches and grabs automatically** for every
+  **monitored** artist's wanted albums — once a day by default (tunable
+  under **Settings → General → Advanced: background timings**), picking the
+  best release that clears the active quality profile, exactly like a
+  manual grab. Unmonitored artists are never swept; their wanted albums sit
+  there until you search them yourself. You can still do it by hand any
+  time: click into a wanted album (in the artist page's **Albums** grid) and
+  use **Search releases** to see every scored candidate and pick one
+  yourself, approved or not.
+- **Grabbed files are imported automatically.** A background loop
+  (Completed Download Handling) polls every in-flight grab against its
+  download client, and once one finishes, copies **only its audio files**
+  (NFOs, cover art, sample folders, and other download junk are left
+  behind, then deleted with the rest of the source) into the music library
+  and scans them in — no manual **Scan files** step needed. A file that
+  wasn't part of a grab (dropped into a root folder by hand) still needs a
+  scan to be picked up. If **Organize on match** is enabled (**Settings →
+  Music**, off by default), a newly-matched file also moves into the
+  naming-template layout immediately; otherwise run **Organize…** yourself
+  once you've reviewed things.
+- **Failed and junk downloads** are blocklisted (never offered again by a
+  future search) and deleted — out of the client and off disk. This covers
+  client-side failures and spam whose content isn't the media (an `.exe`
+  instead of an audio file). The album itself reverts to **wanted**, so it's
+  picked up by the next automatic sweep, or searchable by hand right away.
+  The blocklist is managed from the Activity page.
 - **Removing a download** from the Activity queue deletes it (and its data)
   from the client and resolves its pending grab, without blocklisting it — the
   release can be grabbed again right away. If a grab is ever stuck reporting

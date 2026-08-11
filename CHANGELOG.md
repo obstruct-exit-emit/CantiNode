@@ -11,6 +11,55 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Automatic wanted-list sweep is back** (`internal/autosearch`): a
+  background loop, mirroring `internal/importer`'s own shape, searches and
+  grabs every **monitored** artist's still-wanted albums on a timer
+  (default once a day, tunable via `wantedSearchIntervalMinutes` on
+  `GET/PUT /settings/timings`, or **Settings → General → Advanced:
+  background timings**), picking the best release that clears the active
+  quality profile exactly like a manual grab would. Unmonitored artists'
+  wanted albums are never swept automatically — search/grab stays entirely
+  manual for them, matching the existing decoupling between wanting an
+  album and monitoring its artist. This is the other half of Completed
+  Download Handling's return (below): that restored automatic *import*,
+  this restores automatic *search*.
+- **Quality profiles' "Allow upgrades" toggle now does something.**
+  `internal/release/score.go` already had upgrade-aware rejection logic
+  (`MinFormatScore` — reject anything not a genuine step up), but nothing
+  in the app ever called a search with an owned format to check against;
+  the toggle looked live in Settings but had no effect. A **Search
+  upgrade** button now appears on an already-owned album's own page once
+  its format hasn't met the profile's cutoff (`GET/POST
+  /music/album/{id}/upgrade/search|grab`) — deliberately manual-trigger
+  only, not folded into the automatic sweep above, since a background loop
+  silently grabbing a second copy of something already owned felt like it
+  needed a human in the loop. A grabbed upgrade lands alongside the old
+  file, not in place of it; removing the old one is still a manual
+  per-file action.
+- **Owned and wanted albums share one grid.** The artist page's separate
+  owned-albums poster grid and Wanted list are unified into a single
+  **Albums** grid, badged owned/wanted/downloading — mirroring how a
+  library-member book shows up whether or not it's been downloaded yet.
+  Clicking a wanted album opens an inline panel with **Search
+  releases**/**Stop wanting**; search only fires once you actually click
+  **Search releases**, not just from opening the album (matching how the
+  book UI this was ported from behaves).
+- **A rich release browser** (`ReleaseBrowser.tsx`, shared by the wanted-
+  album and album-upgrade search flows): approved/all toggle, protocol
+  filter, sort by score/size/seeders/age, score/format/retail/pack pills,
+  and — for a rejected release — its rejection reason shown inline with a
+  "grab anyway" override. Replaces the previous bare title-plus-Grab-button
+  list; reuses CSS that had been sitting in `App.css` unused since the
+  original LibriNode-fork port.
+- **Per-album Scan files, Organize…, and Remove album** actions, alongside
+  the existing artist-level ones. Unlike the artist/library-wide scan
+  (which walks every root folder regardless of where it's clicked from),
+  the album-level scan genuinely only walks that one album's own folder —
+  useful for picking up a manually-dropped-in file without paying for a
+  full library walk, and it never touches a sibling album's records even
+  though it has no root-folder-wide context to lean on for that. Remove
+  album takes the same optional `?deleteFiles=true` the artist-level
+  remove does.
 - **Completed Download Handling is back** (`internal/importer`): a background
   loop polls every in-flight grab against its download client every 2
   minutes (immediately on startup too), and once one reports done, copies
@@ -309,6 +358,40 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Importing a finished download copied everything in it, junk included** —
+  NFOs, cover-art images, sample/proof folders, `.sfv`/`.m3u` sidecar
+  files, all of it landed in the music library alongside the actual audio.
+  Completed Download Handling now filters to audio-extension files only
+  when copying a grab in; the rest is left in the download's own source
+  path, which still gets deleted afterward same as before. A subdirectory
+  holding nothing but junk is never even created at the destination.
+- **The Activity page could take several real seconds to load, every
+  time its 15-second queue cache expired** — measured directly: the
+  configured SABnzbd-compatible debrid bridge's `history` endpoint takes
+  3–5+ seconds per call even on an already-warm connection, and the queue
+  endpoint blocked on a fresh live sweep of every client whenever its cache
+  went stale. It now only blocks synchronously when there's no snapshot at
+  all yet (a fresh server start); once any snapshot exists, a stale hit
+  returns it immediately while a background sweep quietly refreshes it for
+  next time. Verified live: first load after a restart ~5s (unavoidable —
+  nothing to show yet), every load after that 20–40ms regardless of how
+  stale the cache was.
+- **Removing an artist or album with a download still in flight let that
+  download finish and import anyway**, silently re-creating whatever had
+  just been removed — `musicscanner` matches a file to an artist/album by
+  the file's own tags/MBIDs regardless of what CantiNode's tables say, so a
+  grab that outlived its now-deleted `wanted_albums` row (and, for an
+  artist removal, the artist row itself) would still resolve to something
+  on import. Removing an artist or album now cancels (fails) any grab still
+  in flight for its wanted albums first.
+- **A file — or its whole containing folder — deleted outside the app left
+  a phantom `track_files` row behind forever**, undetected, on the album
+  page's own **Scan files**. By design it never runs the whole-root-folder
+  reconciliation a full library scan does (that would risk pruning a
+  sibling album's rows from a directory-scoped walk), but that meant it had
+  no way to notice a file was simply gone either. It now prunes exactly the
+  album's own already-known files that a fresh `os.Stat` confirms are
+  missing, still without touching anything outside that album.
 - **A completed torrent grab could be silently mistaken for "vanished from
   the queue" and failed outright** — found while re-running the whole
   add → search → grab → import loop live to verify the fixes above.

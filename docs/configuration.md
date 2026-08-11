@@ -29,9 +29,10 @@ music:
                                  #   recommended
   audiodb_api_key: ""            # TheAudioDB key for artist bio/photo lookup;
                                  #   empty uses TheAudioDB's public test key
-timings:                         # background cadences — omit for defaults
-  health_interval_minutes: 15    # health checks (5–1440) — the only loop
-                                 #   that runs on a schedule; see below
+timings:                                # background cadences — omit for defaults
+  health_interval_minutes: 15           # health checks (5–1440); see below
+  wanted_search_interval_minutes: 1440  # wanted-list sweep (15–1440,
+                                         #   default 1440 = 24h); see below
 path_mappings:                   # remote client paths → local ones
   - remote: /storage_1           # as the download client reports them
     local: /mnt/media            # where this server sees the same files
@@ -54,13 +55,19 @@ client-reported path before import touches disk.
 
 ## Background timings
 
-**Settings → General → Advanced: background timings** tunes the health
-check — the only loop that runs on a schedule today. Search, grab, scan,
-and organize are all triggered by you (from the Music page or an artist's
-own page), not on a timer; see [Acquisition](acquisition.md) and the
-[roadmap](../ROADMAP.md#future-) for bringing an automatic sweep back.
-Blank uses the default; entered values are clamped to the range above so a
-typo can't misconfigure it. Changes apply on the next server start.
+**Settings → General → Advanced: background timings** tunes two loops:
+the health check, and how often the **wanted-list sweep**
+(`internal/autosearch`) searches and grabs for every monitored artist's
+wanted albums — default once a day, since it's far less time-sensitive
+than, say, a health check. Manual search/grab, scan, and organize are
+still triggered by you and unaffected by either setting; see
+[Acquisition](acquisition.md). Blank uses the default; entered values are
+clamped to the range shown in the settings form so a typo can't
+misconfigure it. Changes apply on the next server start.
+
+Completed Download Handling (copying a finished grab into the library and
+scanning it in) isn't tunable here — it polls as fast as a download can
+realistically finish, not on a preference.
 
 ## Music matching
 

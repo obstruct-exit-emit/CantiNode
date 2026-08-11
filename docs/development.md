@@ -26,10 +26,18 @@ npm run build    # production build into web/dist
 ## Layout
 
 ```
-cmd/cantinode/         entrypoint, background health-check loop, restore staging
+cmd/cantinode/         entrypoint; wires up and runs the background loops
+                       (health check, Completed Download Handling, the
+                       wanted-list sweep); restore staging
 internal/api/          REST handlers, router, auth, backups
 internal/musiclibrary/ domain model + SQLite store (artists/albums/tracks)
 internal/musicscanner/ file scanning, MusicBrainz matching, organize/rename
+                       (library-wide and per-album)
+internal/importer/     Completed Download Handling: polls in-flight grabs,
+                       copies a finished one's audio files into the
+                       library, scans them in
+internal/autosearch/   wanted-list sweep: searches and grabs for every
+                       monitored artist's still-wanted albums, on a timer
 internal/musicbrainz/  MusicBrainz API client (artist/release lookup+search)
 internal/audiodb/      TheAudioDB client (artist bio/photo)
 internal/coverart/     Cover Art Archive client + local album-art cache
