@@ -202,34 +202,41 @@ Picked 2026-08-11, after a session of live bug-fixing (release scoring,
 delete-files, Activity page lag) — concrete and prioritized, unlike
 [Future](#future-) below:
 
-1. [ ] **Automatic wanted-list sweep** — search/grab is 100% manual today;
-   opening each wanted album and clicking "Search releases" doesn't scale
-   past a handful of albums. A periodic background sweep of monitored
-   artists' wanted albums, auto-grabbing anything that clears the active
-   quality profile, is the other half of what Completed Download Handling
-   already restored on the import side (`internal/importer` polls in-flight
-   grabs and imports on completion; nothing yet polls the wanted list itself
-   to create those grabs in the first place).
-2. [ ] **Wire up "Upgrades allowed"** — `internal/release/score.go` already
-   has upgrade-aware rejection logic ("not an upgrade over the owned
-   format"), and Settings → Quality Profiles has a live toggle for it, but
-   nothing in the app ever triggers a search *for an already-owned album* to
-   check whether a better release exists. Looks live, has no caller — the
-   same shape of gap the release-scoring bug (found and fixed this session)
-   turned out to be; worth the same kind of grep-for-real-callers audit.
+1. [x] **Automatic wanted-list sweep** — done overnight 2026-08-11:
+   `internal/autosearch` sweeps every monitored artist's still-wanted
+   albums on a timer (default 1h, tunable under Settings → Background
+   timings), auto-grabbing the best approved release exactly like a manual
+   "Search releases" click. Unmonitored artists' wanted albums are left
+   alone, same as before. Verified live — the first sweep after deploy
+   found and grabbed a real release within seconds of startup.
+2. [x] **Wire up "Upgrades allowed"** — done overnight 2026-08-11: new
+   `GET/POST /api/v1/music/album/{id}/upgrade/search|grab` endpoints let
+   the album page search for (and grab) a better release than what's
+   currently owned, scored with `release.Preferences.MinFormatScore` so
+   only a genuine step up ever approves. Deliberately **manual-trigger
+   only**, not folded into the automatic sweep above — an unattended loop
+   silently grabbing a second copy of an already-owned album felt like a
+   judgment call that deserved a human in the loop. The grabbed file also
+   isn't auto-swapped in for the old one yet (it lands alongside it;
+   removing the old file is still a manual step) — a reasonable follow-up
+   if this gets used a lot.
 3. [ ] **Real-world burn-in** — the Phase 6 gate above: run it for real,
    watch `journalctl -u cantinode` and Settings → Health for anything that
-   surfaces on its own.
+   surfaces on its own. One unsupervised night in (2026-08-11, alongside
+   items 1/2/5 going live) came back clean, but that's a start, not the
+   "weeks of daily use" this gate actually wants.
 4. [ ] **Upgrade "Add artist" search results** (`MusicLibraryView.tsx`'s
    `AddArtistPanel`) to the same poster-card grid pattern `ReleaseBrowser`'s
    neighbors already got this session, instead of the current bare
    name-plus-button text list.
-5. [ ] **A deliberate pass over delete/scan/organize edge cases** now that
-   album-level actions exist alongside the artist-level ones — e.g. removing
-   an artist that still has an in-flight grab, or scanning an album whose
-   folder was deleted outside the app. Same category as the two real bugs
-   found and fixed this session (delete-files regression, Activity page
-   lag), just proactive instead of reactive.
+5. [x] **A deliberate pass over delete/scan/organize edge cases** — done
+   overnight 2026-08-11, two real bugs found and fixed the same way the
+   delete-files regression and Activity lag were: removing an artist/album
+   with a grab still in flight now cancels it first (it used to finish and
+   silently re-import, resurrecting what was just removed); the album
+   page's "Scan files" now notices and prunes a file — or its whole
+   folder — deleted outside the app, which it previously left as a stale,
+   undetected row forever.
 
 ## Future 💡
 
