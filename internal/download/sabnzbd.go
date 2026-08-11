@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/redact"
@@ -244,21 +245,41 @@ type sabSlot struct {
 }
 
 func (s *sabnzbd) List(ctx context.Context) ([]Item, error) {
-	var queue struct {
-		Queue struct {
-			Slots []sabSlot `json:"slots"`
-		} `json:"queue"`
+	// Queue and history are independent calls — run them concurrently rather
+	// than back-to-back. Some SABnzbd-compatible bridges (debrid services in
+	// particular) answer "history" several seconds slower than "queue" even
+	// when it's empty, seemingly a fixed per-call cost rather than one that
+	// scales with result size; sequential calls paid that cost on top of
+	// queue's own, doubling how long a single sweep could take.
+	var (
+		queue struct {
+			Queue struct {
+				Slots []sabSlot `json:"slots"`
+			} `json:"queue"`
+		}
+		history struct {
+			History struct {
+				Slots []sabSlot `json:"slots"`
+			} `json:"history"`
+		}
+		queueErr, historyErr error
+		wg                   sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		queueErr = s.api(ctx, url.Values{"mode": {"queue"}, "cat": {s.cfg.Category}}, &queue)
+	}()
+	go func() {
+		defer wg.Done()
+		historyErr = s.api(ctx, url.Values{"mode": {"history"}, "limit": {"100"}, "category": {s.cfg.Category}}, &history)
+	}()
+	wg.Wait()
+	if queueErr != nil {
+		return nil, queueErr
 	}
-	if err := s.api(ctx, url.Values{"mode": {"queue"}, "cat": {s.cfg.Category}}, &queue); err != nil {
-		return nil, err
-	}
-	var history struct {
-		History struct {
-			Slots []sabSlot `json:"slots"`
-		} `json:"history"`
-	}
-	if err := s.api(ctx, url.Values{"mode": {"history"}, "limit": {"100"}, "category": {s.cfg.Category}}, &history); err != nil {
-		return nil, err
+	if historyErr != nil {
+		return nil, historyErr
 	}
 
 	items := []Item{}

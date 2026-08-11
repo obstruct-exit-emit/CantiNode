@@ -17,20 +17,34 @@ export default function ActivityView({
   const [histLimit, setHistLimit] = useState(100);
   const [blocked, setBlocked] = useState<BlockEntry[]>([]);
   const [clientErrors, setClientErrors] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Loaded independently, not gated behind Promise.all: the queue call polls
+  // live download clients and can run seconds behind history/blocklist (a
+  // slow or debrid-bridged client's queue answers far slower than a plain DB
+  // read) — no reason to blank out the whole page waiting on the slowest of
+  // the three.
+  const [itemsLoading, setItemsLoading] = useState(true);
   const [removing, setRemoving] = useState("");
 
   const reload = useCallback(() => {
-    Promise.all([api.queue(), api.history(histFilter, histLimit), api.blocklist()])
-      .then(([q, h, b]) => {
+    api
+      .queue()
+      .then((q) => {
         setItems(q.items);
         setClientErrors(q.errors);
-        setHistory(h.records);
-        setHistTotal(h.total);
-        setBlocked(b);
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setLoading(false));
+      .finally(() => setItemsLoading(false));
+    api
+      .history(histFilter, histLimit)
+      .then((h) => {
+        setHistory(h.records);
+        setHistTotal(h.total);
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+    api
+      .blocklist()
+      .then(setBlocked)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   }, [onError, histFilter, histLimit]);
 
   // The filter re-queries as you type — debounced so each keystroke doesn't
@@ -85,8 +99,6 @@ export default function ActivityView({
     return () => clearInterval(timer);
   }, [reload]);
 
-  if (loading) return <RowsSkeleton />;
-
   return (
     <>
     <section className="card">
@@ -101,7 +113,9 @@ export default function ActivityView({
           {e}
         </p>
       ))}
-      {items.length === 0 ? (
+      {itemsLoading ? (
+        <RowsSkeleton />
+      ) : items.length === 0 ? (
         <p className="muted">
           Nothing downloading. Grab releases from a book's search results, or
           check that a download client is configured under Settings.
