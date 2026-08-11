@@ -78,6 +78,10 @@ export default function ArtistDetailView({
   const [albums, setAlbums] = useState<MusicAlbum[]>([]);
   const [wanted, setWanted] = useState<WantedAlbum[]>([]);
   const [selectedWantedId, setSelectedWantedId] = useState<number | null>(null);
+  // Mirrors LibriNode's book page: opening a wanted album never searches by
+  // itself — ReleaseBrowser (and the indexer search it fires on mount) only
+  // shows up once the user explicitly asks for it via "Search releases".
+  const [showReleases, setShowReleases] = useState(false);
   const [removingWanted, setRemovingWanted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -197,6 +201,14 @@ export default function ArtistDetailView({
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setRemovingWanted(false));
+  };
+
+  // Selecting a different wanted album always starts with releases hidden —
+  // switching straight from one album's open ReleaseBrowser to another's
+  // would otherwise carry the panel (and its auto-search) over silently.
+  const selectWanted = (albumId: number) => {
+    setSelectedWantedId((cur) => (cur === albumId ? null : albumId));
+    setShowReleases(false);
   };
 
   const gridAlbums: GridAlbum[] = [
@@ -341,12 +353,8 @@ export default function ArtistDetailView({
                 <div className="row">
                   <button
                     className="link"
-                    onClick={() =>
-                      g.kind === "owned"
-                        ? onOpenAlbum(g.id)
-                        : setSelectedWantedId(selectedWantedId === g.id ? null : g.id)
-                    }
-                    title={g.kind === "wanted" ? "Search releases for this album" : undefined}
+                    onClick={() => (g.kind === "owned" ? onOpenAlbum(g.id) : selectWanted(g.id))}
+                    title={g.kind === "wanted" ? "Show this wanted album's actions" : undefined}
                   >
                     {g.title}
                   </button>
@@ -386,8 +394,8 @@ export default function ArtistDetailView({
                 <button
                   key={g.key}
                   className={selectedWantedId === g.id ? "poster-card selected" : "poster-card"}
-                  onClick={() => setSelectedWantedId(selectedWantedId === g.id ? null : g.id)}
-                  title="Search releases for this album"
+                  onClick={() => selectWanted(g.id)}
+                  title="Show this wanted album's actions"
                 >
                   <div className="poster fallback">{g.title.charAt(0)}</div>
                   <span className="poster-title">{g.title}</span>
@@ -408,6 +416,13 @@ export default function ArtistDetailView({
               <strong>{selectedWantedAlbum.title}</strong>
               <span className="row-actions">
                 <button
+                  className={showReleases ? "toggle on" : ""}
+                  onClick={() => setShowReleases(!showReleases)}
+                  title="Browse every release candidate — sort, filter, pick one yourself"
+                >
+                  {showReleases ? "Hide releases" : "Search releases"}
+                </button>
+                <button
                   className="toggle"
                   disabled={removingWanted}
                   title="Stop wanting this album — it moves back to Missing"
@@ -417,11 +432,13 @@ export default function ArtistDetailView({
                 </button>
               </span>
             </div>
-            <ReleaseBrowser
-              wantedAlbumId={selectedWantedAlbum.id}
-              onGrabbed={refreshMissingAndWanted}
-              onClose={() => setSelectedWantedId(null)}
-            />
+            {showReleases && (
+              <ReleaseBrowser
+                wantedAlbumId={selectedWantedAlbum.id}
+                onGrabbed={refreshMissingAndWanted}
+                onClose={() => setShowReleases(false)}
+              />
+            )}
           </div>
         )}
       </section>
