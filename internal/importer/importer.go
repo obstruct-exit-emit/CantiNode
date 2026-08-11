@@ -21,6 +21,7 @@ import (
 	"github.com/cantinode/cantinode/internal/download"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 // PollInterval is how often in-flight grabs are checked against their
@@ -157,15 +158,17 @@ func (s *Service) failGrab(g download.GrabRecord, message string) {
 	}
 }
 
-// importGrab copies a completed download's files from item.Path (the
-// download client's own local disk, translated through the configured
-// remote path mappings — see config.TranslatePath) into the first
-// configured root folder, then scans that root so the copied files are
-// matched/organized the normal way, same as any other file dropped there.
-// A copy, not a move, until the copy itself is confirmed good — only once
-// it succeeds is the source removed from the download client (with its
-// data), so a failed or partial copy never loses the only remaining copy
-// of the download. Reports whether the grab ended up imported.
+// importGrab copies a completed download's audio files (see copyTree —
+// everything else the download brought along is left behind, not copied
+// in) from item.Path (the download client's own local disk, translated
+// through the configured remote path mappings — see config.TranslatePath)
+// into the first configured root folder, then scans that root so the
+// copied files are matched/organized the normal way, same as any other
+// file dropped there. A copy, not a move, until the copy itself is
+// confirmed good — only once it succeeds is the source removed from the
+// download client (with its data, junk included), so a failed or partial
+// copy never loses the only remaining copy of the download. Reports
+// whether the grab ended up imported.
 func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item download.Item) bool {
 	if item.Path == "" {
 		s.logger.Warn("importer: completed download reported no path, leaving it for manual import",
@@ -181,10 +184,15 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 
 	src := config.TranslatePath(s.cfg.PathMappings(), item.Path)
 	dest := filepath.Join(root.Path, filepath.Base(src))
-	if err := copyTree(src, dest); err != nil {
+	copied, err := copyTree(src, dest)
+	if err != nil {
 		s.logger.Error("importer: copy failed", "grab_id", g.ID, "src", src, "dest", dest, "error", err)
 		s.failGrab(g, fmt.Sprintf("copy from download client failed: %v", err))
 		return false
+	}
+	if copied == 0 {
+		s.logger.Warn("importer: no audio files found in completed download, nothing imported",
+			"grab_id", g.ID, "src", src)
 	}
 
 	if _, err := s.scanner.ScanAll(ctx); err != nil {
@@ -246,34 +254,56 @@ func deleteDownloadData(path string, logger *slog.Logger) {
 	}
 }
 
-// copyTree copies src (a file or a directory, recursively) into dstDir,
-// preserving relative structure for a directory.
-func copyTree(src, dstDir string) error {
+// copyTree copies only the audio files under src (a file or a directory,
+// recursively) into dstDir, preserving relative structure — everything
+// else a download brings along (NFOs, cover-art images, .cue/.m3u/.sfv
+// sidecar files, sample clips, "Proof" folders...) is deliberately left
+// behind rather than cluttering the library, and (via deleteDownloadData)
+// removed along with the rest of the source once import succeeds. A
+// non-audio src passed directly (shouldn't normally happen — a grab's own
+// path is always a directory) is skipped rather than erroring, consistent
+// with a directory that turns out to hold no audio at all: copied comes
+// back 0, not an error, so the caller decides whether that's worth
+// treating as a failure. A subdirectory with no audio files anywhere
+// under it is never created at the destination.
+func copyTree(src, dstDir string) (copied int, err error) {
 	info, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("stat source %s: %w", src, err)
+		return 0, fmt.Errorf("stat source %s: %w", src, err)
 	}
 	if !info.IsDir() {
-		return copyFile(src, filepath.Join(dstDir, filepath.Base(src)))
+		if !tagreader.IsAudioFile(src) {
+			return 0, nil
+		}
+		if err := copyFile(src, filepath.Join(dstDir, filepath.Base(src))); err != nil {
+			return 0, err
+		}
+		return 1, nil
 	}
 	entries, err := os.ReadDir(src)
 	if err != nil {
-		return fmt.Errorf("read source dir %s: %w", src, err)
+		return 0, fmt.Errorf("read source dir %s: %w", src, err)
 	}
 	for _, e := range entries {
 		s := filepath.Join(src, e.Name())
 		d := filepath.Join(dstDir, e.Name())
 		if e.IsDir() {
-			if err := copyTree(s, d); err != nil {
-				return err
+			n, err := copyTree(s, d)
+			if err != nil {
+				return copied, err
 			}
+			copied += n
+			continue
+		}
+		if !tagreader.IsAudioFile(s) {
 			continue
 		}
 		if err := copyFile(s, d); err != nil {
-			return err
+			return copied, err
 		}
+		copied++
 	}
-	return nil
+	return copied, nil
 }
 
 func copyFile(src, dst string) error {

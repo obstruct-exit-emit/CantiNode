@@ -92,11 +92,13 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	if err := os.MkdirAll(albumDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A plain non-audio file is enough: it proves the copy happened without
-	// requiring a real (fake-MusicBrainz-backed) match — musicscanner skips
-	// non-audio files outright (tagreader.IsAudioFile), so ScanAll runs
-	// clean with zero network calls.
-	if err := os.WriteFile(filepath.Join(albumDir, "readme.txt"), []byte("hello"), 0o644); err != nil {
+	// An audio-extension file with garbage content is enough: copyTree only
+	// filters by extension (tagreader.IsAudioFile), so it's copied over like
+	// a real track would be; the scan step's tag-read then fails on the
+	// garbage content, but that's a per-file scan error, not fatal — no real
+	// (fake-MusicBrainz-backed) match is required for this test to prove the
+	// copy itself happened.
+	if err := os.WriteFile(filepath.Join(albumDir, "readme.flac"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,7 +129,7 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 		t.Fatalf("PollOnce result = %+v, want 1 checked, 1 imported, 0 failed", result)
 	}
 
-	destFile := filepath.Join(destRoot, "Test Album", "readme.txt")
+	destFile := filepath.Join(destRoot, "Test Album", "readme.flac")
 	if _, err := os.Stat(destFile); err != nil {
 		t.Errorf("copied file not found at %s: %v", destFile, err)
 	}
@@ -167,7 +169,7 @@ func TestPollOnceAppliesPathMapping(t *testing.T) {
 	if err := os.MkdirAll(albumDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(albumDir, "track.txt"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(albumDir, "track.flac"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,7 +197,7 @@ func TestPollOnceAppliesPathMapping(t *testing.T) {
 		t.Fatalf("PollOnce result = %+v, want 1 imported", result)
 	}
 
-	destFile := filepath.Join(destRoot, filepath.Base(albumDir), "track.txt")
+	destFile := filepath.Join(destRoot, filepath.Base(albumDir), "track.flac")
 	if _, err := os.Stat(destFile); err != nil {
 		t.Errorf("mapped copy not found at %s: %v", destFile, err)
 	}
@@ -359,21 +361,71 @@ func TestCopyTreeCopiesNestedDirectories(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "a.flac"), []byte("a"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "sub", "b.txt"), []byte("b"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "sub", "b.mp3"), []byte("b"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	dst := filepath.Join(t.TempDir(), "dest")
-	if err := copyTree(src, dst); err != nil {
+	copied, err := copyTree(src, dst)
+	if err != nil {
 		t.Fatalf("copyTree: %v", err)
 	}
+	if copied != 2 {
+		t.Errorf("copied = %d, want 2", copied)
+	}
 
-	for _, rel := range []string{"a.txt", filepath.Join("sub", "b.txt")} {
+	for _, rel := range []string{"a.flac", filepath.Join("sub", "b.mp3")} {
 		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
 			t.Errorf("missing %s after copyTree: %v", rel, err)
+		}
+	}
+}
+
+// TestCopyTreeSkipsNonAudioFiles is the regression test for the actual
+// feature: a download's NFOs, cover art, sidecar files, and sample/proof
+// folders must never make it into the library — only the audio files do,
+// and a subdirectory holding nothing else is never even created at the
+// destination.
+func TestCopyTreeSkipsNonAudioFiles(t *testing.T) {
+	src := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "Sample"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"01 - Track.flac":         "audio",
+		"release.nfo":             "junk",
+		"cover.jpg":               "junk",
+		"playlist.m3u":            "junk",
+		"checksums.sfv":           "junk",
+		"Sample/01 - Sample.mp3":  "junk-but-audio-extension", // still an audio file — copied
+		"Sample/sample-proof.txt": "junk",
+	}
+	for rel, content := range files {
+		if err := os.WriteFile(filepath.Join(src, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dst := filepath.Join(t.TempDir(), "dest")
+	copied, err := copyTree(src, dst)
+	if err != nil {
+		t.Fatalf("copyTree: %v", err)
+	}
+	if copied != 2 {
+		t.Errorf("copied = %d, want 2 (the two audio files)", copied)
+	}
+
+	for _, rel := range []string{"01 - Track.flac", filepath.Join("Sample", "01 - Sample.mp3")} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
+			t.Errorf("missing audio file %s after copyTree: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{"release.nfo", "cover.jpg", "playlist.m3u", "checksums.sfv", filepath.Join("Sample", "sample-proof.txt")} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); !os.IsNotExist(err) {
+			t.Errorf("non-audio file %s should not have been copied, stat err = %v", rel, err)
 		}
 	}
 }
