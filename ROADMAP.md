@@ -204,7 +204,7 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
 
 1. [x] **Automatic wanted-list sweep** — done overnight 2026-08-11:
    `internal/autosearch` sweeps every monitored artist's still-wanted
-   albums on a timer (default 1h, tunable under Settings → Background
+   albums on a timer (default 24h, tunable under Settings → Background
    timings), auto-grabbing the best approved release exactly like a manual
    "Search releases" click. Unmonitored artists' wanted albums are left
    alone, same as before. Verified live — the first sweep after deploy

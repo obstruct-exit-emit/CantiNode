@@ -155,7 +155,7 @@ type TimingSettings struct {
 	// HealthIntervalMinutes: background health check cadence (default 15).
 	HealthIntervalMinutes int `yaml:"health_interval_minutes,omitempty" json:"healthIntervalMinutes"`
 	// WantedSearchIntervalMinutes: how often internal/autosearch sweeps
-	// monitored artists' wanted albums (default 60). Manual "Search
+	// monitored artists' wanted albums (default 1440 = 24h). Manual "Search
 	// releases" is unaffected either way.
 	WantedSearchIntervalMinutes int `yaml:"wanted_search_interval_minutes,omitempty" json:"wantedSearchIntervalMinutes"`
 }
@@ -171,7 +171,7 @@ func (t TimingSettings) WantedSearchInterval() time.Duration {
 	if t.WantedSearchIntervalMinutes > 0 {
 		return time.Duration(t.WantedSearchIntervalMinutes) * time.Minute
 	}
-	return 60 * time.Minute
+	return 24 * time.Hour
 }
 
 // MusicSettings tunes internal/musicscanner's MusicBrainz matching —

@@ -26,10 +26,12 @@ import (
 
 // PollInterval is how often the wanted list is swept — far less
 // time-sensitive than internal/importer's download-progress polling (an
-// album that's been wanted for an extra hour isn't user-visible the way a
+// album that's been wanted for an extra day isn't user-visible the way a
 // stalled download is), so a long, indexer-friendly interval is the right
-// default rather than something to tune down.
-const PollInterval = 1 * time.Hour
+// default rather than something to tune down. Matches
+// config.TimingSettings.WantedSearchInterval's own default; kept here too
+// since that's what a caller with no config (e.g. a test) falls back to.
+const PollInterval = 24 * time.Hour
 
 // searchTimeout bounds one album's own indexer search and grab — a hung
 // indexer or download client must not stall the rest of the sweep.

@@ -332,7 +332,7 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
       </p>
       <div className="settings-form">
         {field("Health checks (minutes)", "healthIntervalMinutes", "default 15", "5–1440")}
-        {field("Wanted-list sweep (minutes)", "wantedSearchIntervalMinutes", "default 60", "15–1440")}
+        {field("Wanted-list sweep (minutes)", "wantedSearchIntervalMinutes", "default 1440 (24h)", "15–1440")}
       </div>
       <div className="settings-actions">
         <button disabled={busy} onClick={save}>
