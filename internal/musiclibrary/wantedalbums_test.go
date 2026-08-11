@@ -130,3 +130,69 @@ func TestDeleteWantedAlbumNotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestClaimWantedAlbumForDownloadIsCompareAndSwap is the regression test
+// for the race ClaimWantedAlbumForDownload exists to close: two callers
+// (a manual grab and the automatic wanted-list sweep, most realistically)
+// both reading "still wanted" and both proceeding to grab. Only the first
+// claim on a given row may succeed; every claim after that — regardless
+// of how many — must see claimed=false until the status is reset back to
+// wanted.
+func TestClaimWantedAlbumForDownloadIsCompareAndSwap(t *testing.T) {
+	db := newTestStore(t)
+	a, err := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := db.GetOrCreateWantedAlbum(a.ID, "rg-mbid", "Geogaddi", "Album", "2002")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := db.ClaimWantedAlbumForDownload(w.ID)
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if !first {
+		t.Fatal("first claim should succeed on a still-wanted album")
+	}
+
+	got, err := db.GetWantedAlbum(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != WantedStatusDownloading {
+		t.Errorf("status after claim = %q, want downloading", got.Status)
+	}
+
+	second, err := db.ClaimWantedAlbumForDownload(w.ID)
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	if second {
+		t.Error("second claim on an already-downloading album should fail")
+	}
+
+	// Reverting to wanted (e.g. after a failed grab) re-opens the claim.
+	if err := db.SetWantedAlbumStatus(w.ID, WantedStatusWanted); err != nil {
+		t.Fatal(err)
+	}
+	third, err := db.ClaimWantedAlbumForDownload(w.ID)
+	if err != nil {
+		t.Fatalf("third claim: %v", err)
+	}
+	if !third {
+		t.Error("claim should succeed again once reverted back to wanted")
+	}
+}
+
+func TestClaimWantedAlbumForDownloadNonexistentRow(t *testing.T) {
+	db := newTestStore(t)
+	claimed, err := db.ClaimWantedAlbumForDownload(999)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if claimed {
+		t.Error("claiming a nonexistent wanted album should never succeed")
+	}
+}

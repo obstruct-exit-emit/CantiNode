@@ -110,6 +110,60 @@ func TestScanAlbumFolderPrunesWhenWholeFolderDeleted(t *testing.T) {
 	}
 }
 
+// TestScanAlbumFolderKeepsFileOnNonNotExistStatError is the regression test
+// for a real bug: the prune loop used to treat *any* non-nil os.Stat error
+// as "the file is gone," not specifically "not found" — a transient
+// permission error, a briefly-disconnected network mount, or (as
+// exercised here, portably and without relying on permission bits a test
+// runner might have privileges to bypass) a path segment that briefly
+// isn't a directory would all read as confirmed deletion and silently
+// drop the track_files row for a file nothing actually removed.
+func TestScanAlbumFolderKeepsFileOnNonNotExistStatError(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	album, path := seedAlbumWithFile(t, s, rf, "Boards of Canada", "Geogaddi", "Boards of Canada/Geogaddi")
+	dir := filepath.Dir(path)
+
+	// "blocker" is a regular file, not a directory — stat'ing anything
+	// nested under it fails with ENOTDIR, which os.IsNotExist reports as
+	// false (unlike ENOENT), regardless of who's running the test.
+	blockerPath := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blockerPath, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	phantomPath := filepath.Join(blockerPath, "02 - Track Two.flac")
+
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-phantom", "Track Two", 2, 1, 200000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, phantomPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ScanAlbumFolder(context.Background(), album.ID)
+	if err != nil {
+		t.Fatalf("ScanAlbumFolder: %v", err)
+	}
+	if result.FilesRemoved != 0 {
+		t.Errorf("FilesRemoved = %d, want 0 — nothing was confirmed deleted", result.FilesRemoved)
+	}
+	if len(result.Errors) == 0 {
+		t.Error("want the stat failure surfaced in Errors instead of silently pruning")
+	}
+
+	files, err := s.db.ListTrackFilesByAlbum(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Errorf("track files after scan = %+v, want both rows to survive (the real file and the phantom one)", files)
+	}
+}
+
 // TestScanAlbumFolderNeverTouchesSiblingAlbum confirms the pruning pass
 // stays scoped to exactly the album being scanned — a sibling album under
 // the same artist (and same root folder) must survive untouched even

@@ -117,6 +117,15 @@ func Score(rel indexer.Release, prefs Preferences) Candidate {
 		}
 	}
 	switch {
+	case len(c.Parsed.Formats) == 0 && prefs.AllowUnknownFormat && prefs.MinFormatScore > 0 && unknownFormatScore <= prefs.MinFormatScore:
+		// An upgrade search (MinFormatScore set) can't take a format-less
+		// title's word for it being better than what's already owned — real
+		// music release titles omit the codec constantly (PreferencesFor
+		// forces AllowUnknownFormat on for exactly that reason), but "we
+		// don't know" is not evidence of "it's better." Scored as if it
+		// stated the unknown-format baseline score, same rejection rule as
+		// a release that did name its format.
+		c.reject("not an upgrade over the owned format")
 	case len(c.Parsed.Formats) == 0 && prefs.AllowUnknownFormat:
 		c.Score += unknownFormatScore
 	case len(c.Parsed.Formats) == 0:

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cantinode/cantinode/internal/candidatesearch"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/download"
@@ -512,19 +513,12 @@ func (s *server) cancelInFlightGrabs(wantedAlbumIDs []int64, reason string) {
 	if len(wantedAlbumIDs) == 0 {
 		return
 	}
-	want := make(map[int64]bool, len(wantedAlbumIDs))
-	for _, id := range wantedAlbumIDs {
-		want[id] = true
-	}
-	pending, err := s.downloads.Store().ListGrabs(download.GrabStatusGrabbed)
+	pending, err := s.downloads.Store().ListGrabsForWantedAlbums(wantedAlbumIDs, download.GrabStatusGrabbed)
 	if err != nil {
 		slog.Error("music: list in-flight grabs before removal", "error", err)
 		return
 	}
 	for _, g := range pending {
-		if !want[g.WantedAlbumID] {
-			continue
-		}
 		if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, reason); err != nil {
 			slog.Error("music: cancel in-flight grab", "grab_id", g.ID, "error", err)
 		}
@@ -1037,26 +1031,12 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 	ctx, cancel := s.metadataCtx(r)
 	defer cancel()
 	query := artist.Name + " " + wanted.Title
-	found, errs, err := s.indexers.SearchAll(ctx, query, wanted.Title, "music")
+	prefs := release.PreferencesFor(s.store, "music")
+	candidates, errs, err := candidatesearch.Search(ctx, s.indexers, s.downloads, query, wanted.Title, "music", prefs)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-
-	blocked, err := s.downloads.Store().BlockedKeys()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	prefs := release.PreferencesFor(s.store, "music")
-	candidates := make([]release.Candidate, 0, len(found))
-	for _, rel := range found {
-		if download.IsBlocked(blocked, rel.GUID, rel.Title) {
-			continue
-		}
-		candidates = append(candidates, release.Score(rel, prefs))
-	}
-	release.Rank(candidates)
 
 	writeJSON(w, http.StatusOK, map[string]any{"releases": candidates, "errors": errs})
 }
@@ -1096,21 +1076,38 @@ func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Reque
 		writeMusicStoreError(w, err)
 		return
 	}
+	// Claim before grabbing, not after: a blind grab-then-set-status let
+	// this same album be grabbed twice by two callers racing on the same
+	// "still wanted" read — most realistically this endpoint firing at the
+	// same moment the automatic wanted-list sweep (internal/autosearch)
+	// does. The claim is a compare-and-swap (status must still be
+	// 'wanted'), so only one caller ever proceeds past this point.
+	claimed, err := s.musicStore.ClaimWantedAlbumForDownload(wanted.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !claimed {
+		writeError(w, http.StatusConflict, "this album is already downloading")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
 	defer cancel()
 	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, wanted.ID, "music")
-	if errors.Is(err, download.ErrNoClient) {
-		writeError(w, http.StatusServiceUnavailable,
-			"no enabled "+req.Protocol+" download client — add one under Settings")
-		return
-	}
 	if err != nil {
+		// The claim already flipped status to "downloading" — release it
+		// back to "wanted" so this isn't stuck unsearchable after a failed
+		// grab attempt.
+		if revertErr := s.musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusWanted); revertErr != nil {
+			slog.Error("music: revert wanted album claim after failed grab", "wanted_album_id", wanted.ID, "error", revertErr)
+		}
+		if errors.Is(err, download.ErrNoClient) {
+			writeError(w, http.StatusServiceUnavailable,
+				"no enabled "+req.Protocol+" download client — add one under Settings")
+			return
+		}
 		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	if err := s.musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"client": result.Client, "id": result.ID})
@@ -1135,9 +1132,8 @@ func (s *server) handleSearchAlbumUpgrade(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	album, err := s.musicStore.GetAlbum(id)
-	if err != nil {
-		writeMusicStoreError(w, err)
+	album, upgradePrefs, ok := s.resolveAlbumUpgrade(w, id)
+	if !ok {
 		return
 	}
 	artist, err := s.musicStore.GetArtist(album.ArtistID)
@@ -1146,28 +1142,65 @@ func (s *server) handleSearchAlbumUpgrade(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	ctx, cancel := s.metadataCtx(r)
+	defer cancel()
+	query := artist.Name + " " + album.Title
+	candidates, errs, err := candidatesearch.Search(ctx, s.indexers, s.downloads, query, album.Title, "music", upgradePrefs)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"releases": candidates, "errors": errs})
+}
+
+// resolveAlbumUpgrade loads albumID and checks whether it's eligible for an
+// upgrade search/grab right now — the default music quality profile must
+// have upgrades allowed, the album's best owned format must be one the
+// profile actually recognizes (an unrecognized format can't be compared
+// against a cutoff at all; silently treating that as "no restriction" was
+// a real bug), and that format must not already meet the profile's
+// cutoff. Writes the appropriate error response and returns ok=false if
+// any of that fails. Shared by handleSearchAlbumUpgrade and
+// handleGrabAlbumUpgrade so a grab can never proceed under conditions the
+// search step itself would have refused — settings can change between a
+// search and a grab, or a caller can hit the grab endpoint directly
+// without searching first. prefs comes back with MinFormatScore already
+// set to the album's current best format score, ready to hand straight to
+// candidatesearch.Search.
+func (s *server) resolveAlbumUpgrade(w http.ResponseWriter, albumID int64) (album *musiclibrary.Album, prefs release.Preferences, ok bool) {
+	album, err := s.musicStore.GetAlbum(albumID)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return nil, release.Preferences{}, false
+	}
 	profile, err := s.store.DefaultProfile("music")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "no default music quality profile configured")
-		return
+		return nil, release.Preferences{}, false
 	}
 	if !profile.UpgradesAllowed {
 		writeError(w, http.StatusBadRequest,
 			`upgrades are not enabled on the music quality profile — turn on "Allow upgrades" under Settings → Quality Profiles first`)
-		return
+		return nil, release.Preferences{}, false
 	}
 
-	prefs := release.PreferencesFor(s.store, "music")
-	files, err := s.musicStore.ListTrackFilesByAlbum(id)
+	prefs = release.PreferencesFor(s.store, "music")
+	files, err := s.musicStore.ListTrackFilesByAlbum(albumID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, release.Preferences{}, false
 	}
 	currentBest := 0
 	for _, f := range files {
 		if sc, ok := prefs.FormatScores[strings.ToLower(f.Format)]; ok && sc > currentBest {
 			currentBest = sc
 		}
+	}
+	if currentBest == 0 {
+		writeError(w, http.StatusBadRequest,
+			"this album's current format isn't in the quality profile's format list — add it there before searching for an upgrade")
+		return nil, release.Preferences{}, false
 	}
 	cutoffScore := 0
 	if profile.Cutoff != "" {
@@ -1182,35 +1215,11 @@ func (s *server) handleSearchAlbumUpgrade(w http.ResponseWriter, r *http.Request
 	if currentBest >= cutoffScore {
 		writeError(w, http.StatusBadRequest,
 			"this album's format already meets the quality profile's cutoff — nothing to upgrade")
-		return
+		return nil, release.Preferences{}, false
 	}
 
-	ctx, cancel := s.metadataCtx(r)
-	defer cancel()
-	query := artist.Name + " " + album.Title
-	found, errs, err := s.indexers.SearchAll(ctx, query, album.Title, "music")
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-
-	blocked, err := s.downloads.Store().BlockedKeys()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	upgradePrefs := prefs
-	upgradePrefs.MinFormatScore = currentBest
-	candidates := make([]release.Candidate, 0, len(found))
-	for _, rel := range found {
-		if download.IsBlocked(blocked, rel.GUID, rel.Title) {
-			continue
-		}
-		candidates = append(candidates, release.Score(rel, upgradePrefs))
-	}
-	release.Rank(candidates)
-
-	writeJSON(w, http.StatusOK, map[string]any{"releases": candidates, "errors": errs})
+	prefs.MinFormatScore = currentBest
+	return album, prefs, true
 }
 
 // handleGrabAlbumUpgrade sends an upgrade candidate (from
@@ -1246,8 +1255,13 @@ func (s *server) handleGrabAlbumUpgrade(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "protocol must be torrent, usenet, or direct")
 		return
 	}
-	if _, err := s.musicStore.GetAlbum(id); err != nil {
-		writeMusicStoreError(w, err)
+	// Re-derives the same eligibility handleSearchAlbumUpgrade already
+	// checked, rather than trusting that the search step ever ran: a
+	// setting can change between search and grab, and this endpoint is
+	// otherwise reachable directly (a stale UI, a script, a curl call)
+	// with no search step at all — without this, "Allow upgrades" being
+	// off wouldn't actually stop an upgrade grab.
+	if _, _, ok := s.resolveAlbumUpgrade(w, id); !ok {
 		return
 	}
 

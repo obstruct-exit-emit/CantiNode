@@ -146,6 +146,28 @@ func (s *Store) SetWantedAlbumStatus(id int64, status WantedStatus) error {
 	return nil
 }
 
+// ClaimWantedAlbumForDownload atomically flips id from 'wanted' to
+// 'downloading' — a compare-and-swap, not a blind write, so two callers
+// racing to grab the same wanted album (a manual "Grab" click and the
+// automatic wanted-list sweep firing at the same moment, say) can't both
+// succeed: only the first UPDATE actually matches a row, so only one
+// caller sees claimed=true and should proceed to grab; the other sees
+// false and must not. Callers grab only after claiming, not before —
+// claiming first is what makes the race actually closed rather than just
+// narrowed.
+func (s *Store) ClaimWantedAlbumForDownload(id int64) (claimed bool, err error) {
+	res, err := s.db.Exec(`UPDATE wanted_albums SET status = ? WHERE id = ? AND status = ?`,
+		WantedStatusDownloading, id, WantedStatusWanted)
+	if err != nil {
+		return false, fmt.Errorf("claim wanted album for download: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("claim wanted album for download: %w", err)
+	}
+	return n > 0, nil
+}
+
 // DeleteWantedAlbum removes a wanted album entirely — the "no longer
 // wanted" action. Unlike a status change, this actually frees the release
 // group back up: ListMissingArtistReleaseGroups excludes a release group

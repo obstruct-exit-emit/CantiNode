@@ -158,6 +158,19 @@ func (s *Service) failGrab(g download.GrabRecord, message string) {
 	}
 }
 
+// stillGrabbed reports whether id is still in GrabStatusGrabbed right now
+// — a fresh DB read, not the possibly-stale GrabRecord importGrab was
+// called with. Fails open (true) on a read error: a transient DB hiccup
+// shouldn't abandon an otherwise-healthy import.
+func (s *Service) stillGrabbed(id int64) bool {
+	g, err := s.downloads.Store().GetGrab(id)
+	if err != nil {
+		s.logger.Warn("importer: re-checking grab status", "grab_id", id, "error", err)
+		return true
+	}
+	return g.Status == download.GrabStatusGrabbed
+}
+
 // importGrab copies a completed download's audio files (see copyTree —
 // everything else the download brought along is left behind, not copied
 // in) from item.Path (the download client's own local disk, translated
@@ -182,6 +195,22 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	}
 	root := folders[0]
 
+	// Re-check this grab's live status right before doing anything slow: a
+	// concurrent artist/album removal (internal/api's cancelInFlightGrabs)
+	// can mark it failed between PollOnce's own listing and this call
+	// actually running. Catching that here — before the copy, and again
+	// before the scan below — means the removal doesn't get silently
+	// undone by an import that started before it landed but hadn't
+	// finished yet. Not a full close of the race (the copy/scan themselves
+	// aren't atomic with these checks), but it collapses the window from
+	// "however long a copy+scan takes" down to "however long each check
+	// takes," which is what actually matters in practice.
+	if !s.stillGrabbed(g.ID) {
+		s.logger.Info("importer: grab was resolved elsewhere before import started, skipping",
+			"grab_id", g.ID)
+		return false
+	}
+
 	src := config.TranslatePath(s.cfg.PathMappings(), item.Path)
 	dest := filepath.Join(root.Path, filepath.Base(src))
 	copied, err := copyTree(src, dest)
@@ -195,6 +224,17 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 			"grab_id", g.ID, "src", src)
 	}
 
+	if !s.stillGrabbed(g.ID) {
+		// The files are already safely copied to dest — left in place
+		// rather than deleted, so nothing already-copied is lost — but
+		// scanning them in now would recreate whatever the concurrent
+		// removal this grab raced against just deleted, straight from
+		// their own embedded tags. Leave them for a manual scan/review
+		// instead of resurrecting anything automatically.
+		s.logger.Info("importer: grab was resolved elsewhere mid-copy, leaving the copied files unscanned",
+			"grab_id", g.ID, "dest", dest)
+		return false
+	}
 	if _, err := s.scanner.ScanAll(ctx); err != nil {
 		s.logger.Warn("importer: post-import scan failed, the next scan will still pick these files up",
 			"grab_id", g.ID, "error", err)

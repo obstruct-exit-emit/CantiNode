@@ -265,8 +265,18 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 		if seen[tf.Path] {
 			continue
 		}
-		if _, statErr := os.Stat(tf.Path); statErr == nil {
+		_, statErr := os.Stat(tf.Path)
+		if statErr == nil {
 			continue // still there, just outside the walked dir somehow
+		}
+		if !os.IsNotExist(statErr) {
+			// A permission error, a temporarily-disconnected network mount,
+			// an AV lock, etc. isn't proof the file is gone — only a
+			// confirmed "not found" is. Report it and leave the row alone
+			// rather than risk deleting the record for a file that's still
+			// really there.
+			result.Errors = append(result.Errors, fmt.Sprintf("check %s: %v", tf.Path, statErr))
+			continue
 		}
 		if err := s.db.DeleteTrackFile(tf.ID); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("prune missing %s: %v", tf.Path, err))

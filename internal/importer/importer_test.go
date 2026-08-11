@@ -163,6 +163,66 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	}
 }
 
+// TestImportGrabSkipsWhenCanceledBeforeCopy is the regression test for a
+// real race: removing an artist/album with a grab still in flight
+// (internal/api's cancelInFlightGrabs) resolves that grab as failed, but
+// importGrab used to finish the import anyway if it had already started
+// — its own copy of the GrabRecord (fetched by PollOnce's own listing
+// moments earlier) was stale, and it unconditionally overwrote the status
+// back to "imported" at the end, plus ran ScanAll(), which recreates
+// whatever was just removed straight from the copied files' own tags.
+// importGrab must now re-check the grab's live status before doing
+// anything slow and bail out if it's no longer "grabbed" — simulated here
+// by resolving the grab in the store between building its GrabRecord (the
+// stale snapshot PollOnce would have passed along) and calling importGrab
+// directly with it.
+func TestImportGrabSkipsWhenCanceledBeforeCopy(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Test Album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "readme.flac"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, _, destRoot := setup(t, sab)
+
+	g := download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music", Status: download.GrabStatusGrabbed,
+	}
+	if err := dlStore.AddGrab(&g); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	// Simulate a concurrent artist/album removal resolving this exact grab
+	// as failed after PollOnce already fetched its (now-stale) GrabRecord
+	// above, but before importGrab actually runs.
+	if err := dlStore.ResolveGrab(g.ID, download.GrabStatusFailed, "artist removed"); err != nil {
+		t.Fatalf("resolve grab: %v", err)
+	}
+
+	item := download.Item{Client: "sabnzbd", ConfigID: 1, ID: "nzo1", Path: albumDir}
+	if imported := svc.importGrab(t.Context(), g, item); imported {
+		t.Error("importGrab should not report success for a grab that was already resolved elsewhere")
+	}
+
+	destFile := filepath.Join(destRoot, "Test Album", "readme.flac")
+	if _, err := os.Stat(destFile); !os.IsNotExist(err) {
+		t.Errorf("nothing should have been copied — stat err = %v", err)
+	}
+
+	got, err := dlStore.GetGrab(g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != download.GrabStatusFailed {
+		t.Errorf("grab status = %q, want failed (must not be overwritten back to imported)", got.Status)
+	}
+}
+
 func TestPollOnceAppliesPathMapping(t *testing.T) {
 	src := t.TempDir()
 	albumDir := filepath.Join(src, "Mapped Album")

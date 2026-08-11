@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cantinode/cantinode/internal/candidatesearch"
 	"github.com/cantinode/cantinode/internal/download"
 	"github.com/cantinode/cantinode/internal/indexer"
 	"github.com/cantinode/cantinode/internal/library"
@@ -94,6 +95,11 @@ type PollResult struct {
 // does not stop the sweep — the same non-aborting pattern
 // internal/importer's own PollOnce uses; nothing approved this pass just
 // means it's tried again next sweep.
+//
+// The blocklist and the active quality profile are each fetched once for
+// the whole sweep, not once per album — both are constant for the sweep's
+// duration, so re-querying them per album (as an earlier version of this
+// function did) was pure repeated DB I/O for no benefit.
 func (s *Service) PollOnce(ctx context.Context) PollResult {
 	var result PollResult
 
@@ -102,6 +108,12 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 		s.logger.Error("autosearch: list artists", "error", err)
 		return result
 	}
+	blocked, err := s.downloads.Store().BlockedKeys()
+	if err != nil {
+		s.logger.Error("autosearch: list blocklist", "error", err)
+		return result
+	}
+	prefs := release.PreferencesFor(s.store, "music")
 
 	for _, artist := range artists {
 		if !artist.IsMonitored {
@@ -123,7 +135,7 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 				return result
 			}
 			result.Checked++
-			if s.searchAndGrab(ctx, artist, w) {
+			if s.searchAndGrab(ctx, artist, w, blocked, prefs) {
 				result.Grabbed++
 			}
 		}
@@ -135,46 +147,55 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 // results against the active music quality profile exactly like the
 // manual search endpoint does, and grabs the best approved candidate if
 // one exists. Returns whether it actually grabbed something.
-func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist, wanted musiclibrary.WantedAlbum) bool {
+func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist, wanted musiclibrary.WantedAlbum, blocked map[string]bool, prefs release.Preferences) bool {
 	sctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 
 	query := artist.Name + " " + wanted.Title
-	found, _, err := s.indexers.SearchAll(sctx, query, wanted.Title, "music")
+	found, errs, err := s.indexers.SearchAll(sctx, query, wanted.Title, "music")
 	if err != nil {
 		s.logger.Warn("autosearch: search failed", "artist", artist.Name, "album", wanted.Title, "error", err)
 		return false
 	}
-
-	blocked, err := s.downloads.Store().BlockedKeys()
-	if err != nil {
-		s.logger.Error("autosearch: list blocklist", "error", err)
-		return false
+	if len(errs) > 0 {
+		s.logger.Warn("autosearch: some indexers failed to answer", "artist", artist.Name, "album", wanted.Title, "errors", errs)
 	}
-	prefs := release.PreferencesFor(s.store, "music")
-	candidates := make([]release.Candidate, 0, len(found))
-	for _, rel := range found {
-		if download.IsBlocked(blocked, rel.GUID, rel.Title) {
-			continue
-		}
-		candidates = append(candidates, release.Score(rel, prefs))
-	}
-	release.Rank(candidates)
 
+	candidates := candidatesearch.ScoreAndRank(found, blocked, prefs)
 	if len(candidates) == 0 || !candidates[0].Approved {
 		return false
 	}
 	best := candidates[0]
+
+	// Claim before grabbing, not after: this sweep runs unattended on a
+	// timer and can land at the same moment a user manually searches and
+	// grabs the same wanted album themselves. The claim is a
+	// compare-and-swap (status must still be "wanted"), so only one of the
+	// two ever actually proceeds to grab — and since it already sets
+	// status to "downloading", a successful grab needs no separate status
+	// write afterward (nothing left to fail silently and cause a
+	// duplicate re-grab next sweep, unlike the blind grab-then-set-status
+	// this replaced).
+	claimed, err := s.music.ClaimWantedAlbumForDownload(wanted.ID)
+	if err != nil {
+		s.logger.Error("autosearch: claim wanted album", "wanted_album_id", wanted.ID, "error", err)
+		return false
+	}
+	if !claimed {
+		s.logger.Info("autosearch: album was grabbed elsewhere just before this sweep reached it, skipping",
+			"artist", artist.Name, "album", wanted.Title)
+		return false
+	}
 
 	gctx, gcancel := context.WithTimeout(ctx, grabTimeout)
 	defer gcancel()
 	_, _, err = s.downloads.GrabRelease(gctx, best.Protocol, best.DownloadURL, best.Title, best.GUID, wanted.ID, "music")
 	if err != nil {
 		s.logger.Warn("autosearch: grab failed", "artist", artist.Name, "album", wanted.Title, "release", best.Title, "error", err)
+		if revertErr := s.music.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusWanted); revertErr != nil {
+			s.logger.Error("autosearch: revert wanted album claim after failed grab", "wanted_album_id", wanted.ID, "error", revertErr)
+		}
 		return false
-	}
-	if err := s.music.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
-		s.logger.Error("autosearch: set wanted album downloading", "wanted_album_id", wanted.ID, "error", err)
 	}
 	s.logger.Info("autosearch: grabbed", "artist", artist.Name, "album", wanted.Title, "release", best.Title, "score", best.Score)
 	return true

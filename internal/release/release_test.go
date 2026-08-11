@@ -105,6 +105,34 @@ func TestScoreMusic(t *testing.T) {
 	}
 }
 
+// TestScoreUpgradeRejectsFormatLessRelease is the regression test for a
+// real bug: an upgrade search (MinFormatScore set) used to approve any
+// release whose title stated no recognizable format at all, because that
+// branch never reached the MinFormatScore rejection — and
+// AllowUnknownFormat is forced on for every real search (see
+// PreferencesFor), so this wasn't an edge case, it was the common one:
+// real indexer results routinely omit the codec from the title.
+func TestScoreUpgradeRejectsFormatLessRelease(t *testing.T) {
+	prefs := DefaultMusicPreferences()
+	prefs.AllowUnknownFormat = true
+	prefs.MinFormatScore = prefs.FormatScores["flac"] // pretend flac is already owned
+
+	c := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs)
+	if c.Approved {
+		t.Errorf("format-less release must not approve as an upgrade over a known-good owned format: %+v", c)
+	}
+
+	// A format-less release is still fine to approve for a PLAIN search
+	// (MinFormatScore unset) — this must not regress into rejecting every
+	// format-less release outright.
+	plain := DefaultMusicPreferences()
+	plain.AllowUnknownFormat = true
+	ok := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), plain)
+	if !ok.Approved {
+		t.Errorf("format-less release should still approve for a plain (non-upgrade) search: %+v", ok)
+	}
+}
+
 func TestScoreRejectsSpamNamedExecutable(t *testing.T) {
 	prefs := DefaultMusicPreferences()
 	spam := Score(rel("Geogaddi FLAC Setup.exe", indexer.ProtocolUsenet, 400<<20, -1), prefs)

@@ -122,12 +122,36 @@ func TestSearchAlbumUpgradeApprovesOnlyGenuineUpgrades(t *testing.T) {
 	}
 }
 
+// TestSearchAlbumUpgradeRejectsUnrecognizedOwnedFormat is the regression
+// test for a real bug: when none of an album's owned track-file formats
+// matched the quality profile's own format list, "current best score"
+// silently stayed 0 — and since MinFormatScore's rejection rule only fires
+// when it's > 0, that 0 disabled the upgrade-only gate entirely rather
+// than refusing outright. An unrecognized owned format can't be compared
+// against anything, so this must now be a clean 400, not a search that
+// runs anyway with the gate silently switched off.
+func TestSearchAlbumUpgradeRejectsUnrecognizedOwnedFormat(t *testing.T) {
+	a := newTestAPI(t)
+	setUpgradesAllowed(t, a, true, "")
+	// "wav" isn't in DefaultMusicPreferences' FormatScores (flac/wav/mp3/m4a/opus
+	// — wait, wav *is* default; use a format guaranteed absent instead).
+	albumID := seedOwnedAlbum(t, a, "wma")
+
+	resp := a.call("GET", fmt.Sprintf("/api/v1/music/album/%d/upgrade/search", albumID), nil, nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (owned format not recognized by the profile)", resp.StatusCode)
+	}
+}
+
 // TestGrabAlbumUpgradeRequiresDownloadClient confirms the grab endpoint is
 // wired to the same client-routing as the wanted-album grab, without
 // needing a wanted_albums row: no client configured must fail cleanly
-// rather than panicking on the wantedAlbumID=0 path.
+// rather than panicking on the wantedAlbumID=0 path. Upgrades must be
+// allowed first — otherwise the eligibility gate (see the next test)
+// refuses the request before ever reaching client routing.
 func TestGrabAlbumUpgradeRequiresDownloadClient(t *testing.T) {
 	a := newTestAPI(t)
+	setUpgradesAllowed(t, a, true, "")
 	albumID := seedOwnedAlbum(t, a, "mp3")
 
 	resp := a.call("POST", fmt.Sprintf("/api/v1/music/album/%d/upgrade/grab", albumID), map[string]any{
@@ -136,5 +160,25 @@ func TestGrabAlbumUpgradeRequiresDownloadClient(t *testing.T) {
 	}, nil)
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503 (no download client configured)", resp.StatusCode)
+	}
+}
+
+// TestGrabAlbumUpgradeRejectsWhenUpgradesDisabled is the regression test for
+// the actual gap this closes: handleGrabAlbumUpgrade used to trust its
+// caller entirely — no re-check of "Allow upgrades" or the cutoff — so a
+// grab request could bypass the exact toggle handleSearchAlbumUpgrade
+// enforces (settings changed after the search, or a caller skipping the
+// search step outright). With upgrades left off, a grab must fail the same
+// way a search would, before ever touching a download client.
+func TestGrabAlbumUpgradeRejectsWhenUpgradesDisabled(t *testing.T) {
+	a := newTestAPI(t)
+	albumID := seedOwnedAlbum(t, a, "mp3") // upgrades not allowed by default
+
+	resp := a.call("POST", fmt.Sprintf("/api/v1/music/album/%d/upgrade/grab", albumID), map[string]any{
+		"title": "Boards of Canada - Geogaddi FLAC", "downloadUrl": "https://mock/dl/good.torrent",
+		"protocol": "torrent", "guid": "https://mock/torrent/good",
+	}, nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (upgrades not allowed) — grab must not bypass the eligibility gate", resp.StatusCode)
 	}
 }

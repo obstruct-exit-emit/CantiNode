@@ -105,6 +105,15 @@ func (s *Store) GrabHistory(search string, limit, offset int) ([]GrabRecord, int
 	return grabs, total, rows.Err()
 }
 
+// GetGrab returns a single grab's current row, ErrNotFound if it no longer
+// exists — used to re-check a grab's live status mid-import, since the
+// GrabRecord a caller is already holding can go stale the moment another
+// request resolves the same grab out from under it.
+func (s *Store) GetGrab(id int64) (*GrabRecord, error) {
+	row := s.db.QueryRow(`SELECT `+grabCols+` FROM grabs WHERE id = ?`, id)
+	return scanGrab(row)
+}
+
 // ListGrabs returns grab history, optionally filtered by status, newest first.
 func (s *Store) ListGrabs(status string) ([]GrabRecord, error) {
 	query := `SELECT ` + grabCols + ` FROM grabs`
@@ -116,6 +125,43 @@ func (s *Store) ListGrabs(status string) ([]GrabRecord, error) {
 	query += ` ORDER BY grabbed_at DESC, id DESC LIMIT 200`
 
 	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	grabs := []GrabRecord{}
+	for rows.Next() {
+		g, err := scanGrab(rows)
+		if err != nil {
+			return nil, err
+		}
+		grabs = append(grabs, *g)
+	}
+	return grabs, rows.Err()
+}
+
+// ListGrabsForWantedAlbums returns every grab under the given status tied
+// to one of wantedAlbumIDs — unlike ListGrabs, not capped at 200 rows,
+// since a caller here already knows exactly which rows it wants (e.g.
+// canceling in-flight grabs for an artist/album about to be removed) and
+// needs all of them, not just the most recent 200 in-flight grabs
+// instance-wide. Returns an empty slice for an empty wantedAlbumIDs
+// without touching the database.
+func (s *Store) ListGrabsForWantedAlbums(wantedAlbumIDs []int64, status string) ([]GrabRecord, error) {
+	if len(wantedAlbumIDs) == 0 {
+		return []GrabRecord{}, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(wantedAlbumIDs)), ",")
+	args := make([]any, 0, len(wantedAlbumIDs)+1)
+	for _, id := range wantedAlbumIDs {
+		args = append(args, id)
+	}
+	args = append(args, status)
+
+	rows, err := s.db.Query(
+		`SELECT `+grabCols+` FROM grabs WHERE wanted_album_id IN (`+placeholders+`) AND status = ? ORDER BY grabbed_at DESC, id DESC`,
+		args...)
 	if err != nil {
 		return nil, err
 	}
