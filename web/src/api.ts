@@ -289,6 +289,18 @@ export interface MusicTrackFile {
   organizedAt?: string;
 }
 
+// TrackSuggestion is one proposed track_file → recording slot from
+// suggestTrackFileMatches — a proposal only, nothing commits until it's
+// sent through matchTrackFile like any other match.
+export interface TrackSuggestion {
+  trackFileId: number;
+  recordingMbid: string;
+  releaseMbid: string;
+  trackTitle: string;
+  trackNumber: number;
+  discNumber: number;
+}
+
 export interface MusicReleaseGroup {
   id: number;
   artistId: number;
@@ -645,6 +657,11 @@ export const api = {
     request<MusicTrackFile[]>(`/api/v1/music/track/${trackId}/files`),
   listUnmatchedTrackFiles: () =>
     request<MusicTrackFile[]>("/api/v1/music/trackfile/unmatched"),
+  suggestTrackFileMatches: (fileIds: number[], releaseGroupMbid: string) =>
+    request<{ releaseTitle: string; suggestions: TrackSuggestion[] }>(
+      "/api/v1/music/trackfile/match-suggest",
+      json({ fileIds, releaseGroupMbid }),
+    ),
   searchMusicBrainzRecordings: (artist: string, album: string, title: string) =>
     request<MusicBrainzRecordingResult[]>(
       `/api/v1/music/musicbrainz/search?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}&title=${encodeURIComponent(title)}`,

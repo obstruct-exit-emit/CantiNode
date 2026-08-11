@@ -7,6 +7,22 @@ import (
 	"testing"
 )
 
+// TestSuggestTrackFileMatchesRequiresFields covers request validation only
+// — handleSuggestTrackFileMatches' actual matching logic (SuggestMatches)
+// is exercised directly against real ReleaseWithTracklist fixtures in
+// internal/musicscanner's own tests, the same boundary this codebase's
+// other MusicBrainz-backed handlers (manual match, tracklist preview) are
+// already tested at, since newTestAPI wires a real (network-reaching)
+// MusicBrainz client with no local mock injection point.
+func TestSuggestTrackFileMatchesRequiresFields(t *testing.T) {
+	a := newTestAPI(t)
+	a.want(a.call("POST", "/api/v1/music/trackfile/match-suggest", map[string]any{}, nil), http.StatusBadRequest)
+	a.want(a.call("POST", "/api/v1/music/trackfile/match-suggest",
+		map[string]any{"fileIds": []int64{1}}, nil), http.StatusBadRequest)
+	a.want(a.call("POST", "/api/v1/music/trackfile/match-suggest",
+		map[string]any{"releaseGroupMbid": "rg-mbid"}, nil), http.StatusBadRequest)
+}
+
 // mockTorznabIndexer serves a fixed torznab search response regardless of
 // query — good enough for exercising the scoring/filtering pipeline
 // downstream of the search itself, which is what these tests are about.

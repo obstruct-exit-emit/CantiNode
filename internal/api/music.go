@@ -285,6 +285,25 @@ func pickRepresentativeRelease(releases []musicbrainz.ReleaseSearchResult) *musi
 	return best
 }
 
+// resolveRepresentativeRelease browses releaseGroupMBID's releases and
+// fetches the full tracklist of whichever one pickRepresentativeRelease
+// picks. Shared by fetchAndCacheTracklist (the Missing/Wanted tracklist
+// preview) and handleSuggestTrackFileMatches (the unmatched-files page's
+// auto-match), both of which need the same "which release actually
+// represents this release group" resolution before doing their own
+// separate thing with its tracklist.
+func (s *server) resolveRepresentativeRelease(ctx context.Context, releaseGroupMBID string) (*musicbrainz.ReleaseWithTracklist, error) {
+	releases, err := s.mb.BrowseReleaseGroupReleases(ctx, releaseGroupMBID)
+	if err != nil {
+		return nil, err
+	}
+	best := pickRepresentativeRelease(releases)
+	if best == nil {
+		return nil, fmt.Errorf("no releases found for this release group")
+	}
+	return s.mb.LookupReleaseWithTracklist(ctx, best.ID)
+}
+
 // fetchAndCacheTracklist previews releaseGroupMBID's tracklist straight
 // from MusicBrainz — used both by handleGetReleaseGroupTracklist's
 // (unlikely) cache-miss fallback and by cacheReleaseGroupTracklists' eager
@@ -296,15 +315,7 @@ func pickRepresentativeRelease(releases []musicbrainz.ReleaseSearchResult) *musi
 // essentially never changes once released, so it's cached forever, not on
 // any TTL.
 func (s *server) fetchAndCacheTracklist(ctx context.Context, releaseGroupMBID string) (releaseGroupTracklist, error) {
-	releases, err := s.mb.BrowseReleaseGroupReleases(ctx, releaseGroupMBID)
-	if err != nil {
-		return releaseGroupTracklist{}, err
-	}
-	best := pickRepresentativeRelease(releases)
-	if best == nil {
-		return releaseGroupTracklist{}, fmt.Errorf("no releases found for this release group")
-	}
-	full, err := s.mb.LookupReleaseWithTracklist(ctx, best.ID)
+	full, err := s.resolveRepresentativeRelease(ctx, releaseGroupMBID)
 	if err != nil {
 		return releaseGroupTracklist{}, err
 	}
@@ -656,6 +667,36 @@ func (s *server) handleSearchMusicBrainzRecordings(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+// handleSuggestTrackFileMatches is the unmatched-files page's auto-match
+// action: given a batch of unmatched files (normally everything in one
+// folder — see UnmatchedFilesView's own grouping) and a release group the
+// user picked from their own artist's wanted/missing albums (not a fresh
+// MusicBrainz search — the whole point is reusing what's already in their
+// library), proposes which track within that release each file's own
+// tags best correspond to. Nothing is applied here — every suggestion
+// still needs its own POST to /music/trackfile/{id}/match to actually
+// commit, same as a manual match, so the human reviewing always approves
+// before anything changes.
+func (s *server) handleSuggestTrackFileMatches(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FileIDs          []int64 `json:"fileIds"`
+		ReleaseGroupMBID string  `json:"releaseGroupMbid"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.FileIDs) == 0 || req.ReleaseGroupMBID == "" {
+		writeError(w, http.StatusBadRequest, "fileIds and releaseGroupMbid are required")
+		return
+	}
+	ctx, cancel := s.metadataCtx(r)
+	defer cancel()
+	release, err := s.resolveRepresentativeRelease(ctx, req.ReleaseGroupMBID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	suggestions := s.musicScanner.SuggestMatches(req.FileIDs, release)
+	writeJSON(w, http.StatusOK, map[string]any{"releaseTitle": release.Title, "suggestions": suggestions})
 }
 
 func (s *server) handleManualMatchTrackFile(w http.ResponseWriter, r *http.Request) {
