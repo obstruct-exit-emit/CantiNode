@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cantinode/cantinode/internal/database"
 )
@@ -340,6 +342,104 @@ func newTestService(t *testing.T) *Service {
 	}
 	t.Cleanup(func() { db.Close() })
 	return NewService(NewStore(db))
+}
+
+// TestQueueServesStaleSnapshotWhileRevalidating is the regression test for
+// the actual bug: some SABnzbd-compatible bridges (a debrid service in
+// particular) answer several real seconds slower than a plain download
+// client — not a connection-warmup cost, genuine per-request latency — so a
+// naive "block on a live sweep whenever the cache expires" design made the
+// Activity page visibly hang on every reload past queueCacheTTL. Once a
+// snapshot exists at all, a stale hit must return immediately with the old
+// snapshot while a slow sweep refreshes it in the background; only the very
+// first call (nothing cached yet) is allowed to block.
+func TestQueueServesStaleSnapshotWhileRevalidating(t *testing.T) {
+	var (
+		callCount int32
+		release   = make(chan struct{})
+	)
+	sab := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch q.Get("mode") {
+		case "queue":
+			w.Write([]byte(`{"queue": {"slots": []}}`))
+		case "history":
+			n := atomic.AddInt32(&callCount, 1)
+			if n == 1 {
+				// First sweep (the blocking one, cache empty): answers
+				// immediately with "v1" so Queue's first call doesn't hang
+				// the test itself.
+				w.Write([]byte(`{"history": {"slots": [
+					{"nzo_id": "v1", "name": "First", "status": "Completed", "storage": "/complete/First", "category": "cantinode"}
+				]}}`))
+				return
+			}
+			// Second sweep (the background refresh): blocks until the test
+			// explicitly releases it, simulating the bridge's real
+			// multi-second-even-when-warm latency.
+			<-release
+			w.Write([]byte(`{"history": {"slots": [
+				{"nzo_id": "v2", "name": "Second", "status": "Completed", "storage": "/complete/Second", "category": "cantinode"}
+			]}}`))
+		default:
+			w.Write([]byte(`{"status": false, "error": "unknown mode"}`))
+		}
+	}))
+	defer sab.Close()
+
+	svc := newTestService(t)
+	if err := svc.Store().Add(sabConfig(sab.URL)); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	// First call: nothing cached yet, must block on the (fast) first sweep.
+	items, _, err := svc.Queue(ctx)
+	if err != nil {
+		t.Fatalf("first Queue: %v", err)
+	}
+	if len(items) != 1 || items[0].Title != "First" {
+		t.Fatalf("first Queue items = %+v, want [First]", items)
+	}
+
+	// Force the cache stale, then call again while the second sweep is
+	// deliberately blocked — this must return the OLD snapshot immediately,
+	// not hang waiting for the slow one.
+	svc.mu.Lock()
+	svc.cachedAt = time.Now().Add(-queueCacheTTL - time.Second)
+	svc.mu.Unlock()
+
+	done := make(chan struct{})
+	var staleItems []Item
+	go func() {
+		staleItems, _, _ = svc.Queue(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Queue blocked on the slow background sweep instead of serving the stale snapshot")
+	}
+	if len(staleItems) != 1 || staleItems[0].Title != "First" {
+		t.Fatalf("stale-serve items = %+v, want [First] (the old snapshot)", staleItems)
+	}
+
+	// Let the background sweep finish, then confirm the cache picked up the
+	// fresh data for the next caller.
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		svc.mu.Lock()
+		refreshed := len(svc.cached) == 1 && svc.cached[0].Title == "Second"
+		svc.mu.Unlock()
+		if refreshed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("background sweep never refreshed the cache with the new snapshot")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestServiceGrabAndQueue(t *testing.T) {

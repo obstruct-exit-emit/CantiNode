@@ -36,7 +36,7 @@ func newQBittorrent(cfg *ClientConfig) *qbittorrent {
 		// instant add. A short timeout fires mid-add: the torrent still lands,
 		// but the grab goes unrecorded. Give adds generous headroom; List
 		// bounds its own context so a hung bridge can't stall the import loop.
-		httpc: &http.Client{Timeout: 120 * time.Second, Jar: jar},
+		httpc: &http.Client{Timeout: 120 * time.Second, Jar: jar, Transport: sharedTransport},
 	}
 }
 

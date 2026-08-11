@@ -25,7 +25,7 @@ type sabnzbd struct {
 }
 
 func newSABnzbd(cfg *ClientConfig) *sabnzbd {
-	return &sabnzbd{cfg: cfg, httpc: &http.Client{Timeout: 30 * time.Second}}
+	return &sabnzbd{cfg: cfg, httpc: &http.Client{Timeout: 30 * time.Second, Transport: sharedTransport}}
 }
 
 func (s *sabnzbd) api(ctx context.Context, params url.Values, out any) error {

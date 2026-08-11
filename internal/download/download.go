@@ -9,11 +9,32 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 )
+
+// sharedTransport is used by every download client's *http.Client (see
+// sabnzbd.go/qbittorrent.go) instead of the zero-value default. Go's
+// http.DefaultTransport closes an idle connection after 90s; internal/
+// importer's background sweep (RunPeriodic) only touches each client every
+// PollInterval (2 minutes) — longer than that default — so the pooled
+// connection to a client was routinely cold by the next sweep. That's
+// invisible for a real download client on the LAN, but a debrid-bridged
+// one (qBittorrent/SABnzbd-compatible endpoints proxying to a cloud
+// service) pays several real seconds to re-establish a connection, which
+// showed up as the Activity page taking noticeably long to load the first
+// time in a while. A much longer idle timeout keeps that connection warm
+// across background sweeps, so only a genuinely fresh CantiNode process
+// pays the cold-connect cost.
+var sharedTransport = &http.Transport{
+	Proxy:               http.ProxyFromEnvironment,
+	MaxIdleConns:        20,
+	MaxIdleConnsPerHost: 10,
+	IdleConnTimeout:     10 * time.Minute,
+}
 
 const (
 	TypeQBittorrent = "qbittorrent"
@@ -258,9 +279,13 @@ func NewService(store *Store) *Service {
 
 func (s *Service) Store() *Store { return s.store }
 
-// InvalidateQueue drops the cached snapshot after anything that changes what
-// the clients hold or which clients exist (a grab, a removal, a client config
-// change), so the next Queue reflects it.
+// InvalidateQueue marks the cached snapshot stale after anything that
+// changes what the clients hold or which clients exist (a grab, a removal, a
+// client config change) — the next Queue call still gets the old snapshot
+// immediately (stale-while-revalidate, see Queue's own doc comment) rather
+// than blocking on a fresh sweep, but that call also kicks one off in the
+// background, so the change shows up within a poll cycle or two rather than
+// needing queueCacheTTL to elapse naturally.
 func (s *Service) InvalidateQueue() {
 	s.mu.Lock()
 	s.cachedAt = time.Time{}
@@ -353,27 +378,74 @@ func (s *Service) Remove(ctx context.Context, configID int64, itemID string, del
 // short-lived cached snapshot (queueCacheTTL) so concurrent UI pollers don't
 // stampede the clients. Client failures come back as messages, not errors, so
 // one dead client doesn't blank the whole view.
+//
+// Stale-while-revalidate once a snapshot exists at all: some clients (a
+// debrid bridge in particular) can take several real seconds to answer even
+// on a warm, reused connection — not a connection-warmup cost but genuine
+// per-request latency on the bridge's own side — so blocking every cache
+// expiry on a live sweep made the Activity page visibly hang each time it
+// reloaded. Only the very first call for a freshly started process (nothing
+// cached yet to fall back on) actually waits on a live sweep; every later
+// stale hit gets the last snapshot immediately while a background sweep
+// refreshes it for next time.
 func (s *Service) Queue(ctx context.Context) ([]Item, []string, error) {
 	s.mu.Lock()
-	if time.Since(s.cachedAt) < queueCacheTTL {
-		items, errs := s.cached, s.cachedErr
-		s.mu.Unlock()
-		return items, errs, nil
-	}
+	fresh := !s.cachedAt.IsZero() && time.Since(s.cachedAt) < queueCacheTTL
+	hasSnapshot := s.cached != nil
+	items, errs := s.cached, s.cachedErr
 	s.mu.Unlock()
 
-	// Single flight: one caller sweeps; the rest wait here and then find the
-	// fresh snapshot instead of sweeping the clients again themselves.
+	if fresh {
+		return items, errs, nil
+	}
+	if hasSnapshot {
+		s.refreshQueueInBackground()
+		return items, errs, nil
+	}
+	return s.sweepQueue(ctx)
+}
+
+// refreshQueueInBackground kicks off a live client sweep if one isn't
+// already running, without blocking the caller. sweepMu (held for the
+// sweep's whole duration) doubles as the in-flight guard: TryLock fails
+// immediately if a sweep is already underway — whether that's an earlier
+// background refresh or a foreground sweepQueue call — so a burst of stale
+// pollers triggers at most one background refresh, not one per caller.
+func (s *Service) refreshQueueInBackground() {
+	if !s.sweepMu.TryLock() {
+		return
+	}
+	go func() {
+		defer s.sweepMu.Unlock()
+		// Outlives the HTTP request that triggered it, so the sweep isn't
+		// canceled the moment that request's own response is written — its
+		// own generous, fixed timeout instead of the caller's context.
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		s.sweepQueueLocked(ctx)
+	}()
+}
+
+// sweepQueue is the blocking path: used only when there's no prior snapshot
+// to fall back on. Serializes concurrent callers on sweepMu — the first one
+// through actually sweeps; the rest wait here and then read the snapshot it
+// just produced instead of re-hitting clients themselves.
+func (s *Service) sweepQueue(ctx context.Context) ([]Item, []string, error) {
 	s.sweepMu.Lock()
 	defer s.sweepMu.Unlock()
 	s.mu.Lock()
-	if time.Since(s.cachedAt) < queueCacheTTL {
+	if !s.cachedAt.IsZero() && time.Since(s.cachedAt) < queueCacheTTL {
 		items, errs := s.cached, s.cachedErr
 		s.mu.Unlock()
 		return items, errs, nil
 	}
 	s.mu.Unlock()
+	return s.sweepQueueLocked(ctx)
+}
 
+// sweepQueueLocked does the actual live sweep and updates the cache.
+// Callers must already hold sweepMu.
+func (s *Service) sweepQueueLocked(ctx context.Context) ([]Item, []string, error) {
 	configs, err := s.store.List()
 	if err != nil {
 		return nil, nil, err
