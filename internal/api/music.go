@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/config"
@@ -408,6 +409,15 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 	}
 	deleteFiles := wantsFileDeletion(r)
 
+	// Cancel any grab still in flight for one of this artist's wanted
+	// albums before DeleteArtist cascades those rows away — otherwise a
+	// download that finishes after removal silently imports anyway
+	// (musicscanner recreates the artist from the imported files' own
+	// tags/MBIDs), resurrecting exactly what was just removed.
+	if wanted, werr := s.musicStore.ListWantedAlbumsByArtist(id); werr == nil {
+		s.cancelInFlightGrabs(downloadingWantedIDs(wanted), "artist removed")
+	}
+
 	files, err := s.musicStore.ListTrackFilesByArtist(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -441,6 +451,22 @@ func (s *server) handleRemoveMusicAlbum(w http.ResponseWriter, r *http.Request) 
 	}
 	deleteFiles := wantsFileDeletion(r)
 
+	// Same in-flight-grab cancellation as handleRemoveMusicArtist, scoped to
+	// just this album's own release group — a wanted_albums row is
+	// identified by (artist, release group), not by album id, so the
+	// artist's other wanted albums must be filtered out.
+	if album, aerr := s.musicStore.GetAlbum(id); aerr == nil {
+		if wanted, werr := s.musicStore.ListWantedAlbumsByArtist(album.ArtistID); werr == nil {
+			var forThisAlbum []musiclibrary.WantedAlbum
+			for _, w := range wanted {
+				if w.ReleaseGroupMBID == album.ReleaseGroupMBID {
+					forThisAlbum = append(forThisAlbum, w)
+				}
+			}
+			s.cancelInFlightGrabs(downloadingWantedIDs(forThisAlbum), "album removed")
+		}
+	}
+
 	files, err := s.musicStore.ListTrackFilesByAlbum(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -461,6 +487,48 @@ func (s *server) handleRemoveMusicAlbum(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.writeDeleteResult(w, deleteFiles, paths)
+}
+
+// downloadingWantedIDs filters wanted albums down to the ones with an
+// actual grab in flight (status=downloading) — the only ones
+// cancelInFlightGrabs has anything to do for.
+func downloadingWantedIDs(wanted []musiclibrary.WantedAlbum) []int64 {
+	var ids []int64
+	for _, w := range wanted {
+		if w.Status == musiclibrary.WantedStatusDownloading {
+			ids = append(ids, w.ID)
+		}
+	}
+	return ids
+}
+
+// cancelInFlightGrabs resolves any pending (status=grabbed) download tied
+// to one of wantedAlbumIDs as failed, recording reason — best-effort and
+// silent about it (a removal shouldn't fail or get noisy over a grab
+// bookkeeping detail). Does not touch the download client itself; the
+// download keeps running there and can still be removed from Activity like
+// any other, this only stops CantiNode from importing it once it finishes.
+func (s *server) cancelInFlightGrabs(wantedAlbumIDs []int64, reason string) {
+	if len(wantedAlbumIDs) == 0 {
+		return
+	}
+	want := make(map[int64]bool, len(wantedAlbumIDs))
+	for _, id := range wantedAlbumIDs {
+		want[id] = true
+	}
+	pending, err := s.downloads.Store().ListGrabs(download.GrabStatusGrabbed)
+	if err != nil {
+		slog.Error("music: list in-flight grabs before removal", "error", err)
+		return
+	}
+	for _, g := range pending {
+		if !want[g.WantedAlbumID] {
+			continue
+		}
+		if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, reason); err != nil {
+			slog.Error("music: cancel in-flight grab", "grab_id", g.ID, "error", err)
+		}
+	}
 }
 
 // writeDeleteResult is the artist/album-remove response shape both
@@ -1043,6 +1111,156 @@ func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Reque
 	}
 	if err := s.musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"client": result.Client, "id": result.ID})
+}
+
+// handleSearchAlbumUpgrade searches for a better release of an
+// already-owned album — the album page's manual "Search upgrade" action,
+// separate from the wanted-album search above since there's no
+// wanted_albums row to search against once an album is owned. Requires the
+// music quality profile's UpgradesAllowed on, and only offers this at all
+// when the album's own best-owned format hasn't already met the profile's
+// Cutoff (empty cutoff = its single best format) — the same
+// "UpgradesAllowed keeps it wanted while below Cutoff" rule
+// library.QualityProfile documents, just checked here instead of kept
+// alive via a lingering wanted_albums row. Every candidate comes back
+// scored with MinFormatScore set to the owned format's own score, so only
+// a release that's a genuine step up ever approves (see
+// release.Preferences.MinFormatScore).
+func (s *server) handleSearchAlbumUpgrade(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	album, err := s.musicStore.GetAlbum(id)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	artist, err := s.musicStore.GetArtist(album.ArtistID)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+
+	profile, err := s.store.DefaultProfile("music")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "no default music quality profile configured")
+		return
+	}
+	if !profile.UpgradesAllowed {
+		writeError(w, http.StatusBadRequest,
+			`upgrades are not enabled on the music quality profile — turn on "Allow upgrades" under Settings → Quality Profiles first`)
+		return
+	}
+
+	prefs := release.PreferencesFor(s.store, "music")
+	files, err := s.musicStore.ListTrackFilesByAlbum(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	currentBest := 0
+	for _, f := range files {
+		if sc, ok := prefs.FormatScores[strings.ToLower(f.Format)]; ok && sc > currentBest {
+			currentBest = sc
+		}
+	}
+	cutoffScore := 0
+	if profile.Cutoff != "" {
+		cutoffScore = prefs.FormatScores[strings.ToLower(profile.Cutoff)]
+	} else {
+		for _, sc := range prefs.FormatScores {
+			if sc > cutoffScore {
+				cutoffScore = sc
+			}
+		}
+	}
+	if currentBest >= cutoffScore {
+		writeError(w, http.StatusBadRequest,
+			"this album's format already meets the quality profile's cutoff — nothing to upgrade")
+		return
+	}
+
+	ctx, cancel := s.metadataCtx(r)
+	defer cancel()
+	query := artist.Name + " " + album.Title
+	found, errs, err := s.indexers.SearchAll(ctx, query, album.Title, "music")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	blocked, err := s.downloads.Store().BlockedKeys()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	upgradePrefs := prefs
+	upgradePrefs.MinFormatScore = currentBest
+	candidates := make([]release.Candidate, 0, len(found))
+	for _, rel := range found {
+		if download.IsBlocked(blocked, rel.GUID, rel.Title) {
+			continue
+		}
+		candidates = append(candidates, release.Score(rel, upgradePrefs))
+	}
+	release.Rank(candidates)
+
+	writeJSON(w, http.StatusOK, map[string]any{"releases": candidates, "errors": errs})
+}
+
+// handleGrabAlbumUpgrade sends an upgrade candidate (from
+// handleSearchAlbumUpgrade) to its download client. Unlike
+// handleGrabWantedMusicAlbum, this isn't tied to a wanted_albums row
+// (wantedAlbumID 0 — GrabRelease and internal/importer both already treat
+// that as "no wanted album to update"): the album is already owned, so
+// there's nothing to transition to "downloading". Once the download
+// finishes, internal/importer copies it in and the scanner matches the new
+// (better) file against this album's existing tracks — alongside the old
+// file, not replacing it; removing the old one is a manual step via its
+// own "delete" button on the track, the same as any other file cleanup.
+func (s *server) handleGrabAlbumUpgrade(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req struct {
+		Title       string `json:"title"`
+		DownloadURL string `json:"downloadUrl"`
+		GUID        string `json:"guid"`
+		Protocol    string `json:"protocol"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DownloadURL == "" {
+		writeError(w, http.StatusBadRequest,
+			"this release has no download URL — the source may require a membership/API key for downloads")
+		return
+	}
+	switch req.Protocol {
+	case download.ProtocolTorrent, download.ProtocolUsenet, download.ProtocolDirect:
+	default:
+		writeError(w, http.StatusBadRequest, "protocol must be torrent, usenet, or direct")
+		return
+	}
+	if _, err := s.musicStore.GetAlbum(id); err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
+	defer cancel()
+	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, 0, "music")
+	if errors.Is(err, download.ErrNoClient) {
+		writeError(w, http.StatusServiceUnavailable,
+			"no enabled "+req.Protocol+" download client — add one under Settings")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"client": result.Client, "id": result.ID})

@@ -323,14 +323,16 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
   return (
     <>
       <p className="muted">
-        How often the background health check runs — the only loop on a
-        schedule today. Search, scan, and organize are all triggered by you
-        (from the artist page or Activity), not on a timer. Blank uses the
-        default; out-of-range values are clamped. Changes apply on the next
-        server start.
+        How often the background health check runs, and how often the wanted
+        list is swept for monitored artists (search + grab the best release,
+        same as a manual "Search releases" click). Scan and organize stay
+        triggered by you (from the artist/album page or Activity), not on a
+        timer. Blank uses the default; out-of-range values are clamped.
+        Changes apply on the next server start.
       </p>
       <div className="settings-form">
         {field("Health checks (minutes)", "healthIntervalMinutes", "default 15", "5–1440")}
+        {field("Wanted-list sweep (minutes)", "wantedSearchIntervalMinutes", "default 60", "15–1440")}
       </div>
       <div className="settings-actions">
         <button disabled={busy} onClick={save}>

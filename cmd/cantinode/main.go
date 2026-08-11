@@ -143,11 +143,12 @@ func run(dataDir string) error {
 	// Prowlarr pushes indexers into.
 	indexer.RegisterNative(prowlarr.Def())
 
-	// Background loops: the periodic health check, and the importer polling
+	// Background loops: the periodic health check, the importer polling
 	// in-flight grabs to copy a finished one into the library and scan it in
-	// (see internal/importer). Music's own acquisition (search/grab) and
-	// metadata refresh are still triggered from the API (scan, monitor,
-	// "Refresh metadata"), not on a schedule.
+	// (see internal/importer), and autosearch sweeping monitored artists'
+	// wanted albums to search and grab automatically (see
+	// internal/autosearch). Metadata refresh is still triggered from the API
+	// (monitor, "Refresh metadata"), not on a schedule.
 	bgCtx, cancelBg := context.WithCancel(context.Background())
 	defer cancelBg()
 	// Cadences: built-in defaults unless tuned under Settings → General →
@@ -157,6 +158,7 @@ func run(dataDir string) error {
 	handler, bg := api.NewRouter(cfg, db, version)
 	go bg.Health.RunPeriodic(bgCtx, timings.HealthInterval())
 	go bg.Importer.RunPeriodic(bgCtx, importer.PollInterval)
+	go bg.Autosearch.RunPeriodic(bgCtx, timings.WantedSearchInterval())
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr(),

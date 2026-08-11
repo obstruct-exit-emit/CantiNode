@@ -206,11 +206,14 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 // the album's existing track files (there's no other reliable way to know
 // where an album's files live), so this errors on an album with none yet.
 //
-// Deliberately never prunes track_files rows for paths no longer found:
-// DeleteTrackFilesMissing reconciles a whole root folder against
-// seenPaths, so running it here with a directory-scoped seenPaths list
-// would wrongly delete every OTHER album's rows under the same root
-// folder — this pass only ever adds/matches, it never removes.
+// Never runs DeleteTrackFilesMissing (which reconciles a whole root folder
+// against seenPaths — doing that here with a directory-scoped seenPaths
+// list would wrongly delete every OTHER album's rows under the same root
+// folder). It does still prune this album's own already-known files if
+// they're simply gone — e.g. the folder was deleted outside the app
+// entirely, which the walk below can't discover an absence of on its own
+// (WalkDir on a missing directory reports one error for the root path and
+// stops, silently leaving stale rows behind otherwise).
 func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResult, error) {
 	existing, err := s.db.ListTrackFilesByAlbum(albumID)
 	if err != nil {
@@ -227,6 +230,7 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 
 	result := &ScanResult{Errors: []string{}}
 	groups := map[string][]folderEntry{}
+	seen := map[string]bool{}
 
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -236,6 +240,7 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 		if d.IsDir() || !tagreader.IsAudioFile(path) {
 			return nil
 		}
+		seen[path] = true
 		tf, tags, err := s.upsertFile(*rootFolder, path, result)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", path, err))
@@ -250,6 +255,24 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 	})
 	if err != nil {
 		return result, fmt.Errorf("walk %s: %w", dir, err)
+	}
+
+	// Prune this album's own files the walk didn't find — scoped to exactly
+	// the files it already owned (existing), never a whole directory, so a
+	// sibling album's rows are never at risk even without
+	// DeleteTrackFilesMissing's whole-root-folder context here.
+	for _, tf := range existing {
+		if seen[tf.Path] {
+			continue
+		}
+		if _, statErr := os.Stat(tf.Path); statErr == nil {
+			continue // still there, just outside the walked dir somehow
+		}
+		if err := s.db.DeleteTrackFile(tf.ID); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("prune missing %s: %v", tf.Path, err))
+			continue
+		}
+		result.FilesRemoved++
 	}
 
 	dirs := make([]string, 0, len(groups))

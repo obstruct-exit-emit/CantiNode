@@ -177,3 +177,90 @@ func TestDeleteTrackFileRemovesFromDisk(t *testing.T) {
 		t.Fatal("track file should be deleted from disk")
 	}
 }
+
+// seedInFlightGrab inserts a wanted_albums row at status='downloading' plus
+// a matching grabs row at status='grabbed' — the state a real grab leaves
+// behind while its download is still in progress. Returns both ids.
+func seedInFlightGrab(t *testing.T, a *testAPI, artistID int64, releaseGroupMBID string) (wantedID, grabID int64) {
+	t.Helper()
+	res, err := a.db.Exec(`INSERT INTO wanted_albums (artist_id, release_group_mbid, title, status) VALUES (?, ?, ?, 'downloading')`,
+		artistID, releaseGroupMBID, "In Flight")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	wantedID, _ = res.LastInsertId()
+
+	res, err = a.db.Exec(`INSERT INTO grabs (wanted_album_id, title, protocol, status) VALUES (?, ?, 'torrent', 'grabbed')`,
+		wantedID, "In Flight")
+	if err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+	grabID, _ = res.LastInsertId()
+	return wantedID, grabID
+}
+
+func grabStatus(t *testing.T, a *testAPI, grabID int64) (status, message string) {
+	t.Helper()
+	if err := a.db.QueryRow(`SELECT status, message FROM grabs WHERE id = ?`, grabID).Scan(&status, &message); err != nil {
+		t.Fatalf("read grab status: %v", err)
+	}
+	return status, message
+}
+
+// TestRemoveArtistCancelsInFlightGrab is the regression test for a real
+// edge case: removing an artist while one of its wanted albums is mid-
+// download used to leave the grab pointing at a wanted_albums row that
+// DeleteArtist's cascade had just deleted. internal/importer wouldn't
+// crash over that (it already tolerates a missing wanted album on the
+// success path), but the download would still finish and import — and
+// musicscanner creates an artist from a matched file's own tags/MBID
+// regardless of what CantiNode's own tables say, silently resurrecting the
+// artist the user just removed. The fix cancels the grab first.
+func TestRemoveArtistCancelsInFlightGrab(t *testing.T) {
+	a := newTestAPI(t)
+	res, err := a.db.Exec(`INSERT INTO artists (mbid, name, sort_name) VALUES ('artist-inflight', 'In Flight Artist', 'In Flight Artist')`)
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	artistID, _ := res.LastInsertId()
+	_, grabID := seedInFlightGrab(t, a, artistID, "rg-inflight")
+
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/artist/%d", artistID), nil, nil), http.StatusOK)
+
+	status, message := grabStatus(t, a, grabID)
+	if status != "failed" || message != "artist removed" {
+		t.Errorf("grab after artist removal: status=%q message=%q, want failed/\"artist removed\"", status, message)
+	}
+}
+
+// TestRemoveAlbumCancelsOnlyThatAlbumsInFlightGrab mirrors the artist test
+// at album scope, and confirms a sibling wanted album under the same
+// artist is left completely alone.
+func TestRemoveAlbumCancelsOnlyThatAlbumsInFlightGrab(t *testing.T) {
+	a := newTestAPI(t)
+	res, err := a.db.Exec(`INSERT INTO artists (mbid, name, sort_name) VALUES ('artist-inflight2', 'In Flight Artist 2', 'In Flight Artist 2')`)
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	artistID, _ := res.LastInsertId()
+
+	res, err = a.db.Exec(`INSERT INTO albums (artist_id, mbid, release_group_mbid, title) VALUES (?, 'album-inflight', 'rg-inflight-target', 'Target Album')`, artistID)
+	if err != nil {
+		t.Fatalf("seed album: %v", err)
+	}
+	albumID, _ := res.LastInsertId()
+
+	_, targetGrabID := seedInFlightGrab(t, a, artistID, "rg-inflight-target")
+	_, siblingGrabID := seedInFlightGrab(t, a, artistID, "rg-inflight-sibling")
+
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/album/%d", albumID), nil, nil), http.StatusOK)
+
+	status, message := grabStatus(t, a, targetGrabID)
+	if status != "failed" || message != "album removed" {
+		t.Errorf("target grab after album removal: status=%q message=%q, want failed/\"album removed\"", status, message)
+	}
+	status, _ = grabStatus(t, a, siblingGrabID)
+	if status != "grabbed" {
+		t.Errorf("sibling grab after album removal: status=%q, want it left alone as \"grabbed\"", status)
+	}
+}

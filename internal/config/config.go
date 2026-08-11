@@ -148,15 +148,16 @@ func TranslatePath(mappings []PathMapping, p string) string {
 // default", so existing configs stay on defaults and the file only records
 // deliberate choices. Changes apply on the next server start.
 //
-// Only the health check runs on a schedule today — the wanted-list sweep
-// and metadata/import polling that older *arr-style timing knobs implied
-// were dropped along with the ebook/comic-era packages that ran them
-// (internal/autosearch, internal/refresh, internal/importer); search, grab,
-// scan, and organize are all user-triggered for now (see the roadmap's
-// Future section for bringing an automatic loop back for music).
+// internal/importer's download-progress polling isn't tunable here — it's
+// keyed to how fast a download actually finishes, not a preference — but
+// the health check and internal/autosearch's wanted-list sweep both are.
 type TimingSettings struct {
 	// HealthIntervalMinutes: background health check cadence (default 15).
 	HealthIntervalMinutes int `yaml:"health_interval_minutes,omitempty" json:"healthIntervalMinutes"`
+	// WantedSearchIntervalMinutes: how often internal/autosearch sweeps
+	// monitored artists' wanted albums (default 60). Manual "Search
+	// releases" is unaffected either way.
+	WantedSearchIntervalMinutes int `yaml:"wanted_search_interval_minutes,omitempty" json:"wantedSearchIntervalMinutes"`
 }
 
 func (t TimingSettings) HealthInterval() time.Duration {
@@ -164,6 +165,13 @@ func (t TimingSettings) HealthInterval() time.Duration {
 		return time.Duration(t.HealthIntervalMinutes) * time.Minute
 	}
 	return 15 * time.Minute
+}
+
+func (t TimingSettings) WantedSearchInterval() time.Duration {
+	if t.WantedSearchIntervalMinutes > 0 {
+		return time.Duration(t.WantedSearchIntervalMinutes) * time.Minute
+	}
+	return 60 * time.Minute
 }
 
 // MusicSettings tunes internal/musicscanner's MusicBrainz matching —
@@ -435,6 +443,7 @@ func (c *Config) SetTimings(t TimingSettings) error {
 		return v
 	}
 	t.HealthIntervalMinutes = clamp(t.HealthIntervalMinutes, 5, 1440)
+	t.WantedSearchIntervalMinutes = clamp(t.WantedSearchIntervalMinutes, 15, 1440)
 	c.mu.Lock()
 	c.Timings = t
 	c.mu.Unlock()

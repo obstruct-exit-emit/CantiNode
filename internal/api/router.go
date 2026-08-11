@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cantinode/cantinode/internal/audiodb"
+	"github.com/cantinode/cantinode/internal/autosearch"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/download"
@@ -55,8 +56,9 @@ type server struct {
 
 // Background bundles the services main runs on periodic loops.
 type Background struct {
-	Health   *health.Service
-	Importer *importer.Service
+	Health     *health.Service
+	Importer   *importer.Service
+	Autosearch *autosearch.Service
 }
 
 // NewRouter builds the API handler and returns the background services the
@@ -160,6 +162,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("GET /api/v1/music/album/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicAlbum))
 	mux.HandleFunc("POST /api/v1/music/album/{id}/organize", s.auth(s.handleOrganizeMusicAlbum))
 	mux.HandleFunc("POST /api/v1/music/album/{id}/scan", s.auth(s.handleScanMusicAlbum))
+	mux.HandleFunc("GET /api/v1/music/album/{id}/upgrade/search", s.auth(s.handleSearchAlbumUpgrade))
+	mux.HandleFunc("POST /api/v1/music/album/{id}/upgrade/grab", s.auth(s.handleGrabAlbumUpgrade))
 	mux.HandleFunc("DELETE /api/v1/music/album/{id}", s.auth(s.handleRemoveMusicAlbum))
 	mux.HandleFunc("GET /api/v1/music/track/{id}/files", s.auth(s.handleListMusicTrackFilesByTrack))
 	mux.HandleFunc("GET /api/v1/music/trackfile/unmatched", s.auth(s.handleListUnmatchedTrackFiles))
@@ -215,8 +219,9 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("/", s.handleIndex)
 
 	imp := importer.New(downloads, musicScanner, musicStore, cfg)
+	auto := autosearch.New(musicStore, indexers, downloads, store)
 
-	return logRequests(mux), &Background{Health: s.health, Importer: imp}
+	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto}
 }
 
 // handleHealth returns the cached result of the last background health run

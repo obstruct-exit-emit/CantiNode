@@ -8,6 +8,7 @@ import {
   type RenameMove,
 } from "../api";
 import RemovePanel from "../components/RemovePanel";
+import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import { formatBytes } from "../format";
 import { useUi } from "../ui";
@@ -32,6 +33,7 @@ export default function AlbumDetailView({
   const [files, setFiles] = useState<Record<number, MusicTrackFile[]>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
   const [headerBusy, setHeaderBusy] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null);
   const [notice, setNotice] = useState("");
@@ -193,11 +195,25 @@ export default function AlbumDetailView({
             <button disabled={headerBusy} onClick={previewOrganize} title="Preview naming-template moves for this album's files only">
               Organize…
             </button>
+            <button
+              className={showUpgrade ? "toggle on" : ""}
+              onClick={() => setShowUpgrade(!showUpgrade)}
+              title={`Search for a better release than what's owned now — requires "Allow upgrades" on the music quality profile`}
+            >
+              {showUpgrade ? "Hide upgrade search" : "Search upgrade"}
+            </button>
             <button className="danger" disabled={headerBusy} onClick={() => setConfirmRemove(!confirmRemove)}>
               Remove album
             </button>
           </div>
           {notice && <p className="muted">{notice}</p>}
+          {showUpgrade && (
+            <ReleaseBrowser
+              upgradeAlbumId={album.id}
+              onGrabbed={reload}
+              onClose={() => setShowUpgrade(false)}
+            />
+          )}
           {renamePlan && renamePlan.length > 0 && (
             <div className="rename-plan">
               <p>{renamePlan.length} file(s) would move to match the naming template:</p>

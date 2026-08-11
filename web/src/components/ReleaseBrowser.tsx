@@ -43,17 +43,28 @@ function isPack(c: ReleaseCandidate): boolean {
   return c.parsed.pack === true || (c.parsed.volumeEnd ?? 0) > (c.parsed.volume ?? 0);
 }
 
-export default function ReleaseBrowser({
-  wantedAlbumId,
-  onGrabbed,
-  onClose,
-}: {
-  wantedAlbumId: number;
+// ReleaseBrowser runs in one of two modes off the same id: wantedAlbumId
+// searches/grabs for a not-yet-owned album (the wanted_albums row backs
+// status tracking); upgradeAlbumId searches/grabs a better release for an
+// already-owned album (see internal/api's handleSearchAlbumUpgrade — scored
+// with MinFormatScore set to the owned format, so only genuine upgrades
+// approve). Exactly one of the two must be set.
+type ReleaseBrowserProps = (
+  | { wantedAlbumId: number; upgradeAlbumId?: undefined }
+  | { wantedAlbumId?: undefined; upgradeAlbumId: number }
+) & {
   // Called after a release was sent to a client — refresh the album's own
   // status badge.
   onGrabbed?: () => void;
   onClose?: () => void;
-}) {
+};
+
+export default function ReleaseBrowser({
+  wantedAlbumId,
+  upgradeAlbumId,
+  onGrabbed,
+  onClose,
+}: ReleaseBrowserProps) {
   const [releases, setReleases] = useState<ReleaseCandidate[] | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [loadError, setLoadError] = useState("");
@@ -67,8 +78,10 @@ export default function ReleaseBrowser({
     let stopped = false;
     setReleases(null);
     setLoadError("");
-    api
-      .searchWantedMusicAlbum(wantedAlbumId)
+    const search = wantedAlbumId != null
+      ? api.searchWantedMusicAlbum(wantedAlbumId)
+      : api.searchAlbumUpgrade(upgradeAlbumId);
+    search
       .then((r) => {
         if (stopped) return;
         setReleases(r.releases);
@@ -80,7 +93,7 @@ export default function ReleaseBrowser({
     return () => {
       stopped = true;
     };
-  }, [wantedAlbumId]);
+  }, [wantedAlbumId, upgradeAlbumId]);
 
   const approved = useMemo(() => (releases ?? []).filter((c) => c.approved), [releases]);
 
@@ -110,8 +123,10 @@ export default function ReleaseBrowser({
   const grab = (c: ReleaseCandidate) => {
     const key = c.guid + c.indexer;
     setGrabState((s) => ({ ...s, [key]: "sending" }));
-    api
-      .grabWantedMusicAlbum(wantedAlbumId, c.title, c.downloadUrl, c.protocol, c.guid)
+    const send = wantedAlbumId != null
+      ? api.grabWantedMusicAlbum(wantedAlbumId, c.title, c.downloadUrl, c.protocol, c.guid)
+      : api.grabAlbumUpgrade(upgradeAlbumId, c.title, c.downloadUrl, c.protocol, c.guid);
+    send
       .then((r) => {
         setGrabState((s) => ({ ...s, [key]: `✓ sent to ${r.client}` }));
         onGrabbed?.();

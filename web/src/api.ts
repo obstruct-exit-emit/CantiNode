@@ -201,10 +201,12 @@ export interface PathMapping {
 }
 
 // TimingSettings: background loop cadences; 0 = use the built-in default.
-// Changes apply on the next server start. Health checks are the only
-// background loop today — search/scan/organize are all user-triggered.
+// Changes apply on the next server start. Scan/organize/manual search stay
+// user-triggered; the wanted-list sweep (internal/autosearch) and health
+// check are the two background loops these cadences tune.
 export interface TimingSettings {
   healthIntervalMinutes: number;
+  wantedSearchIntervalMinutes: number;
 }
 
 // UserAccount is one login; the default user is protected from removal.
@@ -618,6 +620,19 @@ export const api = {
     ),
   scanMusicAlbum: (id: number) =>
     request<MusicScanResult>(`/api/v1/music/album/${id}/scan`, { method: "POST" }),
+  searchAlbumUpgrade: (id: number) =>
+    request<{ releases: ReleaseCandidate[]; errors: string[] }>(`/api/v1/music/album/${id}/upgrade/search`),
+  grabAlbumUpgrade: (
+    id: number,
+    title: string,
+    downloadUrl: string,
+    protocol: string,
+    guid: string = "",
+  ) =>
+    request<{ client: string; id?: string }>(
+      `/api/v1/music/album/${id}/upgrade/grab`,
+      json({ title, downloadUrl, protocol, guid }),
+    ),
   listMusicTrackFiles: (trackId: number) =>
     request<MusicTrackFile[]>(`/api/v1/music/track/${trackId}/files`),
   listUnmatchedTrackFiles: () =>
