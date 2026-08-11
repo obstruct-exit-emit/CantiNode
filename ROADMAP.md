@@ -36,6 +36,7 @@ fine-grained record of every change lives in the [CHANGELOG](CHANGELOG.md).
 | [4 — Experience & administration](#phase-4--experience--administration-) | Plex-style UI, auth & roles, health, backups, themes | ✅ |
 | [5 — Reach](#phase-5--reach-) | Native indexers, direct downloads, metadata fallbacks | ✅ |
 | [6 — Hardening & release](#phase-6--hardening--release-) | Proving it, packaging it, shipping it | 🔄 |
+| [Next steps](#next-steps-) | Concrete, prioritized work from here | 🎯 |
 | [Future](#future-) | Ideas under consideration | 💡 |
 
 ---
@@ -195,6 +196,41 @@ Remaining — externally gated:
 
 **1.0 ships when burn-in comes back clean.**
 
+## Next steps 🎯
+
+Picked 2026-08-11, after a session of live bug-fixing (release scoring,
+delete-files, Activity page lag) — concrete and prioritized, unlike
+[Future](#future-) below:
+
+1. [ ] **Automatic wanted-list sweep** — search/grab is 100% manual today;
+   opening each wanted album and clicking "Search releases" doesn't scale
+   past a handful of albums. A periodic background sweep of monitored
+   artists' wanted albums, auto-grabbing anything that clears the active
+   quality profile, is the other half of what Completed Download Handling
+   already restored on the import side (`internal/importer` polls in-flight
+   grabs and imports on completion; nothing yet polls the wanted list itself
+   to create those grabs in the first place).
+2. [ ] **Wire up "Upgrades allowed"** — `internal/release/score.go` already
+   has upgrade-aware rejection logic ("not an upgrade over the owned
+   format"), and Settings → Quality Profiles has a live toggle for it, but
+   nothing in the app ever triggers a search *for an already-owned album* to
+   check whether a better release exists. Looks live, has no caller — the
+   same shape of gap the release-scoring bug (found and fixed this session)
+   turned out to be; worth the same kind of grep-for-real-callers audit.
+3. [ ] **Real-world burn-in** — the Phase 6 gate above: run it for real,
+   watch `journalctl -u cantinode` and Settings → Health for anything that
+   surfaces on its own.
+4. [ ] **Upgrade "Add artist" search results** (`MusicLibraryView.tsx`'s
+   `AddArtistPanel`) to the same poster-card grid pattern `ReleaseBrowser`'s
+   neighbors already got this session, instead of the current bare
+   name-plus-button text list.
+5. [ ] **A deliberate pass over delete/scan/organize edge cases** now that
+   album-level actions exist alongside the artist-level ones — e.g. removing
+   an artist that still has an in-flight grab, or scanning an album whose
+   folder was deleted outside the app. Same category as the two real bugs
+   found and fixed this session (delete-files regression, Activity page
+   lag), just proactive instead of reactive.
+
 ## Future 💡
 
 Under consideration, in no particular order:
@@ -208,12 +244,6 @@ Under consideration, in no particular order:
 - [ ] **External notifications**: Discord/webhook/email on grab, import,
   upgrade, and failure
 - [ ] **Player integrations**: notify Navidrome/Plex on import
-- [ ] **Automatic wanted-list sweep**: a periodic search of the wanted list
-  (dropped in the ebook/comic removal — search and grab are user-triggered
-  only today). Completed Download Handling — the other half of that same
-  removal — is back: `internal/importer` polls in-flight grabs and, once
-  one finishes, copies its files into the library and scans them in, no
-  manual step needed.
 - [ ] **Accessibility, the systematic pass**: focus trapping, full keyboard
   paths, a screen-reader walk of the main flows
 - [ ] **Localization** — and with it, language/date preferences
