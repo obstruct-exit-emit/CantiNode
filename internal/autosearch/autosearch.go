@@ -53,20 +53,30 @@ func New(music *musiclibrary.Store, indexers *indexer.Service, downloads *downlo
 }
 
 // RunPeriodic sweeps immediately (so a fresh start doesn't wait a full
-// interval to catch up), then again every interval until ctx is canceled.
-// interval <= 0 uses PollInterval.
-func (s *Service) RunPeriodic(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = PollInterval
+// cycle to catch up), then waits for whatever next reports and sweeps
+// again, until ctx is canceled. next is called fresh before each wait —
+// given "now", it returns the next time to fire — so it can express either
+// a fixed interval (now.Add(d)) or a daily fire time (see
+// config.TimingSettings.WantedSearchNextRun, main's actual caller): a
+// closure over live settings rather than a single duration baked in at
+// startup keeps every wait computed from the real clock, self-correcting
+// instead of drifting. nil uses a plain PollInterval ticker.
+func (s *Service) RunPeriodic(ctx context.Context, next func(now time.Time) time.Time) {
+	if next == nil {
+		next = func(now time.Time) time.Time { return now.Add(PollInterval) }
 	}
 	s.PollOnce(ctx)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 	for {
+		wait := time.Until(next(time.Now()))
+		if wait < 0 {
+			wait = 0
+		}
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			s.PollOnce(ctx)
 		}
 	}

@@ -31,8 +31,10 @@ music:
                                  #   empty uses TheAudioDB's public test key
 timings:                                # background cadences — omit for defaults
   health_interval_minutes: 15           # health checks (5–1440); see below
-  wanted_search_interval_minutes: 1440  # wanted-list sweep (15–1440,
-                                         #   default 1440 = 24h); see below
+  wanted_search_mode: daily             # daily (default) or interval; see below
+  wanted_search_time_of_day: "03:00"    # daily mode's fire time (24h, server-local)
+  wanted_search_interval_minutes: 1440  # interval mode's cadence (15–1440,
+                                         #   default 1440 = 24h)
 path_mappings:                   # remote client paths → local ones
   - remote: /storage_1           # as the download client reports them
     local: /mnt/media            # where this server sees the same files
@@ -56,14 +58,24 @@ client-reported path before import touches disk.
 ## Background timings
 
 **Settings → General → Advanced: background timings** tunes two loops:
-the health check, and how often the **wanted-list sweep**
-(`internal/autosearch`) searches and grabs for every monitored artist's
-wanted albums — default once a day, since it's far less time-sensitive
-than, say, a health check. Manual search/grab, scan, and organize are
-still triggered by you and unaffected by either setting; see
-[Acquisition](acquisition.md). Blank uses the default; entered values are
-clamped to the range shown in the settings form so a typo can't
-misconfigure it. Changes apply on the next server start.
+the health check, and the **wanted-list sweep** (`internal/autosearch`,
+which searches and grabs for every monitored artist's wanted albums).
+Manual search/grab, scan, and organize are still triggered by you and
+unaffected by either setting; see [Acquisition](acquisition.md). Blank
+uses the default; entered values are clamped to the range shown in the
+settings form so a typo can't misconfigure it. Changes apply on the next
+server start.
+
+The sweep has two mutually-exclusive modes, not both active at once:
+
+- **Daily** (the default) — fires once a day at a set time (default
+  `03:00`, server-local, 24-hour). The next fire time is computed fresh
+  from the clock each time, so it self-corrects rather than drifting.
+- **Interval** — fires every so many minutes (15–1440, default 1440 =
+  24h), for anyone who wants a tighter cadence than once a day.
+
+Switching modes doesn't discard the other mode's own saved value — the
+time-of-day survives switching to interval mode and back, and vice versa.
 
 Completed Download Handling (copying a finished grab into the library and
 scanning it in) isn't tunable here — it polls as fast as a download can

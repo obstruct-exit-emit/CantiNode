@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/download"
@@ -272,5 +274,51 @@ func TestPollOnceRespectsBlocklist(t *testing.T) {
 	}
 	if wanted.Status != musiclibrary.WantedStatusWanted {
 		t.Errorf("wanted album status = %q, want unchanged %q", wanted.Status, musiclibrary.WantedStatusWanted)
+	}
+}
+
+// TestRunPeriodicRepeatsUntilCanceled proves RunPeriodic actually loops
+// (calling the schedule function fresh each time, per the config-driven
+// "daily" mode's own self-correcting design) rather than firing once and
+// stopping, and that it stops promptly once ctx is done.
+func TestRunPeriodicRepeatsUntilCanceled(t *testing.T) {
+	d := newTestDeps(t)
+	s := New(d.music, d.indexers, d.downloads, d.store)
+
+	var calls int32
+	next := func(now time.Time) time.Time {
+		atomic.AddInt32(&calls, 1)
+		return now.Add(2 * time.Millisecond)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	s.RunPeriodic(ctx, next)
+
+	if got := atomic.LoadInt32(&calls); got < 2 {
+		t.Errorf("next called %d time(s) in 50ms of 2ms cycles, want at least 2 — RunPeriodic should keep looping until ctx is done", got)
+	}
+}
+
+// TestRunPeriodicNilScheduleFallsBackAndStopsOnCancel: a nil schedule
+// function must not panic (falls back to a plain PollInterval ticker), and
+// — the actually load-bearing assertion — a canceled context must stop the
+// wait immediately rather than sitting through the full 24h fallback.
+func TestRunPeriodicNilScheduleFallsBackAndStopsOnCancel(t *testing.T) {
+	d := newTestDeps(t)
+	s := New(d.music, d.indexers, d.downloads, d.store)
+
+	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		s.RunPeriodic(ctx, nil)
+		close(done)
+	}()
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunPeriodic did not return promptly after ctx was canceled")
 	}
 }

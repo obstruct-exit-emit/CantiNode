@@ -158,7 +158,7 @@ func run(dataDir string) error {
 	handler, bg := api.NewRouter(cfg, db, version)
 	go bg.Health.RunPeriodic(bgCtx, timings.HealthInterval())
 	go bg.Importer.RunPeriodic(bgCtx, importer.PollInterval)
-	go bg.Autosearch.RunPeriodic(bgCtx, timings.WantedSearchInterval())
+	go bg.Autosearch.RunPeriodic(bgCtx, timings.WantedSearchNextRun)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr(),

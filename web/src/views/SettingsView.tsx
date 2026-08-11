@@ -289,7 +289,7 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
 
   const field = (
     label: string,
-    key: keyof TimingSettings,
+    key: "healthIntervalMinutes" | "wantedSearchIntervalMinutes",
     hint: string,
     range: string,
   ) => (
@@ -307,6 +307,10 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
     </label>
   );
 
+  // "" (unset) reads the same as "daily" — the default — so the toggle
+  // treats them as one state.
+  const sweepMode = timings.wantedSearchMode === "interval" ? "interval" : "daily";
+
   const save = () => {
     setBusy(true);
     setNotice("");
@@ -323,16 +327,48 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
   return (
     <>
       <p className="muted">
-        How often the background health check runs, and how often the wanted
-        list is swept for monitored artists (search + grab the best release,
-        same as a manual "Search releases" click). Scan and organize stay
-        triggered by you (from the artist/album page or Activity), not on a
-        timer. Blank uses the default; out-of-range values are clamped.
-        Changes apply on the next server start.
+        How often the background health check runs, and how the wanted list
+        is swept for monitored artists (search + grab the best release, same
+        as a manual "Search releases" click) — once a day at a set time, or
+        every so many hours. Scan and organize stay triggered by you (from
+        the artist/album page or Activity), not on a timer. Blank uses the
+        default; out-of-range values are clamped. Changes apply on the next
+        server start.
       </p>
       <div className="settings-form">
         {field("Health checks (minutes)", "healthIntervalMinutes", "default 15", "5–1440")}
-        {field("Wanted-list sweep (minutes)", "wantedSearchIntervalMinutes", "default 1440 (24h)", "15–1440")}
+        <label>
+          Wanted-list sweep
+          <span className="view-toggle">
+            <button
+              type="button"
+              className={sweepMode === "daily" ? "toggle on" : "toggle"}
+              onClick={() => setTimings({ ...timings, wantedSearchMode: "daily" })}
+            >
+              Daily at
+            </button>
+            <button
+              type="button"
+              className={sweepMode === "interval" ? "toggle on" : "toggle"}
+              onClick={() => setTimings({ ...timings, wantedSearchMode: "interval" })}
+            >
+              Every N minutes
+            </button>
+          </span>
+        </label>
+        {sweepMode === "daily" ? (
+          <label>
+            Time of day
+            <input
+              type="time"
+              title="24-hour, server-local time. Blank = default (03:00)."
+              value={timings.wantedSearchTimeOfDay}
+              onChange={(e) => setTimings({ ...timings, wantedSearchTimeOfDay: e.target.value })}
+            />
+          </label>
+        ) : (
+          field("Sweep interval (minutes)", "wantedSearchIntervalMinutes", "default 1440 (24h)", "15–1440")
+        )}
       </div>
       <div className="settings-actions">
         <button disabled={busy} onClick={save}>

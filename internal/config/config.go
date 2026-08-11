@@ -144,6 +144,12 @@ func TranslatePath(mappings []PathMapping, p string) string {
 	return local + rest
 }
 
+// Wanted-search schedule modes — see TimingSettings.WantedSearchMode.
+const (
+	WantedSearchModeInterval = "interval"
+	WantedSearchModeDaily    = "daily"
+)
+
 // TimingSettings tunes the background loops. Zero values mean "use the
 // default", so existing configs stay on defaults and the file only records
 // deliberate choices. Changes apply on the next server start.
@@ -154,10 +160,22 @@ func TranslatePath(mappings []PathMapping, p string) string {
 type TimingSettings struct {
 	// HealthIntervalMinutes: background health check cadence (default 15).
 	HealthIntervalMinutes int `yaml:"health_interval_minutes,omitempty" json:"healthIntervalMinutes"`
-	// WantedSearchIntervalMinutes: how often internal/autosearch sweeps
-	// monitored artists' wanted albums (default 1440 = 24h). Manual "Search
-	// releases" is unaffected either way.
+
+	// WantedSearchMode picks how the wanted-list sweep is scheduled: "daily"
+	// (the default — once a day at WantedSearchTimeOfDay) or "interval"
+	// (every WantedSearchIntervalMinutes, the only mode before this
+	// existed). The two are mutually exclusive rather than both active —
+	// running both invites "which one wins tonight" ambiguity for no real
+	// benefit, since wanting a fixed daily time and wanting a tighter
+	// sub-daily cadence are different asks in the first place.
+	WantedSearchMode string `yaml:"wanted_search_mode,omitempty" json:"wantedSearchMode"`
+	// WantedSearchIntervalMinutes: sweep cadence when WantedSearchMode is
+	// "interval" (default 1440 = 24h).
 	WantedSearchIntervalMinutes int `yaml:"wanted_search_interval_minutes,omitempty" json:"wantedSearchIntervalMinutes"`
+	// WantedSearchTimeOfDay: "HH:MM" (24-hour, server-local time) the sweep
+	// fires at when WantedSearchMode is "daily" (default "03:00" — a quiet
+	// overnight hour, not tied to when you're actually using the app).
+	WantedSearchTimeOfDay string `yaml:"wanted_search_time_of_day,omitempty" json:"wantedSearchTimeOfDay"`
 }
 
 func (t TimingSettings) HealthInterval() time.Duration {
@@ -167,11 +185,56 @@ func (t TimingSettings) HealthInterval() time.Duration {
 	return 15 * time.Minute
 }
 
+// WantedSearchInterval is the "interval" mode's own cadence — exported
+// separately from WantedSearchNextRun since internal/autosearch's tests
+// exercise it directly without needing a whole schedule mode dance.
 func (t TimingSettings) WantedSearchInterval() time.Duration {
 	if t.WantedSearchIntervalMinutes > 0 {
 		return time.Duration(t.WantedSearchIntervalMinutes) * time.Minute
 	}
 	return 24 * time.Hour
+}
+
+// wantedSearchTimeOfDay returns the configured daily-mode fire time,
+// falling back to 03:00 when unset or unparseable (SetTimings already
+// normalizes a bad value back to "" before it's ever persisted, but a
+// config.yaml hand-edited to something invalid should still degrade
+// gracefully rather than panic or silently never fire).
+func (t TimingSettings) wantedSearchTimeOfDay() (hour, minute int) {
+	if h, m, ok := parseHHMM(t.WantedSearchTimeOfDay); ok {
+		return h, m
+	}
+	return 3, 0
+}
+
+// WantedSearchNextRun returns the next time the wanted-list sweep should
+// fire, computed fresh from now: now+interval in "interval" mode, or the
+// next occurrence (today if it hasn't passed yet, otherwise tomorrow) of
+// the configured time of day in "daily" mode (the default).
+func (t TimingSettings) WantedSearchNextRun(now time.Time) time.Time {
+	if t.WantedSearchMode == WantedSearchModeInterval {
+		return now.Add(t.WantedSearchInterval())
+	}
+	hour, minute := t.wantedSearchTimeOfDay()
+	next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+	if !next.After(now) {
+		next = next.AddDate(0, 0, 1)
+	}
+	return next
+}
+
+// parseHHMM parses a "HH:MM" 24-hour time-of-day string.
+func parseHHMM(s string) (hour, minute int, ok bool) {
+	parts := strings.SplitN(strings.TrimSpace(s), ":", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	h, err1 := strconv.Atoi(parts[0])
+	m, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, 0, false
+	}
+	return h, m, true
 }
 
 // MusicSettings tunes internal/musicscanner's MusicBrainz matching —
@@ -444,6 +507,12 @@ func (c *Config) SetTimings(t TimingSettings) error {
 	}
 	t.HealthIntervalMinutes = clamp(t.HealthIntervalMinutes, 5, 1440)
 	t.WantedSearchIntervalMinutes = clamp(t.WantedSearchIntervalMinutes, 15, 1440)
+	if t.WantedSearchMode != WantedSearchModeInterval {
+		t.WantedSearchMode = "" // anything but "interval" normalizes to the default ("daily")
+	}
+	if _, _, ok := parseHHMM(t.WantedSearchTimeOfDay); !ok {
+		t.WantedSearchTimeOfDay = "" // malformed input normalizes to the default (03:00) rather than erroring
+	}
 	c.mu.Lock()
 	c.Timings = t
 	c.mu.Unlock()

@@ -101,3 +101,42 @@ func TestEnvOverrides(t *testing.T) {
 		t.Errorf("LogLevel = %q, want debug from env", cfg.LogLevel)
 	}
 }
+
+// TestSetTimingsNormalizesWantedSearchFields: a garbage mode or time-of-day
+// degrades to the default rather than persisting nonsense that would
+// silently never fire (or panic parsing it back out later).
+func TestSetTimingsNormalizesWantedSearchFields(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if err := cfg.SetTimings(TimingSettings{
+		WantedSearchMode:      "hourly", // not a real mode
+		WantedSearchTimeOfDay: "not-a-time",
+	}); err != nil {
+		t.Fatalf("SetTimings: %v", err)
+	}
+	got := cfg.TimingSettings()
+	if got.WantedSearchMode != "" {
+		t.Errorf("WantedSearchMode = %q, want normalized to empty (default)", got.WantedSearchMode)
+	}
+	if got.WantedSearchTimeOfDay != "" {
+		t.Errorf("WantedSearchTimeOfDay = %q, want normalized to empty (default)", got.WantedSearchTimeOfDay)
+	}
+
+	// A valid interval-mode setting round-trips unchanged.
+	if err := cfg.SetTimings(TimingSettings{
+		WantedSearchMode:      WantedSearchModeInterval,
+		WantedSearchTimeOfDay: "23:45",
+	}); err != nil {
+		t.Fatalf("SetTimings: %v", err)
+	}
+	got = cfg.TimingSettings()
+	if got.WantedSearchMode != WantedSearchModeInterval {
+		t.Errorf("WantedSearchMode = %q, want %q", got.WantedSearchMode, WantedSearchModeInterval)
+	}
+	if got.WantedSearchTimeOfDay != "23:45" {
+		t.Errorf("WantedSearchTimeOfDay = %q, want 23:45", got.WantedSearchTimeOfDay)
+	}
+}

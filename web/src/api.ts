@@ -200,13 +200,21 @@ export interface PathMapping {
   localPrefix: string;
 }
 
-// TimingSettings: background loop cadences; 0 = use the built-in default.
-// Changes apply on the next server start. Scan/organize/manual search stay
-// user-triggered; the wanted-list sweep (internal/autosearch) and health
-// check are the two background loops these cadences tune.
+// TimingSettings: background loop cadences; 0/"" = use the built-in
+// default. Changes apply on the next server start. Scan/organize/manual
+// search stay user-triggered; the wanted-list sweep (internal/autosearch)
+// and health check are the two background loops these cadences tune.
+//
+// wantedSearchMode picks how the sweep is scheduled: "daily" (the
+// default — once a day at wantedSearchTimeOfDay) or "interval" (every
+// wantedSearchIntervalMinutes). The two fields for the mode not in use are
+// simply ignored server-side, not validated away — no need to blank them
+// out when switching modes in the UI.
 export interface TimingSettings {
   healthIntervalMinutes: number;
+  wantedSearchMode: "" | "daily" | "interval";
   wantedSearchIntervalMinutes: number;
+  wantedSearchTimeOfDay: string; // "HH:MM", 24-hour, server-local time
 }
 
 // UserAccount is one login; the default user is protected from removal.
