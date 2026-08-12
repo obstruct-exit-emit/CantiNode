@@ -49,6 +49,20 @@ function diceSimilarity(a: string, b: string): number {
   return (2 * matches) / (ba.length + bb.length);
 }
 
+// discSuffixPattern/stripDiscSuffix mirror internal/musicscanner's own
+// Go-side helpers of the same name (folder_match.go) — a per-disc file's
+// own Album tag very often carries a disc-number qualifier ("Moonglow CD
+// 1", "Moonglow CD 2") that the real library album title never does,
+// which both splits tagConsensus's vote count across two different
+// strings for what's genuinely one album AND makes the subsequent
+// fuzzy-match against real album titles score too low to clear the
+// confidence bar. Stripped before either happens.
+const discSuffixPattern = /[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+\)?\s*$/i;
+
+function stripDiscSuffix(album: string): string {
+  return album.replace(discSuffixPattern, "").trim();
+}
+
 // tagConsensus picks the most common non-empty Artist/Album tag across a
 // folder's files — a looser, JS-side echo of the Go scanner's own strict
 // folderTagConsensus (internal/musicscanner/folder_match.go), good enough
@@ -61,7 +75,7 @@ function tagConsensus(files: UnmatchedTrackFile[]): { artist: string; album: str
   for (const f of files) {
     const tags = parseTags(f.tagsJson);
     const artist = (tags.AlbumArtist || tags.Artist || "").trim();
-    const album = (tags.Album || "").trim();
+    const album = stripDiscSuffix((tags.Album || "").trim());
     if (artist) artistCounts.set(artist, (artistCounts.get(artist) ?? 0) + 1);
     if (album) albumCounts.set(album, (albumCounts.get(album) ?? 0) + 1);
   }

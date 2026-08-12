@@ -89,12 +89,22 @@ func (s *Store) ListReleaseGroupVersions(releaseGroupMBID string) ([]ReleaseGrou
 	return out, rows.Err()
 }
 
-// HasReleaseGroupVersions reports whether releaseGroupMBID has any cached
-// versions at all — used to find artists that predate release-version
-// caching (see internal/api's backfillReleaseGroupVersions).
+// HasReleaseGroupVersions reports whether releaseGroupMBID has a genuinely
+// fetched cached version — not just the placeholder row migration 022
+// carried over from the old single-release-tracklist scheme (release_mbid/
+// title only, every other column left at its blank default). A migrated
+// placeholder must count as "not yet cached" here, or an artist that
+// predates this feature would never get backfilled: HasReleaseGroupVersions
+// would report true for its very first (blank) row and
+// backfillReleaseGroupVersions would skip it forever. Used to find artists
+// that predate release-version caching (see internal/api's
+// backfillReleaseGroupVersions) and by handleListReleaseGroupVersions's own
+// cache-miss fallback.
 func (s *Store) HasReleaseGroupVersions(releaseGroupMBID string) (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(1) FROM release_group_versions WHERE release_group_mbid = ?`, releaseGroupMBID).Scan(&n)
+	err := s.db.QueryRow(
+		`SELECT COUNT(1) FROM release_group_versions WHERE release_group_mbid = ? AND (track_count > 0 OR status != '')`,
+		releaseGroupMBID).Scan(&n)
 	if err != nil {
 		return false, fmt.Errorf("check release group versions: %w", err)
 	}

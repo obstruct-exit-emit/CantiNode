@@ -557,7 +557,7 @@ func (s *server) handleListReleaseGroupVersions(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if len(versions) == 0 {
+	if !hasRealVersionMetadata(versions) {
 		ctx, cancel := s.metadataCtx(r)
 		defer cancel()
 		versions, err = s.cacheReleaseGroupVersions(ctx, mbid)
@@ -567,6 +567,23 @@ func (s *server) handleListReleaseGroupVersions(w http.ResponseWriter, r *http.R
 		}
 	}
 	writeJSON(w, http.StatusOK, versions)
+}
+
+// hasRealVersionMetadata reports whether versions contains at least one
+// genuinely fetched row — not just the placeholder migration 022 carried
+// over from the old single-release-tracklist scheme (release_mbid/title
+// only, every other field left blank). An empty slice AND a slice
+// containing only migrated placeholders both mean "go fetch the real
+// list" — see musiclibrary.Store.HasReleaseGroupVersions, which this
+// mirrors for the in-memory slice this handler already has in hand rather
+// than issuing a second query.
+func hasRealVersionMetadata(versions []musiclibrary.ReleaseGroupVersion) bool {
+	for _, v := range versions {
+		if v.TrackCount > 0 || v.Status != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // handleRemoveMusicArtist detaches (unlinks, per DeleteArtist's own FK

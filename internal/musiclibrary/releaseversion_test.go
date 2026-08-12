@@ -56,6 +56,41 @@ func TestReplaceAndListReleaseGroupVersions(t *testing.T) {
 	}
 }
 
+// TestHasReleaseGroupVersionsIgnoresMigratedPlaceholder is the regression
+// test for a real bug found live in production: migration 022 carries over
+// a release group's pre-existing single-tracklist-cache row as a
+// release_group_versions row with only release_mbid/title populated
+// (track_count=0, status=""). HasReleaseGroupVersions must NOT count that
+// placeholder as "already cached" — otherwise the backfill sweep skips
+// every artist that predates this feature forever, and the version
+// dropdown shows just the one stale entry instead of the real list.
+func TestHasReleaseGroupVersionsIgnoresMigratedPlaceholder(t *testing.T) {
+	s := newTestStore(t)
+
+	if err := s.ReplaceReleaseGroupVersions("rg-migrated", []ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-migrated", ReleaseMBID: "rel-old", Title: "Some Album", IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("seed migrated placeholder: %v", err)
+	}
+
+	has, err := s.HasReleaseGroupVersions("rg-migrated")
+	if err != nil || has {
+		t.Errorf("HasReleaseGroupVersions(rg-migrated) = %v, %v, want false (placeholder shouldn't count)", has, err)
+	}
+
+	// A genuinely fetched single-version release group (some albums really
+	// do only have one known release) must still count as cached.
+	if err := s.ReplaceReleaseGroupVersions("rg-real", []ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-real", ReleaseMBID: "rel-real", Title: "Some Album", Status: "Official", TrackCount: 10, IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("seed real version: %v", err)
+	}
+	has, err = s.HasReleaseGroupVersions("rg-real")
+	if err != nil || !has {
+		t.Errorf("HasReleaseGroupVersions(rg-real) = %v, %v, want true", has, err)
+	}
+}
+
 func TestGetRepresentativeReleaseVersionNotFound(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.GetRepresentativeReleaseVersion("rg-unknown"); !errors.Is(err, ErrNotFound) {

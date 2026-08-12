@@ -26,6 +26,36 @@ func TestSuggestTrackFileMatchesRequiresFields(t *testing.T) {
 		map[string]any{"releaseGroupMbid": "rg-mbid"}, nil), http.StatusBadRequest)
 }
 
+// TestHasRealVersionMetadata is the regression test for a real bug: a
+// migrated placeholder row (release_mbid/title only, from migration 022's
+// carryover of the old single-tracklist-cache scheme) must not be treated
+// as "already fully cached," or handleListReleaseGroupVersions would never
+// re-fetch the real version list for any pre-existing artist.
+func TestHasRealVersionMetadata(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []musiclibrary.ReleaseGroupVersion
+		want bool
+	}{
+		{"empty", nil, false},
+		{"migrated placeholder only", []musiclibrary.ReleaseGroupVersion{
+			{ReleaseMBID: "rel-1", Title: "Album"},
+		}, false},
+		{"genuinely fetched", []musiclibrary.ReleaseGroupVersion{
+			{ReleaseMBID: "rel-1", Title: "Album", Status: "Official", TrackCount: 10},
+		}, true},
+		{"one placeholder, one real", []musiclibrary.ReleaseGroupVersion{
+			{ReleaseMBID: "rel-1", Title: "Album"},
+			{ReleaseMBID: "rel-2", Title: "Album", TrackCount: 5},
+		}, true},
+	}
+	for _, c := range cases {
+		if got := hasRealVersionMetadata(c.in); got != c.want {
+			t.Errorf("%s: hasRealVersionMetadata = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 // TestRemoveMusicArtistPurgesReleaseGroupCache is the regression test for
 // "if an artist is removed, its cached metadata should be deleted since
 // the artist is no longer in the library" — release_group_versions and
