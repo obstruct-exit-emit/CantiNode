@@ -327,7 +327,7 @@ var discFolderPattern = regexp.MustCompile(`(?i)^(?:cd|disc|disk|d)[\s_.-]*0*([0
 // Album distinctly (a different qualifier per disc) even though it's
 // genuinely one release, so comparing the raw tag verbatim would reject
 // merging two discs of the very album this function exists to merge.
-var discSuffixPattern = regexp.MustCompile(`(?i)[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+\)?\s*$`)
+var discSuffixPattern = regexp.MustCompile(`(?i)[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[)\]]?\s*$`)
 
 // stripDiscSuffix removes a trailing disc-number qualifier from album, if
 // present — "Moonglow CD 1" -> "Moonglow", "Wish You Were Here" unchanged.
@@ -415,6 +415,17 @@ func groupMultiDiscFolders(groups map[string][]folderEntry) map[string][]folderE
 			}
 			merged[dir] = true
 		}
+		// The parent directory itself may also hold loose files that sit
+		// directly alongside the CD1/CD2 subfolders (e.g. a stray bonus
+		// track). Fold them into the merged entry and mark the parent as
+		// accounted for, otherwise the loop below — which copies through
+		// every group not already merged — would overwrite out[parent]
+		// with just those loose files, silently dropping every file the
+		// merge above just combined.
+		if loose, ok := groups[parent]; ok {
+			mergedEntries = append(mergedEntries, loose...)
+		}
+		merged[parent] = true
 		out[parent] = mergedEntries
 	}
 	for dir, entries := range groups {

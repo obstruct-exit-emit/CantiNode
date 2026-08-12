@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -126,6 +127,45 @@ func (s *Store) GetRepresentativeReleaseVersion(releaseGroupMBID string) (*Relea
 		return nil, fmt.Errorf("get representative release version: %w", err)
 	}
 	return &v, nil
+}
+
+// ReleaseGroupMBIDsStillReferenced filters releaseGroupMBIDs down to the
+// subset that still have an artist_release_groups row for ANY artist — used
+// before purging shared caches on artist removal (see internal/api's
+// purgeArtistCaches): the same release_group_mbid can legitimately be cached
+// under more than one artist (e.g. a collaboration/various-artists release
+// group each artist's own discography sync pulled in independently;
+// artist_release_groups is only unique per (artist_id, release_group_mbid),
+// not per release_group_mbid alone), so a release group still referenced by
+// a still-monitored artist must not have its cached
+// version/tracklist/cover-art metadata wiped just because a different artist
+// that also referenced it was removed.
+func (s *Store) ReleaseGroupMBIDsStillReferenced(releaseGroupMBIDs []string) (map[string]bool, error) {
+	referenced := make(map[string]bool, len(releaseGroupMBIDs))
+	if len(releaseGroupMBIDs) == 0 {
+		return referenced, nil
+	}
+	placeholders := make([]string, len(releaseGroupMBIDs))
+	args := make([]any, len(releaseGroupMBIDs))
+	for i, mbid := range releaseGroupMBIDs {
+		placeholders[i] = "?"
+		args[i] = mbid
+	}
+	rows, err := s.db.Query(
+		`SELECT DISTINCT release_group_mbid FROM artist_release_groups WHERE release_group_mbid IN (`+strings.Join(placeholders, ",")+`)`,
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("check release group references: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var mbid string
+		if err := rows.Scan(&mbid); err != nil {
+			return nil, fmt.Errorf("scan release group reference: %w", err)
+		}
+		referenced[mbid] = true
+	}
+	return referenced, rows.Err()
 }
 
 // DeleteReleaseGroupCache purges every cached version and tracklist for

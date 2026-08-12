@@ -350,8 +350,16 @@ func (s *server) cacheAllVersionTracklists(ctx context.Context, versions []music
 		if ctx.Err() != nil {
 			return
 		}
-		if _, err := s.musicStore.GetCachedTracklist(v.ReleaseMBID); err == nil {
-			continue
+		if cached, err := s.musicStore.GetCachedTracklist(v.ReleaseMBID); err == nil {
+			var probe musicbrainz.ReleaseWithTracklist
+			if jerr := json.Unmarshal([]byte(cached.TracksJSON), &probe); jerr == nil {
+				continue
+			}
+			// Row exists but isn't in the current format (e.g. migrated
+			// from the old flattened tracklist cache) — fall through and
+			// refetch/overwrite it rather than treating its mere presence
+			// as "already warm" forever.
+			slog.Warn("music: cached tracklist is unreadable, refreshing", "release", v.Title)
 		} else if !errors.Is(err, musiclibrary.ErrNotFound) {
 			slog.Warn("music: checking version tracklist cache", "release", v.Title, "error", err)
 			continue
@@ -451,6 +459,8 @@ func (s *server) getReleaseWithTracklist(ctx context.Context, releaseMBID, relea
 		var full musicbrainz.ReleaseWithTracklist
 		if jerr := json.Unmarshal([]byte(cached.TracksJSON), &full); jerr == nil {
 			return &full, nil
+		} else {
+			slog.Warn("music: cached tracklist is unreadable, refetching", "release", releaseMBID, "error", jerr)
 		}
 	} else if !errors.Is(err, musiclibrary.ErrNotFound) {
 		return nil, err
@@ -658,9 +668,33 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 // is logged, not surfaced — the artist itself is already gone by the time
 // this runs, and a leftover cache file is a cosmetic disk-space concern,
 // not a correctness one.
+//
+// Only purges release groups no longer referenced by any remaining artist
+// (DeleteArtist has already cascaded this artist's own artist_release_groups
+// rows away by the time this runs, so anything still turning up belongs to
+// someone else) — a release group can legitimately be cached under more than
+// one artist, and wiping a still-monitored artist's cached version list,
+// tracklist, and cover art just because a different artist that also
+// referenced it was removed would be a silent data-loss bug.
 func (s *server) purgeArtistCaches(artist musiclibrary.Artist, groups []musiclibrary.ReleaseGroupCache) {
+	var candidateMBIDs []string
+	for _, g := range groups {
+		candidateMBIDs = append(candidateMBIDs, g.ReleaseGroupMBID)
+	}
+	stillReferenced, err := s.musicStore.ReleaseGroupMBIDsStillReferenced(candidateMBIDs)
+	if err != nil {
+		// Can't tell what's safe to purge — err on the side of leaving the
+		// cache alone (a cosmetic leftover) rather than risking a wipe of
+		// data a still-monitored artist depends on.
+		slog.Warn("music: checking shared release groups before purge, skipping purge", "artist", artist.Name, "error", err)
+		return
+	}
+
 	var releaseMBIDs, releaseGroupMBIDs []string
 	for _, g := range groups {
+		if stillReferenced[g.ReleaseGroupMBID] {
+			continue
+		}
 		releaseGroupMBIDs = append(releaseGroupMBIDs, g.ReleaseGroupMBID)
 		versions, err := s.musicStore.ListReleaseGroupVersions(g.ReleaseGroupMBID)
 		if err != nil {
@@ -1172,6 +1206,7 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 
 		result, err := s.musicScanner.ScanAll(ctx)
 		s.cacheNewArtistsMetadata(ctx)
+		s.backfillReleaseGroupVersions(ctx)
 
 		s.musicScanMu.Lock()
 		finished := time.Now().UTC()

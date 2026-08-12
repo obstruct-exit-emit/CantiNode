@@ -55,6 +55,42 @@ func TestGroupMultiDiscFoldersMergesSameAlbumDiscs(t *testing.T) {
 	}
 }
 
+// TestGroupMultiDiscFoldersKeepsLooseFilesInParent is the regression test
+// for a severe bug: a loose file sitting directly in the album's parent
+// directory (e.g. a bonus track dropped outside CD1/CD2) shares its
+// group's own key ("parent") with the merge target — the catch-all loop
+// that copies through every group not already merged used to overwrite
+// out[parent] with just that loose file, silently discarding every track
+// the CD1/CD2 merge had just combined. The loose file must survive
+// alongside the merged disc tracks, not replace them.
+func TestGroupMultiDiscFoldersKeepsLooseFilesInParent(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/The Wall/CD1": {
+			entry(1, "/music/The Wall/CD1/01.flac", "Pink Floyd", "The Wall", 0),
+		},
+		"/music/The Wall/CD2": {
+			entry(2, "/music/The Wall/CD2/01.flac", "Pink Floyd", "The Wall", 0),
+		},
+		"/music/The Wall": {
+			entry(3, "/music/The Wall/Bonus Track.flac", "Pink Floyd", "The Wall", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+
+	merged, ok := got["/music/The Wall"]
+	if !ok {
+		t.Fatalf("got = %+v, want a merged group at the parent", got)
+	}
+	ids := map[int64]bool{}
+	for _, e := range merged {
+		ids[e.tf.ID] = true
+	}
+	if len(merged) != 3 || !ids[1] || !ids[2] || !ids[3] {
+		t.Fatalf("merged entries = %+v (ids %v), want all 3 files (CD1, CD2, and the loose parent file)", merged, ids)
+	}
+}
+
 // TestGroupMultiDiscFoldersToleratesPerDiscAlbumSuffix is the regression
 // test for a real-world case found live in production: a rip that tags
 // each disc's own Album field with a disc-number qualifier ("Moonglow CD
@@ -92,6 +128,7 @@ func TestStripDiscSuffix(t *testing.T) {
 		"Moonglow CD 1":         "Moonglow",
 		"Moonglow CD 2":         "Moonglow",
 		"Moonglow (Disc 1)":     "Moonglow",
+		"Moonglow [Disc 2]":     "Moonglow",
 		"Moonglow - CD2":        "Moonglow",
 		"Wish You Were Here":    "Wish You Were Here",
 		"The Wall":              "The Wall",

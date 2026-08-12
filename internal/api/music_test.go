@@ -96,6 +96,68 @@ func TestRemoveMusicArtistPurgesReleaseGroupCache(t *testing.T) {
 	}
 }
 
+// TestRemoveMusicArtistKeepsSharedReleaseGroupCache is the regression test
+// for a real bug: a release group can legitimately be cached under more
+// than one artist's own discography (a collaboration/split release both
+// artists' own MusicBrainz pages list) — artist_release_groups is unique
+// per (artist_id, release_group_mbid), not per release_group_mbid alone.
+// Removing one artist that references a shared release group must not wipe
+// its cached version/tracklist metadata out from under a different,
+// still-present artist that references the very same release group.
+func TestRemoveMusicArtistKeepsSharedReleaseGroupCache(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+
+	artistA, err := musicStore.GetOrCreateArtist("artist-a-mbid", "Artist A", "Artist A")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist A: %v", err)
+	}
+	artistB, err := musicStore.GetOrCreateArtist("artist-b-mbid", "Artist B", "Artist B")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist B: %v", err)
+	}
+	// Both artists' own discography sync pulled in the same shared release
+	// group (a split/collaboration release) — this is the scenario that
+	// distinguishes "no one references it anymore" from "the artist being
+	// removed happened to reference it."
+	for _, artistID := range []int64{artistA.ID, artistB.ID} {
+		if err := musicStore.ReplaceArtistReleaseGroups(artistID, []musiclibrary.ReleaseGroupCache{
+			{ReleaseGroupMBID: "rg-shared", Title: "Split Release"},
+		}); err != nil {
+			t.Fatalf("ReplaceArtistReleaseGroups: %v", err)
+		}
+	}
+	if err := musicStore.ReplaceReleaseGroupVersions("rg-shared", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-shared", ReleaseMBID: "rel-shared", Title: "Split Release", IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+	if err := musicStore.SetCachedTracklist("rel-shared", "rg-shared", `[]`); err != nil {
+		t.Fatalf("SetCachedTracklist: %v", err)
+	}
+
+	// Remove artist A only — artist B still references rg-shared.
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/artist/%d", artistA.ID), nil, nil), http.StatusOK)
+
+	if versions, err := musicStore.ListReleaseGroupVersions("rg-shared"); err != nil || len(versions) != 1 {
+		t.Errorf("versions after removing artist A = %+v, err %v, want still 1 (artist B still references it)", versions, err)
+	}
+	if _, err := musicStore.GetCachedTracklist("rel-shared"); err != nil {
+		t.Errorf("tracklist after removing artist A: err = %v, want still cached (artist B still references it)", err)
+	}
+
+	// Now remove artist B too — nobody references rg-shared anymore, so it
+	// should finally be purged.
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/artist/%d", artistB.ID), nil, nil), http.StatusOK)
+
+	if versions, err := musicStore.ListReleaseGroupVersions("rg-shared"); err != nil || len(versions) != 0 {
+		t.Errorf("versions after removing both artists = %+v, err %v, want empty", versions, err)
+	}
+	if _, err := musicStore.GetCachedTracklist("rel-shared"); !errors.Is(err, musiclibrary.ErrNotFound) {
+		t.Errorf("tracklist after removing both artists: err = %v, want ErrNotFound", err)
+	}
+}
+
 // TestRemoveMusicAlbumKeepsReleaseGroupCache locks in the flip side: an
 // album removal must NOT purge the artist's cached release-group metadata
 // — the artist (and the rest of its discography) is still in the library,

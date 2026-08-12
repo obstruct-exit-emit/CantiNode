@@ -57,7 +57,7 @@ function diceSimilarity(a: string, b: string): number {
 // strings for what's genuinely one album AND makes the subsequent
 // fuzzy-match against real album titles score too low to clear the
 // confidence bar. Stripped before either happens.
-const discSuffixPattern = /[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+\)?\s*$/i;
+const discSuffixPattern = /[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[)\]]?\s*$/i;
 
 function stripDiscSuffix(album: string): string {
   return album.replace(discSuffixPattern, "").trim();

@@ -177,6 +177,74 @@ func TestDeleteReleaseGroupCachePurgesVersionsAndTracklist(t *testing.T) {
 	}
 }
 
+// TestReleaseGroupMBIDsStillReferenced confirms it correctly distinguishes
+// a release group no artist references anymore from one another artist
+// still does — the check internal/api's purgeArtistCaches relies on to
+// avoid wiping a still-needed artist's cached metadata when a different
+// artist sharing the same release group is removed.
+func TestReleaseGroupMBIDsStillReferenced(t *testing.T) {
+	s := newTestStore(t)
+
+	artistA, err := s.GetOrCreateArtist("artist-a", "Artist A", "Artist A")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist A: %v", err)
+	}
+	artistB, err := s.GetOrCreateArtist("artist-b", "Artist B", "Artist B")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist B: %v", err)
+	}
+	if err := s.ReplaceArtistReleaseGroups(artistA.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-shared", Title: "Split Release"},
+		{ReleaseGroupMBID: "rg-a-only", Title: "Artist A Solo"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups A: %v", err)
+	}
+	if err := s.ReplaceArtistReleaseGroups(artistB.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-shared", Title: "Split Release"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups B: %v", err)
+	}
+
+	got, err := s.ReleaseGroupMBIDsStillReferenced([]string{"rg-shared", "rg-a-only", "rg-unreferenced"})
+	if err != nil {
+		t.Fatalf("ReleaseGroupMBIDsStillReferenced: %v", err)
+	}
+	if !got["rg-shared"] {
+		t.Error("rg-shared should be referenced (both artists)")
+	}
+	if !got["rg-a-only"] {
+		t.Error("rg-a-only should be referenced (artist A)")
+	}
+	if got["rg-unreferenced"] {
+		t.Error("rg-unreferenced should not be referenced by anyone")
+	}
+
+	// After removing artist A's own rows (simulating DeleteArtist's cascade
+	// for just that artist), rg-shared must still show as referenced
+	// (artist B), but rg-a-only must not (nobody references it anymore).
+	if err := s.ReplaceArtistReleaseGroups(artistA.ID, nil); err != nil {
+		t.Fatalf("clear artist A release groups: %v", err)
+	}
+	got, err = s.ReleaseGroupMBIDsStillReferenced([]string{"rg-shared", "rg-a-only"})
+	if err != nil {
+		t.Fatalf("ReleaseGroupMBIDsStillReferenced after clearing A: %v", err)
+	}
+	if !got["rg-shared"] {
+		t.Error("rg-shared should still be referenced (artist B)")
+	}
+	if got["rg-a-only"] {
+		t.Error("rg-a-only should no longer be referenced (artist A's rows cleared)")
+	}
+}
+
+func TestReleaseGroupMBIDsStillReferencedEmptyInput(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.ReleaseGroupMBIDsStillReferenced(nil)
+	if err != nil || len(got) != 0 {
+		t.Errorf("ReleaseGroupMBIDsStillReferenced(nil) = %v, %v, want empty map, nil", got, err)
+	}
+}
+
 func TestDeleteReleaseGroupCacheEmptyInputIsNoop(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.DeleteReleaseGroupCache(nil); err != nil {
