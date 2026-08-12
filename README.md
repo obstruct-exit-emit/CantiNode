@@ -40,9 +40,10 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 - A built-in **direct fetcher** for plain-HTTP sources — mirror failover, no external program
 
 **🏷️ Tag-matched, organized output**
-- Every scanned file is matched against MusicBrainz — by embedded `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID` tags first (exact), then whole-folder release matching, then fuzzy title search
+- Every scanned file is matched against MusicBrainz — by embedded `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID` tags first (exact), then whole-folder release matching (CD1/CD2/Disc-N subfolders of the same album are detected and merged first), then fuzzy title search; files left unmatched get a dedicated review page with per-file manual search and a confidence-gated auto-match against your own library
+- Match against a specific MusicBrainz release version/edition, not just one fixed default — every known version's metadata and tracklist is cached, so picking among them never calls MusicBrainz again
 - Matched files are organized into a configurable `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}` layout, and can have their tags rewritten to match
-- Artist bio/photo (TheAudioDB) and album art (Cover Art Archive) are cached automatically the first time an artist is added — never re-fetched just from browsing
+- Artist bio/photo (TheAudioDB), genres/tags/rating (MusicBrainz), and album art (Cover Art Archive, including for wanted/missing albums) are cached automatically the first time an artist is added — never re-fetched just from browsing
 
 **🖥️ A modern web UI**
 - A poster-grid artist library with per-artist detail pages — one **Albums** grid (sortable, with Grid/Compact/List views) holding owned and wanted albums together, badged accordingly, plus a **Missing** section grouped by release type (Album/EP/Single/Live/Compilation/…) for the rest of the discography

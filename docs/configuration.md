@@ -24,6 +24,10 @@ music:
   min_match_confidence: 0.75     # fuzzy-search acceptance threshold (0-1);
                                  #   direct tag matches and whole-folder release
                                  #   matches always accept regardless
+  auto_match_confidence: 0.85    # name-similarity threshold (0-1) for the
+                                 #   unmatched-files page's "Auto-match" button
+                                 #   to pre-fill the artist/album dropdowns;
+                                 #   below it, you pick by hand (see Libraries)
   musicbrainz_contact_email: ""  # included in the MusicBrainz User-Agent per
                                  #   their API usage policy; optional but
                                  #   recommended
@@ -102,6 +106,14 @@ and where artist bio/photo lookups come from:
   below is left unmatched for manual review. Has no effect on a direct match
   from a file's own embedded tags or a whole-folder release match, both
   always accepted regardless.
+- **Auto-match dropdown confidence** (default 85%) — a separate, generally
+  stricter threshold for the unmatched-files page's own "Auto-match" button:
+  how sure a name match against your library has to be before it pre-fills
+  the artist/album dropdowns for you (the release-version dropdown is picked
+  by file-count closeness instead, not gated by this). Below the threshold,
+  the dropdown is simply left for you to pick by hand — nothing is proposed
+  or applied either way until you review it; see
+  [Libraries](libraries.md#existing-file-import-unmatched-files).
 
 The same page has a **Clear image cache** button — see
 [Image cache](#image-cache) below.

@@ -34,9 +34,13 @@ add a root folder for it.
   unless you want one (e.g. to search an unmonitored artist, or grab a
   quality upgrade for something you already own).
 - Tag-first matching: a file's own `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID`
-  tags resolve it exactly; otherwise whole-folder release matching, then
-  fuzzy title search, fill the gap. Matched files can be renamed into a
-  configurable layout and have their tags rewritten.
+  tags resolve it exactly; otherwise whole-folder release matching (CD1/CD2/
+  Disc-N subfolders of one album are detected and merged first), then
+  fuzzy title search, fill the gap — with a specific release version/edition
+  pickable instead of one fixed default. Matched files can be renamed into a
+  configurable layout and have their tags rewritten. Anything left unmatched
+  gets a dedicated review page: manual per-file search, or a confidence-gated
+  auto-match against your own library.
 - Poster-grid browsing with artist detail pages — one **Albums** grid holding
   both owned and wanted albums (badged accordingly, with an inline release
   browser to search/grab a wanted one) and a **Missing** section grouped by
@@ -44,9 +48,10 @@ add a root folder for it.
   and a log viewer.
 - Optional login with **admin/member roles**: members get everyday use,
   admins get the server's configuration and accounts.
-- Artist bio/photo and album art are cached automatically the moment an
-  artist is discovered (monitored, or found by a scan) — never fetched
-  again just from browsing.
+- Artist bio/photo, genres/tags/rating, and album art (including for
+  wanted/missing albums, not just owned ones) are cached automatically the
+  moment an artist is discovered (monitored, or found by a scan) — never
+  fetched again just from browsing.
 - Local image cache: provider art is downloaded on add/refresh and served
   from CantiNode, surviving provider link rot.
 

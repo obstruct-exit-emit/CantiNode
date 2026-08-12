@@ -11,6 +11,32 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Release-version selection, fuller metadata caching, and multi-disc-
+  aware auto-matching.** The matching UI can now pick a specific
+  MusicBrainz release (pressing/edition) instead of always matching
+  against one fixed "representative" release — every known version's
+  metadata and full tracklist is cached (`release_group_versions` +
+  per-release `release_tracklist_cache`, replacing the old single-release
+  scheme) the first time an artist's discography syncs, with a backfill
+  sweep on every scan catching artists added before this existed. Artist
+  genres/tags/community rating are now cached from MusicBrainz alongside
+  the existing bio/photo, even though nothing displays them yet. Removing
+  an artist now actually purges its cached version/tracklist metadata and
+  on-disk cover art/photo (previously orphaned forever); removing a single
+  album correctly leaves all of that alone. Cover art now resolves for
+  wanted/missing albums too, not just owned ones. The scanner detects
+  CD1/CD2/Disc-N sibling subfolders of the same album and merges them into
+  one matching group — tolerant of per-disc Album-tag suffixes ("Album CD
+  1" vs "Album CD 2") — while correctly leaving a discography/box-set
+  bundle of genuinely different albums ungrouped; purely a matching-time
+  regrouping, never touches files on disk. The unmatched-files page's
+  auto-match panel gets a version dropdown and an **Auto-match** button
+  that confidently pre-fills artist/album (fuzzy match against the
+  library, threshold tunable via the new **Auto-match dropdown
+  confidence** setting, default 85%) and version (file-count match) — the
+  human still reviews and approves every suggestion before anything
+  commits, same as before. See [Libraries](docs/libraries.md#existing-file-import-unmatched-files)
+  and [Configuration](docs/configuration.md#music-matching).
 - **Automatic wanted-list sweep is back** (`internal/autosearch`): a
   background loop, mirroring `internal/importer`'s own shape, searches and
   grabs every **monitored** artist's still-wanted albums on a timer

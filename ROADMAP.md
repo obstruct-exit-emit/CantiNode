@@ -237,6 +237,22 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    page's "Scan files" now notices and prunes a file — or its whole
    folder — deleted outside the app, which it previously left as a stale,
    undetected row forever.
+6. [x] **Release-version selection, fuller metadata caching, and
+   multi-disc-aware auto-matching** — done overnight 2026-08-11: a specific
+   MusicBrainz release/edition can now be matched against directly instead
+   of one fixed default, every version's metadata and tracklist is cached
+   (with a backfill sweep for artists that predate it), artist genres/tags/
+   rating are cached alongside bio/photo, artist removal now actually
+   purges its cached metadata (previously orphaned forever), wanted/missing
+   albums show cover art too, CD1/CD2/Disc-N folders are detected and
+   merged for matching, and the unmatched-files page's auto-match gets a
+   confidence-gated pre-fill for artist/album/version. Two real bugs found
+   against the live library after deploy and fixed same-night: a migrated
+   placeholder row was mistaken for "fully cached" (blocking the backfill
+   sweep and the version dropdown for every pre-existing artist), and
+   per-disc Album-tag suffixes ("Album CD 1"/"Album CD 2") sank the
+   auto-match album-name score below its confidence threshold. See
+   [CHANGELOG](CHANGELOG.md).
 
 ## Future 💡
 
