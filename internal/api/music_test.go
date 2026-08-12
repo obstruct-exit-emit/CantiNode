@@ -1,10 +1,13 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 )
 
 // TestSuggestTrackFileMatchesRequiresFields covers request validation only
@@ -21,6 +24,81 @@ func TestSuggestTrackFileMatchesRequiresFields(t *testing.T) {
 		map[string]any{"fileIds": []int64{1}}, nil), http.StatusBadRequest)
 	a.want(a.call("POST", "/api/v1/music/trackfile/match-suggest",
 		map[string]any{"releaseGroupMbid": "rg-mbid"}, nil), http.StatusBadRequest)
+}
+
+// TestRemoveMusicArtistPurgesReleaseGroupCache is the regression test for
+// "if an artist is removed, its cached metadata should be deleted since
+// the artist is no longer in the library" — release_group_versions and
+// release_tracklist_cache rows for the removed artist's release groups
+// must actually disappear, not just the artist/albums/tracks rows
+// DeleteArtist's own FK cascade already covers. Doesn't touch MusicBrainz
+// at all (purgeArtistCaches is pure DB + local disk), so this is safe to
+// test at the full HTTP-handler level.
+func TestRemoveMusicArtistPurgesReleaseGroupCache(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	if err := musicStore.ReplaceArtistReleaseGroups(artist.ID, []musiclibrary.ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-1", Title: "Album One"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups: %v", err)
+	}
+	if err := musicStore.ReplaceReleaseGroupVersions("rg-1", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-1", ReleaseMBID: "rel-1", Title: "Album One", IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+	if err := musicStore.SetCachedTracklist("rel-1", "rg-1", `[]`); err != nil {
+		t.Fatalf("SetCachedTracklist: %v", err)
+	}
+
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/artist/%d", artist.ID), nil, nil), http.StatusOK)
+
+	if versions, err := musicStore.ListReleaseGroupVersions("rg-1"); err != nil || len(versions) != 0 {
+		t.Errorf("versions after artist removal = %+v, err %v, want empty", versions, err)
+	}
+	if _, err := musicStore.GetCachedTracklist("rel-1"); !errors.Is(err, musiclibrary.ErrNotFound) {
+		t.Errorf("tracklist after artist removal: err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestRemoveMusicAlbumKeepsReleaseGroupCache locks in the flip side: an
+// album removal must NOT purge the artist's cached release-group metadata
+// — the artist (and the rest of its discography) is still in the library,
+// unlike a full artist removal.
+func TestRemoveMusicAlbumKeepsReleaseGroupCache(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "rel-1", "rg-1", "Album One", "2020", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+	if err := musicStore.ReplaceReleaseGroupVersions("rg-1", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-1", ReleaseMBID: "rel-1", Title: "Album One", IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+	if err := musicStore.SetCachedTracklist("rel-1", "rg-1", `[]`); err != nil {
+		t.Fatalf("SetCachedTracklist: %v", err)
+	}
+
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/album/%d", album.ID), nil, nil), http.StatusOK)
+
+	if versions, err := musicStore.ListReleaseGroupVersions("rg-1"); err != nil || len(versions) != 1 {
+		t.Errorf("versions after album removal = %+v, err %v, want still 1", versions, err)
+	}
+	if _, err := musicStore.GetCachedTracklist("rel-1"); err != nil {
+		t.Errorf("tracklist after album removal: err = %v, want still cached", err)
+	}
 }
 
 // mockTorznabIndexer serves a fixed torznab search response regardless of

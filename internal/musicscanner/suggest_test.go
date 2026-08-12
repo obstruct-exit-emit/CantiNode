@@ -96,6 +96,36 @@ func TestSuggestMatchesNeverDoubleClaimsATrack(t *testing.T) {
 // TestSuggestMatchesOmitsUnslottableFiles confirms a file with nothing
 // usable (no track number, no recognizable title) is simply left out of
 // the result rather than erroring the whole batch.
+// TestListUnmatchedWithGroupsMergesMultiDiscFolders confirms
+// ListUnmatchedWithGroups's groupKey agrees with the automatic scanner's
+// own multi-disc merging — two CD1/CD2 subfolders of the same album share
+// one groupKey (their parent), while an unrelated single-disc album keeps
+// its own.
+func TestListUnmatchedWithGroupsMergesMultiDiscFolders(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	cd1 := seedUnmatchedFile(t, s, rf, "The Wall/CD1/01.flac", `{"Artist":"Pink Floyd","Album":"The Wall"}`)
+	cd2 := seedUnmatchedFile(t, s, rf, "The Wall/CD2/01.flac", `{"Artist":"Pink Floyd","Album":"The Wall"}`)
+	other := seedUnmatchedFile(t, s, rf, "Wish You Were Here/01.flac", `{"Artist":"Pink Floyd","Album":"Wish You Were Here"}`)
+
+	got, err := s.ListUnmatchedWithGroups()
+	if err != nil {
+		t.Fatalf("ListUnmatchedWithGroups: %v", err)
+	}
+	byID := map[int64]UnmatchedFileGroup{}
+	for _, g := range got {
+		byID[g.ID] = g
+	}
+	if len(byID) != 3 {
+		t.Fatalf("got %d files, want 3", len(byID))
+	}
+	if byID[cd1].GroupKey != byID[cd2].GroupKey {
+		t.Errorf("CD1/CD2 group keys = %q/%q, want equal", byID[cd1].GroupKey, byID[cd2].GroupKey)
+	}
+	if byID[other].GroupKey == byID[cd1].GroupKey {
+		t.Errorf("unrelated album shares a group key with The Wall: %q", byID[other].GroupKey)
+	}
+}
+
 func TestSuggestMatchesOmitsUnslottableFiles(t *testing.T) {
 	s, rf := setupOrganizeScanner(t)
 	good := seedUnmatchedFile(t, s, rf, "a.flac", `{"TrackNumber":1}`)

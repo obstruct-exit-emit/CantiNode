@@ -92,11 +92,13 @@ func (c *Client) LookupRecording(ctx context.Context, mbid string) (*Recording, 
 }
 
 // LookupArtist fetches a single artist by MBID, with their full release
-// group list — used by internal/acquisition to seed a newly monitored
-// artist's wanted albums.
+// group list plus genres/tags/rating — used by internal/acquisition to
+// seed a newly monitored artist's wanted albums, and by
+// internal/api.refreshMusicArtistMetadata to cache everything about the
+// artist worth keeping, even fields nothing displays yet.
 func (c *Client) LookupArtist(ctx context.Context, mbid string) (*Artist, error) {
 	body, err := c.get(ctx, "/artist/"+url.PathEscape(mbid), url.Values{
-		"inc": {"release-groups"},
+		"inc": {"release-groups+genres+tags+ratings"},
 		"fmt": {"json"},
 	})
 	if err != nil {
@@ -193,17 +195,24 @@ func (c *Client) SearchReleases(ctx context.Context, artist, release string) ([]
 	return resp.Releases, nil
 }
 
-// BrowseReleaseGroupReleases lists every release belonging to release group
-// releaseGroupMBID — a MusicBrainz "browse" request (filtered by relation,
-// not full-text relevance), used to preview an album's tracklist before
-// CantiNode owns any file of it: the Missing/Wanted sections have a release
-// group from an artist's cached discography, but no scanned file to resolve
-// a specific release from the way folder-level matching does.
+// BrowseReleaseGroupReleases lists every release (version/edition)
+// belonging to release group releaseGroupMBID — a MusicBrainz "browse"
+// request (filtered by relation, not full-text relevance), used both to
+// preview an album's tracklist before CantiNode owns any file of it (the
+// Missing/Wanted sections have a release group from an artist's cached
+// discography, but no scanned file to resolve a specific release from the
+// way folder-level matching does) and to populate a release-version picker
+// (see internal/api's cacheReleaseGroupVersions). inc=media adds each
+// release's disc/format breakdown (ReleaseSearchResult.Media) without the
+// cost of a full per-track fetch — enough to tell editions apart (a
+// single-disc reissue vs. the original 2×CD release) and to score a
+// version against a folder's own file count.
 func (c *Client) BrowseReleaseGroupReleases(ctx context.Context, releaseGroupMBID string) ([]ReleaseSearchResult, error) {
 	body, err := c.get(ctx, "/release/", url.Values{
 		"release-group": {releaseGroupMBID},
+		"inc":           {"media"},
 		"fmt":           {"json"},
-		"limit":         {"25"},
+		"limit":         {"100"},
 	})
 	if err != nil {
 		return nil, err

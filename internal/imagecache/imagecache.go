@@ -114,6 +114,20 @@ func (c *Cache) Prefetch(url string) {
 	}()
 }
 
+// Delete removes url's single cached entry, if any — used when whatever
+// owned that image (an artist's photo) is removed, so a stale file doesn't
+// linger indefinitely (Clear is the only other way anything here gets
+// removed). Not an error if nothing was cached for url to begin with.
+func (c *Cache) Delete(url string) error {
+	if url == "" {
+		return nil
+	}
+	if err := os.Remove(c.path(url)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // Clear removes every cached image, returning how many files were deleted
 // and the bytes freed. The cache rebuilds on demand, so this is always safe.
 func (c *Cache) Clear() (removed int, freed int64, err error) {

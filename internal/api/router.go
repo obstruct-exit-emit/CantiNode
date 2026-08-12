@@ -176,6 +176,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("DELETE /api/v1/music/trackfile/{id}", s.auth(s.handleDeleteTrackFile))
 	mux.HandleFunc("GET /api/v1/music/musicbrainz/search", s.auth(s.handleSearchMusicBrainzRecordings))
 	mux.HandleFunc("GET /api/v1/music/releasegroup/{mbid}/tracks", s.auth(s.handleGetReleaseGroupTracklist))
+	mux.HandleFunc("GET /api/v1/music/releasegroup/{mbid}/versions", s.auth(s.handleListReleaseGroupVersions))
+	mux.HandleFunc("GET /api/v1/music/releasegroup/{mbid}/cover", s.auth(s.handleReleaseGroupCover))
 	mux.HandleFunc("POST /api/v1/music/scan", s.auth(s.handleTriggerMusicScan))
 	mux.HandleFunc("GET /api/v1/music/scan/status", s.auth(s.handleMusicScanStatus))
 	mux.HandleFunc("DELETE /api/v1/music/wanted/{id}", s.auth(s.handleRemoveWantedMusicAlbum))

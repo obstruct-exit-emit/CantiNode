@@ -1,0 +1,206 @@
+package musicscanner
+
+import (
+	"testing"
+
+	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagreader"
+)
+
+// entry builds a folderEntry for a synthetic file at path, tagged with
+// artist/album (both empty means "no consensus signal from this file").
+func entry(id int64, path, artist, album string, discNumber int) folderEntry {
+	return folderEntry{
+		tf:   &musiclibrary.TrackFile{ID: id, Path: path},
+		tags: &tagreader.Tags{Artist: artist, Album: album, DiscNumber: discNumber},
+	}
+}
+
+// TestGroupMultiDiscFoldersMergesSameAlbumDiscs is the core case: two
+// CD1/CD2 subfolders whose files agree on the same Artist+Album collapse
+// into one group under their shared parent, with each file's disc number
+// inferred from its folder name.
+func TestGroupMultiDiscFoldersMergesSameAlbumDiscs(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/The Wall/CD1": {
+			entry(1, "/music/The Wall/CD1/01.flac", "Pink Floyd", "The Wall", 0),
+			entry(2, "/music/The Wall/CD1/02.flac", "Pink Floyd", "The Wall", 0),
+		},
+		"/music/The Wall/CD2": {
+			entry(3, "/music/The Wall/CD2/01.flac", "Pink Floyd", "The Wall", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+
+	if len(got) != 1 {
+		t.Fatalf("groups = %+v, want exactly 1 merged group", got)
+	}
+	merged, ok := got["/music/The Wall"]
+	if !ok {
+		t.Fatalf("got = %+v, want key /music/The Wall", got)
+	}
+	if len(merged) != 3 {
+		t.Fatalf("merged entries = %d, want 3", len(merged))
+	}
+	discByID := map[int64]int{}
+	for _, e := range merged {
+		discByID[e.tf.ID] = e.tags.DiscNumber
+	}
+	if discByID[1] != 1 || discByID[2] != 1 {
+		t.Errorf("CD1 files disc numbers = %+v, want both 1", discByID)
+	}
+	if discByID[3] != 2 {
+		t.Errorf("CD2 file disc number = %d, want 2", discByID[3])
+	}
+}
+
+// TestGroupMultiDiscFoldersToleratesPerDiscAlbumSuffix is the regression
+// test for a real-world case found live in production: a rip that tags
+// each disc's own Album field with a disc-number qualifier ("Moonglow CD
+// 1" / "Moonglow CD 2") rather than an identical Album tag across discs.
+// Exact-match consensus would wrongly treat these as two different albums
+// and never merge them — stripDiscSuffix must normalize both down to
+// "Moonglow" before comparing.
+func TestGroupMultiDiscFoldersToleratesPerDiscAlbumSuffix(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/Avantasia - Moonglow (2CD)/CD1": {
+			entry(1, "/music/Avantasia - Moonglow (2CD)/CD1/01.mp3", "Avantasia", "Moonglow CD 1", 0),
+		},
+		"/music/Avantasia - Moonglow (2CD)/CD2": {
+			entry(2, "/music/Avantasia - Moonglow (2CD)/CD2/11.mp3", "Avantasia", "Moonglow CD 2", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+
+	merged, ok := got["/music/Avantasia - Moonglow (2CD)"]
+	if !ok || len(merged) != 2 {
+		t.Fatalf("got = %+v, want both discs merged under their shared parent", got)
+	}
+	discByID := map[int64]int{}
+	for _, e := range merged {
+		discByID[e.tf.ID] = e.tags.DiscNumber
+	}
+	if discByID[1] != 1 || discByID[2] != 2 {
+		t.Errorf("disc numbers = %+v, want {1:1, 2:2}", discByID)
+	}
+}
+
+func TestStripDiscSuffix(t *testing.T) {
+	cases := map[string]string{
+		"Moonglow CD 1":         "Moonglow",
+		"Moonglow CD 2":         "Moonglow",
+		"Moonglow (Disc 1)":     "Moonglow",
+		"Moonglow - CD2":        "Moonglow",
+		"Wish You Were Here":    "Wish You Were Here",
+		"The Wall":              "The Wall",
+		"CD Player Repair Disc": "CD Player Repair Disc", // no trailing disc-number qualifier
+	}
+	for in, want := range cases {
+		if got := stripDiscSuffix(in); got != want {
+			t.Errorf("stripDiscSuffix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestGroupMultiDiscFoldersKeepsDifferentAlbumsSeparate confirms a bundle
+// of genuinely different albums (a discography/box-set dump, each in its
+// own disc-pattern-named subfolder purely by coincidence) is NOT merged —
+// merging would search MusicBrainz using tags naming two different albums
+// at once.
+func TestGroupMultiDiscFoldersKeepsDifferentAlbumsSeparate(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/Box Set/CD1": {
+			entry(1, "/music/Box Set/CD1/01.flac", "Artist", "Album One", 0),
+		},
+		"/music/Box Set/CD2": {
+			entry(2, "/music/Box Set/CD2/01.flac", "Artist", "Album Two", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+
+	if len(got) != 2 {
+		t.Fatalf("groups = %+v, want 2 separate groups (different albums)", got)
+	}
+	if _, ok := got["/music/Box Set/CD1"]; !ok {
+		t.Errorf("CD1 group missing, got %+v", got)
+	}
+	if _, ok := got["/music/Box Set/CD2"]; !ok {
+		t.Errorf("CD2 group missing, got %+v", got)
+	}
+}
+
+// TestGroupMultiDiscFoldersLeavesNonDiscFoldersAlone confirms an ordinary
+// single-disc album folder (no CD1/CD2 siblings at all) passes through
+// completely unchanged.
+func TestGroupMultiDiscFoldersLeavesNonDiscFoldersAlone(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/Wish You Were Here": {
+			entry(1, "/music/Wish You Were Here/01.flac", "Pink Floyd", "Wish You Were Here", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+
+	if len(got) != 1 || len(got["/music/Wish You Were Here"]) != 1 {
+		t.Fatalf("got = %+v, want the single group unchanged", got)
+	}
+}
+
+// TestGroupMultiDiscFoldersRespectsExistingDiscNumberTag confirms a file
+// that already carries its own DiscNumber tag is never overridden by the
+// folder-name inference — tags always win when present.
+func TestGroupMultiDiscFoldersRespectsExistingDiscNumberTag(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/Album/CD1": {
+			entry(1, "/music/Album/CD1/01.flac", "Artist", "Album", 9), // already tagged disc 9
+		},
+		"/music/Album/CD2": {
+			entry(2, "/music/Album/CD2/01.flac", "Artist", "Album", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+	merged := got["/music/Album"]
+	discByID := map[int64]int{}
+	for _, e := range merged {
+		discByID[e.tf.ID] = e.tags.DiscNumber
+	}
+	if discByID[1] != 9 {
+		t.Errorf("file with existing DiscNumber tag = %d, want unchanged 9", discByID[1])
+	}
+	if discByID[2] != 2 {
+		t.Errorf("file with no DiscNumber tag = %d, want inferred 2", discByID[2])
+	}
+}
+
+// TestGroupMultiDiscFoldersRequiresAtLeastTwoSiblings confirms a single
+// lone "CD1"-named folder (no CD2, CD3, etc. sibling) isn't merged with
+// anything — there's nothing to merge it with, so it passes through as its
+// own group unchanged.
+func TestGroupMultiDiscFoldersRequiresAtLeastTwoSiblings(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/Album/CD1": {
+			entry(1, "/music/Album/CD1/01.flac", "Artist", "Album", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+	if len(got) != 1 || len(got["/music/Album/CD1"]) != 1 {
+		t.Fatalf("got = %+v, want the lone CD1 folder unchanged", got)
+	}
+}
+
+func TestInferDiscNumber(t *testing.T) {
+	cases := map[string]int{
+		"CD1": 1, "CD 2": 2, "Disc1": 1, "Disc 03": 3, "disk2": 2,
+		"D1": 1, "Disco Inferno": 0, "CD": 0, "Album": 0,
+	}
+	for name, want := range cases {
+		if got := inferDiscNumber(name); got != want {
+			t.Errorf("inferDiscNumber(%q) = %d, want %d", name, got, want)
+		}
+	}
+}

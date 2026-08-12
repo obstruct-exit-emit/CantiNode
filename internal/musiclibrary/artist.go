@@ -28,16 +28,28 @@ type Artist struct {
 	Bio               string     `json:"bio"`
 	ImageURL          string     `json:"imageUrl"`
 	MetadataFetchedAt *time.Time `json:"metadataFetchedAt,omitempty"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
+	// Genres/Tags/RatingValue/RatingVotes are cached from MusicBrainz
+	// (inc=genres+tags+ratings) alongside the discography sync — nothing
+	// displays them yet, but they're fetched and stored anyway so a future
+	// feature never needs a fresh MusicBrainz round trip for data already
+	// available. Genres/Tags stored comma-joined, same convention as
+	// ReleaseGroupCache.SecondaryTypes.
+	Genres      []string  `json:"genres"`
+	Tags        []string  `json:"tags"`
+	RatingValue float64   `json:"ratingValue"`
+	RatingVotes int       `json:"ratingVotes"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-const artistSelect = `SELECT id, mbid, name, sort_name, is_monitored, last_synced_at, bio, image_url, metadata_fetched_at, created_at, updated_at FROM artists`
+const artistSelect = `SELECT id, mbid, name, sort_name, is_monitored, last_synced_at, bio, image_url, metadata_fetched_at, genres, tags, rating_value, rating_votes, created_at, updated_at FROM artists`
 
 func scanArtist(row interface{ Scan(...any) error }) (*Artist, error) {
 	var a Artist
 	var lastSynced, metadataFetchedAt sql.NullTime
-	if err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.SortName, &a.IsMonitored, &lastSynced, &a.Bio, &a.ImageURL, &metadataFetchedAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	var genres, tags string
+	if err := row.Scan(&a.ID, &a.MBID, &a.Name, &a.SortName, &a.IsMonitored, &lastSynced, &a.Bio, &a.ImageURL, &metadataFetchedAt,
+		&genres, &tags, &a.RatingValue, &a.RatingVotes, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if lastSynced.Valid {
@@ -46,7 +58,19 @@ func scanArtist(row interface{ Scan(...any) error }) (*Artist, error) {
 	if metadataFetchedAt.Valid {
 		a.MetadataFetchedAt = &metadataFetchedAt.Time
 	}
+	a.Genres = splitCommaList(genres)
+	a.Tags = splitCommaList(tags)
 	return &a, nil
+}
+
+// splitCommaList splits a comma-joined stored value back into a slice,
+// always a non-nil []string{} when empty rather than nil, since this ends
+// up straight in a JSON response (a nil slice marshals to `null`, not `[]`).
+func splitCommaList(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	return strings.Split(s, ",")
 }
 
 // GetOrCreateArtist returns the existing artist for mbid, inserting a
@@ -75,7 +99,7 @@ func (s *Store) GetOrCreateArtist(mbid, name, sortName string) (*Artist, error) 
 	if err != nil {
 		return nil, fmt.Errorf("last insert id: %w", err)
 	}
-	return &Artist{ID: id, MBID: mbid, Name: name, SortName: sortName, CreatedAt: now, UpdatedAt: now}, nil
+	return &Artist{ID: id, MBID: mbid, Name: name, SortName: sortName, Genres: []string{}, Tags: []string{}, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *Store) getArtistByMBID(mbid string) (*Artist, error) {
@@ -108,7 +132,7 @@ func (s *Store) GetArtist(id int64) (*Artist, error) {
 // deliberately doesn't need a third clause to exclude that case.
 func (s *Store) ListArtists() ([]Artist, error) {
 	rows, err := s.db.Query(`
-		SELECT DISTINCT a.id, a.mbid, a.name, a.sort_name, a.is_monitored, a.last_synced_at, a.bio, a.image_url, a.metadata_fetched_at, a.created_at, a.updated_at
+		SELECT DISTINCT a.id, a.mbid, a.name, a.sort_name, a.is_monitored, a.last_synced_at, a.bio, a.image_url, a.metadata_fetched_at, a.genres, a.tags, a.rating_value, a.rating_votes, a.created_at, a.updated_at
 		FROM artists a
 		LEFT JOIN albums al ON al.artist_id = a.id
 		LEFT JOIN tracks t ON t.album_id = al.id
@@ -184,6 +208,21 @@ func (s *Store) SetArtistMetadata(id int64, bio, imageURL string, fetchedAt time
 		bio, imageURL, fetchedAt, time.Now().UTC(), id)
 	if err != nil {
 		return fmt.Errorf("set artist metadata: %w", err)
+	}
+	return nil
+}
+
+// SetArtistMusicBrainzMetadata records id's genres/tags/rating, as fetched
+// from MusicBrainz alongside its discography sync (see
+// internal/api.refreshMusicArtistMetadata) — a separate setter from
+// SetArtistMetadata since that one's bio/image come from a different
+// provider (TheAudioDB) fetched at a different point in the same flow.
+func (s *Store) SetArtistMusicBrainzMetadata(id int64, genres, tags []string, ratingValue float64, ratingVotes int) error {
+	_, err := s.db.Exec(
+		`UPDATE artists SET genres = ?, tags = ?, rating_value = ?, rating_votes = ?, updated_at = ? WHERE id = ?`,
+		strings.Join(genres, ","), strings.Join(tags, ","), ratingValue, ratingVotes, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("set artist musicbrainz metadata: %w", err)
 	}
 	return nil
 }

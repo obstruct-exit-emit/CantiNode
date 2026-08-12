@@ -79,6 +79,28 @@ func (c *Client) GetFrontCover(ctx context.Context, releaseMBID string) (path st
 	return c.fetchAndCache(ctx, releaseMBID)
 }
 
+// DeleteCached removes releaseMBID's cached front cover (any of the known
+// extensions) and its no-cover sentinel, if either exists — used when an
+// artist is removed so its albums' cover art doesn't outlive the artist
+// (see internal/api's handleRemoveMusicArtist). Not an error if nothing
+// was cached for this release to begin with.
+func (c *Client) DeleteCached(releaseMBID string) error {
+	if releaseMBID == "" {
+		return nil
+	}
+	for ext := range extToContentType {
+		p := filepath.Join(c.cacheDir, releaseMBID+ext)
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete cached cover art %s: %w", p, err)
+		}
+	}
+	sentinel := filepath.Join(c.cacheDir, releaseMBID+noCoverSentinelExt)
+	if err := os.Remove(sentinel); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete no-cover sentinel %s: %w", sentinel, err)
+	}
+	return nil
+}
+
 func (c *Client) checkCache(releaseMBID string) (path, contentType string, ok bool) {
 	for ext, ct := range extToContentType {
 		p := filepath.Join(c.cacheDir, releaseMBID+ext)

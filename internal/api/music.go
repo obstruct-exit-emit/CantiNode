@@ -173,9 +173,10 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 }
 
 // refreshMusicArtistMetadata caches mbid's entire release-group list (any
-// primary/secondary type — the Missing section lets the user pick) and
-// best-effort fetches bio/image from TheAudioDB. A TheAudioDB failure is
-// never fatal — the MusicBrainz side alone is enough to succeed.
+// primary/secondary type — the Missing section lets the user pick), its
+// genres/tags/rating, and best-effort fetches bio/image from TheAudioDB. A
+// TheAudioDB failure is never fatal — the MusicBrainz side alone is enough
+// to succeed.
 func (s *server) refreshMusicArtistMetadata(ctx context.Context, artistID int64, mbid string) error {
 	mbArtist, err := s.mb.LookupArtist(ctx, mbid)
 	if err != nil {
@@ -199,17 +200,32 @@ func (s *server) refreshMusicArtistMetadata(ctx context.Context, artistID int64,
 		return err
 	}
 
-	// Eagerly cache every release group's tracklist, in the background — the
-	// point is that browsing Missing/Wanted afterward never calls
-	// MusicBrainz at all, only this (monitor, or an explicit "Refresh
-	// metadata") does. Backgrounded because each tracklist costs 2
-	// MusicBrainz requests at its ~1/sec rate limit, so a prolific artist's
-	// full discography can take minutes — far too long to hold this
-	// request (or the scan that may have triggered it, via
+	genres := make([]string, 0, len(mbArtist.Genres))
+	for _, g := range mbArtist.Genres {
+		genres = append(genres, g.Name)
+	}
+	tags := make([]string, 0, len(mbArtist.Tags))
+	for _, t := range mbArtist.Tags {
+		tags = append(tags, t.Name)
+	}
+	if err := s.musicStore.SetArtistMusicBrainzMetadata(artistID, genres, tags, mbArtist.Rating.Value, mbArtist.Rating.VotesCount); err != nil {
+		return err
+	}
+
+	// Eagerly cache every release group's known versions AND every one of
+	// those versions' own full tracklist, in the background — the point is
+	// that browsing Missing/Wanted, or picking a specific release version
+	// in the matching UI, afterward never calls MusicBrainz at all; only
+	// this (monitor, an explicit "Refresh metadata", or the backfill sweep
+	// for an artist added before this existed) does. Backgrounded because
+	// a release group can have many versions and each tracklist costs a
+	// further MusicBrainz request at its ~1/sec rate limit, so a prolific
+	// artist's full discography can take minutes to hours — far too long to
+	// hold this request (or the scan that may have triggered it, via
 	// cacheNewArtistsMetadata) open for. Detached from ctx (which dies the
 	// moment this handler returns) the same way the music scan's own
 	// background goroutine is.
-	go s.cacheReleaseGroupTracklists(context.Background(), groups)
+	go s.cacheDiscographyVersions(context.Background(), groups)
 
 	meta, err := s.audiodb.LookupArtistByMBID(ctx, mbid)
 	if err != nil {
@@ -285,41 +301,207 @@ func pickRepresentativeRelease(releases []musicbrainz.ReleaseSearchResult) *musi
 	return best
 }
 
-// resolveRepresentativeRelease browses releaseGroupMBID's releases and
-// fetches the full tracklist of whichever one pickRepresentativeRelease
-// picks. Shared by fetchAndCacheTracklist (the Missing/Wanted tracklist
-// preview) and handleSuggestTrackFileMatches (the unmatched-files page's
-// auto-match), both of which need the same "which release actually
-// represents this release group" resolution before doing their own
-// separate thing with its tracklist.
-func (s *server) resolveRepresentativeRelease(ctx context.Context, releaseGroupMBID string) (*musicbrainz.ReleaseWithTracklist, error) {
+// cacheReleaseGroupVersions browses every known release (version/edition)
+// of releaseGroupMBID and replaces its cached version list — the metadata
+// a version picker needs (title/date/country/status/track count/media
+// summary), without yet fetching any of their full tracklists (see
+// cacheAllVersionTracklists for that). Shared by resolveRepresentativeRelease
+// (an on-demand cache-miss fallback), the eager discography sweep, and the
+// backfill sweep for an artist added before this feature existed.
+func (s *server) cacheReleaseGroupVersions(ctx context.Context, releaseGroupMBID string) ([]musiclibrary.ReleaseGroupVersion, error) {
 	releases, err := s.mb.BrowseReleaseGroupReleases(ctx, releaseGroupMBID)
 	if err != nil {
 		return nil, err
 	}
-	best := pickRepresentativeRelease(releases)
-	if best == nil {
+	if len(releases) == 0 {
 		return nil, fmt.Errorf("no releases found for this release group")
 	}
-	return s.mb.LookupReleaseWithTracklist(ctx, best.ID)
+	best := pickRepresentativeRelease(releases)
+	versions := make([]musiclibrary.ReleaseGroupVersion, 0, len(releases))
+	for _, r := range releases {
+		versions = append(versions, musiclibrary.ReleaseGroupVersion{
+			ReleaseGroupMBID: releaseGroupMBID,
+			ReleaseMBID:      r.ID,
+			Title:            r.Title,
+			ReleaseDate:      r.Date,
+			Country:          r.Country,
+			Status:           r.Status,
+			Disambiguation:   r.Disambiguation,
+			TrackCount:       r.TotalTrackCount(),
+			MediaSummary:     r.MediaSummary(),
+			IsRepresentative: best != nil && r.ID == best.ID,
+		})
+	}
+	if err := s.musicStore.ReplaceReleaseGroupVersions(releaseGroupMBID, versions); err != nil {
+		return nil, err
+	}
+	return versions, nil
 }
 
-// fetchAndCacheTracklist previews releaseGroupMBID's tracklist straight
-// from MusicBrainz — used both by handleGetReleaseGroupTracklist's
-// (unlikely) cache-miss fallback and by cacheReleaseGroupTracklists' eager
-// sweep. There's no scanned file to resolve a specific release from (the
-// way folder-level matching does), so it browses every release under the
-// release group and picks one representative release to show (see
-// pickRepresentativeRelease) rather than a track-file-backed listing.
-// Always writes through to musicStore's cache on success — a tracklist
-// essentially never changes once released, so it's cached forever, not on
-// any TTL.
+// cacheAllVersionTracklists eagerly fetches and caches every one of
+// versions' own full tracklist not already cached — every known edition of
+// an album, not just the representative one, so the matching UI's version
+// picker never needs to call MusicBrainz again once this finishes. Skips
+// anything already cached (a tracklist never changes once released);
+// best-effort per version, so one failure is logged and skipped rather
+// than aborting the rest.
+func (s *server) cacheAllVersionTracklists(ctx context.Context, versions []musiclibrary.ReleaseGroupVersion) {
+	for _, v := range versions {
+		if ctx.Err() != nil {
+			return
+		}
+		if _, err := s.musicStore.GetCachedTracklist(v.ReleaseMBID); err == nil {
+			continue
+		} else if !errors.Is(err, musiclibrary.ErrNotFound) {
+			slog.Warn("music: checking version tracklist cache", "release", v.Title, "error", err)
+			continue
+		}
+		full, err := s.mb.LookupReleaseWithTracklist(ctx, v.ReleaseMBID)
+		if err != nil {
+			slog.Warn("music: fetching version tracklist", "release", v.Title, "error", err)
+			continue
+		}
+		if err := s.storeTracklist(v.ReleaseGroupMBID, full); err != nil {
+			slog.Warn("music: caching version tracklist", "release", v.Title, "error", err)
+		}
+	}
+}
+
+// cacheDiscographyVersions runs cacheReleaseGroupVersions then
+// cacheAllVersionTracklists for every one of groups — the full eager sweep
+// run in the background after an artist's discography is (re)synced (see
+// refreshMusicArtistMetadata) or during the backfill sweep for an artist
+// that predates this feature (see backfillReleaseGroupVersions).
+// Best-effort per release group, so one failure is logged and skipped
+// rather than aborting the rest of the sweep.
+func (s *server) cacheDiscographyVersions(ctx context.Context, groups []musiclibrary.ReleaseGroupCache) {
+	for _, g := range groups {
+		if ctx.Err() != nil {
+			return
+		}
+		versions, err := s.cacheReleaseGroupVersions(ctx, g.ReleaseGroupMBID)
+		if err != nil {
+			slog.Warn("music: caching release group versions", "releaseGroup", g.Title, "error", err)
+			continue
+		}
+		s.cacheAllVersionTracklists(ctx, versions)
+	}
+}
+
+// backfillReleaseGroupVersions catches artists that predate release-version
+// caching — added (or last refreshed) before this feature existed, so
+// their discography was synced under the old single-tracklist scheme and
+// has zero release_group_versions rows for any of their release groups.
+// Runs alongside cacheNewArtistsMetadata on every scan; naturally
+// idempotent (cacheDiscographyVersions skips whatever's already cached),
+// so an interrupted sweep just picks up where it left off on the next
+// scan. Best-effort per artist.
+func (s *server) backfillReleaseGroupVersions(ctx context.Context) {
+	artists, err := s.musicStore.ListArtists()
+	if err != nil {
+		slog.Warn("music: listing artists for version backfill", "error", err)
+		return
+	}
+	for _, a := range artists {
+		if ctx.Err() != nil {
+			return
+		}
+		groups, err := s.musicStore.ListArtistReleaseGroups(a.ID)
+		if err != nil {
+			slog.Warn("music: listing release groups for version backfill", "artist", a.Name, "error", err)
+			continue
+		}
+		var pending []musiclibrary.ReleaseGroupCache
+		for _, g := range groups {
+			has, err := s.musicStore.HasReleaseGroupVersions(g.ReleaseGroupMBID)
+			if err != nil {
+				slog.Warn("music: checking version cache", "releaseGroup", g.Title, "error", err)
+				continue
+			}
+			if !has {
+				pending = append(pending, g)
+			}
+		}
+		if len(pending) > 0 {
+			s.cacheDiscographyVersions(ctx, pending)
+		}
+	}
+}
+
+// storeTracklist marshals full and writes it through to musicStore's
+// per-release tracklist cache — the whole musicbrainz.ReleaseWithTracklist
+// (not a hand-picked projection), so a cache hit can be decoded straight
+// back into the same type musicscanner.SuggestMatches and the tracklist
+// preview flattener both consume.
+func (s *server) storeTracklist(releaseGroupMBID string, full *musicbrainz.ReleaseWithTracklist) error {
+	b, err := json.Marshal(full)
+	if err != nil {
+		return fmt.Errorf("marshal tracklist: %w", err)
+	}
+	return s.musicStore.SetCachedTracklist(full.ID, releaseGroupMBID, string(b))
+}
+
+// getReleaseWithTracklist returns releaseMBID's full tracklist, from cache
+// if present, otherwise fetching (and caching) it live from MusicBrainz —
+// the lazy-fallback path for a version whose tracklist wasn't eagerly
+// warmed yet (predates this feature, or the eager sweep hasn't reached it
+// yet).
+func (s *server) getReleaseWithTracklist(ctx context.Context, releaseMBID, releaseGroupMBID string) (*musicbrainz.ReleaseWithTracklist, error) {
+	if cached, err := s.musicStore.GetCachedTracklist(releaseMBID); err == nil {
+		var full musicbrainz.ReleaseWithTracklist
+		if jerr := json.Unmarshal([]byte(cached.TracksJSON), &full); jerr == nil {
+			return &full, nil
+		}
+	} else if !errors.Is(err, musiclibrary.ErrNotFound) {
+		return nil, err
+	}
+	full, err := s.mb.LookupReleaseWithTracklist(ctx, releaseMBID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.storeTracklist(releaseGroupMBID, full); err != nil {
+		slog.Warn("music: caching tracklist", "release", releaseMBID, "error", err)
+	}
+	return full, nil
+}
+
+// resolveRepresentativeRelease returns the full tracklist of
+// releaseGroupMBID's representative release (see pickRepresentativeRelease)
+// — from the cached version list/tracklist when available (the normal
+// case: an artist's discography sync already warmed both), falling back to
+// a live browse+fetch (and caching the result) for a release group nothing
+// has cached yet. Shared by fetchAndCacheTracklist (the Missing/Wanted
+// tracklist preview) and handleSuggestTrackFileMatches when the caller
+// hasn't picked a specific version.
+func (s *server) resolveRepresentativeRelease(ctx context.Context, releaseGroupMBID string) (*musicbrainz.ReleaseWithTracklist, error) {
+	v, err := s.musicStore.GetRepresentativeReleaseVersion(releaseGroupMBID)
+	if errors.Is(err, musiclibrary.ErrNotFound) {
+		if _, cerr := s.cacheReleaseGroupVersions(ctx, releaseGroupMBID); cerr != nil {
+			return nil, cerr
+		}
+		v, err = s.musicStore.GetRepresentativeReleaseVersion(releaseGroupMBID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.getReleaseWithTracklist(ctx, v.ReleaseMBID, releaseGroupMBID)
+}
+
+// fetchAndCacheTracklist previews releaseGroupMBID's tracklist — the
+// Missing/Wanted sections' "see the tracks" action. Flattens whichever
+// full release resolveRepresentativeRelease resolves (cached, in the
+// normal case) into the UI's own lightweight per-track DTO.
 func (s *server) fetchAndCacheTracklist(ctx context.Context, releaseGroupMBID string) (releaseGroupTracklist, error) {
 	full, err := s.resolveRepresentativeRelease(ctx, releaseGroupMBID)
 	if err != nil {
 		return releaseGroupTracklist{}, err
 	}
+	return flattenForPreview(full), nil
+}
 
+// flattenForPreview reshapes a full MusicBrainz release into the
+// tracklist-preview response DTO.
+func flattenForPreview(full *musicbrainz.ReleaseWithTracklist) releaseGroupTracklist {
 	out := releaseGroupTracklist{ReleaseMBID: full.ID, ReleaseTitle: full.Title, Tracks: []releaseGroupTrack{}}
 	for _, medium := range full.Media {
 		for _, t := range medium.Tracks {
@@ -332,52 +514,16 @@ func (s *server) fetchAndCacheTracklist(ctx context.Context, releaseGroupMBID st
 			})
 		}
 	}
-
-	if tracksJSON, err := json.Marshal(out.Tracks); err == nil {
-		if err := s.musicStore.SetCachedTracklist(releaseGroupMBID, out.ReleaseMBID, out.ReleaseTitle, string(tracksJSON)); err != nil {
-			slog.Warn("caching release group tracklist", "releaseGroupMbid", releaseGroupMBID, "error", err)
-		}
-	}
-	return out, nil
-}
-
-// cacheReleaseGroupTracklists eagerly fetches and caches every one of
-// groups' tracklists not already cached — run in the background after an
-// artist's discography is (re)synced (see refreshMusicArtistMetadata), so
-// that afterward, browsing/expanding any of its Missing or Wanted albums
-// is served entirely from musicStore's cache: MusicBrainz is only ever
-// called here, by monitoring or an explicit "Refresh metadata", never by
-// merely looking at the page. The same cache also backs an album once it's
-// grabbed and sits in the Wanted section, and would still answer a
-// tracklist request for it if ever asked again after it's owned — nothing
-// keys this cache on status, only on the release group's MBID, so it
-// simply follows the album across Missing/Wanted/owned unchanged. Skips
-// (rather than re-fetches) anything already cached, since a tracklist
-// never changes once released; best-effort per release group, so one
-// failure is logged and skipped rather than aborting the rest of the sweep.
-func (s *server) cacheReleaseGroupTracklists(ctx context.Context, groups []musiclibrary.ReleaseGroupCache) {
-	for _, g := range groups {
-		if ctx.Err() != nil {
-			return
-		}
-		if _, err := s.musicStore.GetCachedTracklist(g.ReleaseGroupMBID); err == nil {
-			continue
-		} else if !errors.Is(err, musiclibrary.ErrNotFound) {
-			slog.Warn("music: checking tracklist cache", "releaseGroup", g.Title, "error", err)
-			continue
-		}
-		if _, err := s.fetchAndCacheTracklist(ctx, g.ReleaseGroupMBID); err != nil {
-			slog.Warn("music: caching tracklist", "releaseGroup", g.Title, "error", err)
-		}
-	}
+	return out
 }
 
 // handleGetReleaseGroupTracklist serves a release group's tracklist
 // preview — the Missing/Wanted sections' "see the tracks" action. In the
-// normal case this is a pure cache read (see cacheReleaseGroupTracklists):
-// by the time an album is visible in Missing/Wanted at all, its artist's
-// discography sync has already eagerly cached every release group's
-// tracklist in the background. The live MusicBrainz fetch here only runs
+// normal case this is served entirely from the cache resolveRepresentativeRelease
+// reads (see cacheDiscographyVersions): by the time an album is visible in
+// Missing/Wanted at all, its artist's discography sync has already eagerly
+// cached every release group's versions and tracklists in the background.
+// The live MusicBrainz fetch inside resolveRepresentativeRelease only runs
 // as a fallback — e.g. a release group added to MusicBrainz's catalog
 // after this artist's last sync — so it's never the expected path.
 func (s *server) handleGetReleaseGroupTracklist(w http.ResponseWriter, r *http.Request) {
@@ -386,20 +532,6 @@ func (s *server) handleGetReleaseGroupTracklist(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "invalid release group mbid")
 		return
 	}
-
-	if cached, err := s.musicStore.GetCachedTracklist(mbid); err == nil {
-		var tracks []releaseGroupTrack
-		if err := json.Unmarshal([]byte(cached.TracksJSON), &tracks); err == nil {
-			writeJSON(w, http.StatusOK, releaseGroupTracklist{
-				ReleaseMBID: cached.ReleaseMBID, ReleaseTitle: cached.ReleaseTitle, Tracks: tracks,
-			})
-			return
-		}
-	} else if !errors.Is(err, musiclibrary.ErrNotFound) {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
 	ctx, cancel := s.metadataCtx(r)
 	defer cancel()
 	out, err := s.fetchAndCacheTracklist(ctx, mbid)
@@ -410,9 +542,43 @@ func (s *server) handleGetReleaseGroupTracklist(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handleListReleaseGroupVersions serves every cached version/edition of a
+// release group — the matching UI's version picker. Falls back to a live
+// browse+cache (like resolveRepresentativeRelease) if nothing's cached yet
+// for this release group at all.
+func (s *server) handleListReleaseGroupVersions(w http.ResponseWriter, r *http.Request) {
+	mbid := r.PathValue("mbid")
+	if mbid == "" {
+		writeError(w, http.StatusBadRequest, "invalid release group mbid")
+		return
+	}
+	versions, err := s.musicStore.ListReleaseGroupVersions(mbid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(versions) == 0 {
+		ctx, cancel := s.metadataCtx(r)
+		defer cancel()
+		versions, err = s.cacheReleaseGroupVersions(ctx, mbid)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, versions)
+}
+
 // handleRemoveMusicArtist detaches (unlinks, per DeleteArtist's own FK
 // warning) every track file the artist owns before deleting the row —
-// optionally also deleting those files from disk.
+// optionally also deleting those files from disk. Also purges every piece
+// of cached metadata this artist's release groups pulled in
+// (release_group_versions, release_tracklist_cache, on-disk cover art, the
+// artist's own cached photo) — none of that cascades away with the artist
+// row itself (see purgeArtistCaches), so an artist removed from the
+// library shouldn't leave its metadata behind; contrast handleRemoveMusicAlbum,
+// which deliberately leaves all of this alone since the artist (and the
+// rest of its cached discography) is still in the library.
 func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -420,6 +586,19 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	deleteFiles := wantsFileDeletion(r)
+
+	// Snapshot everything purgeArtistCaches needs before DeleteArtist
+	// cascades artist_release_groups away.
+	artist, aerr := s.musicStore.GetArtist(id)
+	if aerr != nil {
+		writeMusicStoreError(w, aerr)
+		return
+	}
+	groups, gerr := s.musicStore.ListArtistReleaseGroups(id)
+	if gerr != nil {
+		writeError(w, http.StatusInternalServerError, gerr.Error())
+		return
+	}
 
 	// Cancel any grab still in flight for one of this artist's wanted
 	// albums before DeleteArtist cascades those rows away — otherwise a
@@ -449,7 +628,45 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 		writeMusicStoreError(w, err)
 		return
 	}
+	s.purgeArtistCaches(*artist, groups)
 	s.writeDeleteResult(w, deleteFiles, paths)
+}
+
+// purgeArtistCaches removes every piece of metadata cached on behalf of an
+// artist that's just been deleted — release_group_versions/
+// release_tracklist_cache rows (keyed globally by release-group/release
+// MBID, no FK to artists, so DeleteArtist's own cascade never touches
+// them), the on-disk cover art cached for each of those releases, and the
+// artist's own cached photo. Best-effort throughout: a cache-purge failure
+// is logged, not surfaced — the artist itself is already gone by the time
+// this runs, and a leftover cache file is a cosmetic disk-space concern,
+// not a correctness one.
+func (s *server) purgeArtistCaches(artist musiclibrary.Artist, groups []musiclibrary.ReleaseGroupCache) {
+	var releaseMBIDs, releaseGroupMBIDs []string
+	for _, g := range groups {
+		releaseGroupMBIDs = append(releaseGroupMBIDs, g.ReleaseGroupMBID)
+		versions, err := s.musicStore.ListReleaseGroupVersions(g.ReleaseGroupMBID)
+		if err != nil {
+			slog.Warn("music: listing release group versions before purge", "releaseGroup", g.Title, "error", err)
+			continue
+		}
+		for _, v := range versions {
+			releaseMBIDs = append(releaseMBIDs, v.ReleaseMBID)
+		}
+	}
+	if err := s.musicStore.DeleteReleaseGroupCache(releaseGroupMBIDs); err != nil {
+		slog.Warn("music: purging release group cache after artist removal", "artist", artist.Name, "error", err)
+	}
+	for _, rmbid := range releaseMBIDs {
+		if err := s.coverart.DeleteCached(rmbid); err != nil {
+			slog.Warn("music: purging cover art after artist removal", "release", rmbid, "error", err)
+		}
+	}
+	if artist.ImageURL != "" {
+		if err := s.images.Delete(artist.ImageURL); err != nil {
+			slog.Warn("music: purging artist image after removal", "artist", artist.Name, "error", err)
+		}
+	}
 }
 
 // handleRemoveMusicAlbum is handleRemoveMusicArtist's single-album
@@ -632,6 +849,47 @@ func (s *server) handleMusicAlbumCover(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleReleaseGroupCover serves a release group's front cover art via its
+// cached representative release — the Missing/Wanted grid's counterpart to
+// handleMusicAlbumCover, for an album with no owned files (and so no
+// albums row/specific release mbid of its own) yet. Falls back to a live
+// browse+cache the same way resolveRepresentativeRelease does when nothing
+// is cached for this release group yet.
+func (s *server) handleReleaseGroupCover(w http.ResponseWriter, r *http.Request) {
+	mbid := r.PathValue("mbid")
+	if mbid == "" {
+		writeError(w, http.StatusBadRequest, "invalid release group mbid")
+		return
+	}
+	v, err := s.musicStore.GetRepresentativeReleaseVersion(mbid)
+	if errors.Is(err, musiclibrary.ErrNotFound) {
+		ctx, cancel := s.metadataCtx(r)
+		defer cancel()
+		if _, cerr := s.cacheReleaseGroupVersions(ctx, mbid); cerr != nil {
+			writeError(w, http.StatusBadGateway, cerr.Error())
+			return
+		}
+		v, err = s.musicStore.GetRepresentativeReleaseVersion(mbid)
+	}
+	if err != nil {
+		w.WriteHeader(musicNotFoundStatus(err))
+		return
+	}
+
+	path, contentType, err := s.coverart.GetFrontCover(r.Context(), v.ReleaseMBID)
+	if err != nil {
+		if errors.Is(err, coverart.ErrNoCoverArt) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Content-Type", contentType)
+	http.ServeFile(w, r, path)
+}
+
 func (s *server) handleListMusicTrackFilesByTrack(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -647,7 +905,7 @@ func (s *server) handleListMusicTrackFilesByTrack(w http.ResponseWriter, r *http
 }
 
 func (s *server) handleListUnmatchedTrackFiles(w http.ResponseWriter, r *http.Request) {
-	files, err := s.musicStore.ListTrackFilesByStatus(musiclibrary.StatusUnmatched)
+	files, err := s.musicScanner.ListUnmatchedWithGroups()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -675,7 +933,11 @@ func (s *server) handleSearchMusicBrainzRecordings(w http.ResponseWriter, r *htt
 // user picked from their own artist's wanted/missing albums (not a fresh
 // MusicBrainz search — the whole point is reusing what's already in their
 // library), proposes which track within that release each file's own
-// tags best correspond to. Nothing is applied here — every suggestion
+// tags best correspond to. ReleaseMBID optionally names a specific cached
+// version/edition (from the matching UI's version picker) to slot against,
+// via getReleaseWithTracklist, instead of the release group's default
+// representative release (resolveRepresentativeRelease). Nothing is
+// applied here — every suggestion
 // still needs its own POST to /music/trackfile/{id}/match to actually
 // commit, same as a manual match, so the human reviewing always approves
 // before anything changes.
@@ -683,6 +945,7 @@ func (s *server) handleSuggestTrackFileMatches(w http.ResponseWriter, r *http.Re
 	var req struct {
 		FileIDs          []int64 `json:"fileIds"`
 		ReleaseGroupMBID string  `json:"releaseGroupMbid"`
+		ReleaseMBID      string  `json:"releaseMbid"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.FileIDs) == 0 || req.ReleaseGroupMBID == "" {
 		writeError(w, http.StatusBadRequest, "fileIds and releaseGroupMbid are required")
@@ -690,7 +953,13 @@ func (s *server) handleSuggestTrackFileMatches(w http.ResponseWriter, r *http.Re
 	}
 	ctx, cancel := s.metadataCtx(r)
 	defer cancel()
-	release, err := s.resolveRepresentativeRelease(ctx, req.ReleaseGroupMBID)
+	var release *musicbrainz.ReleaseWithTracklist
+	var err error
+	if req.ReleaseMBID != "" {
+		release, err = s.getReleaseWithTracklist(ctx, req.ReleaseMBID, req.ReleaseGroupMBID)
+	} else {
+		release, err = s.resolveRepresentativeRelease(ctx, req.ReleaseGroupMBID)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

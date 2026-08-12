@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/cantinode/cantinode/internal/musicbrainz"
@@ -308,4 +311,130 @@ func slotTrack(tags *tagreader.Tags, tracks []flatTrack, used map[int]bool) (int
 		return 0, flatTrack{}, false
 	}
 	return bestIdx, tracks[bestIdx], true
+}
+
+// discFolderPattern matches a folder name that's clearly one disc of a
+// multi-disc release: "CD1", "CD 2", "Disc1", "Disc 03", "D1", "disk2".
+// Anchored (^...$) so it never matches a folder that merely contains one
+// of these words as a substring of something else (e.g. "Disco Inferno").
+var discFolderPattern = regexp.MustCompile(`(?i)^(?:cd|disc|disk|d)[\s_.-]*0*([0-9]+)$`)
+
+// discSuffixPattern matches a trailing disc-number qualifier commonly
+// tagged onto a per-disc file's own Album field — "Moonglow CD 1",
+// "Moonglow (Disc 2)", "Moonglow - CD2" — stripped before comparing two
+// discs' Album tags for multi-disc-merge agreement (see
+// groupMultiDiscFolders): real-world rips very often tag each disc's
+// Album distinctly (a different qualifier per disc) even though it's
+// genuinely one release, so comparing the raw tag verbatim would reject
+// merging two discs of the very album this function exists to merge.
+var discSuffixPattern = regexp.MustCompile(`(?i)[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+\)?\s*$`)
+
+// stripDiscSuffix removes a trailing disc-number qualifier from album, if
+// present — "Moonglow CD 1" -> "Moonglow", "Wish You Were Here" unchanged.
+func stripDiscSuffix(album string) string {
+	return strings.TrimSpace(discSuffixPattern.ReplaceAllString(album, ""))
+}
+
+// groupMultiDiscFolders re-groups per-directory folder groups (as built by
+// ScanRootFolder/ScanAlbumFolder's own filepath.Dir keying), merging
+// sibling directories that are disc-subfolders of the same multi-disc
+// album into one logical group under their shared parent — a
+// ```
+// Album/
+//
+//	CD1/01 - Track.flac
+//	CD2/01 - Track.flac
+//
+// ```
+// layout otherwise produces two entirely independent folder groups (see
+// ScanRootFolder's doc comment on filepath.Dir keying), each separately
+// searched/matched against MusicBrainz — twice the cost, and no guarantee
+// both converge on the same release. Each merged file's disc number is
+// inferred from its folder name whenever the file's own tags don't already
+// carry one (tags always win when present).
+//
+// Deliberately conservative about what counts as "the same album": a
+// bundle of *different* albums (a discography/box-set dump, each in its
+// own subfolder — some of which might themselves be internally multi-disc)
+// must not be merged into one release search, since that would search for
+// one release using tags naming several different albums. Only merges
+// disc-pattern subfolders whose own folderTagConsensus agrees on the same
+// Artist+Album; anything that disagrees (or has no internal consensus of
+// its own) is left as separate groups, exactly as before this function
+// existed — same degrade-to-per-folder behavior a genuine discography pack
+// already gets.
+func groupMultiDiscFolders(groups map[string][]folderEntry) map[string][]folderEntry {
+	byParent := map[string][]string{}
+	for dir := range groups {
+		if discFolderPattern.MatchString(filepath.Base(dir)) {
+			parent := filepath.Dir(dir)
+			byParent[parent] = append(byParent[parent], dir)
+		}
+	}
+
+	out := make(map[string][]folderEntry, len(groups))
+	merged := map[string]bool{}
+	for parent, subdirs := range byParent {
+		if len(subdirs) < 2 {
+			continue // a single "CD1"-named folder alone isn't worth merging
+		}
+		sort.Strings(subdirs)
+
+		var refArtist, refAlbum string
+		agree := true
+		for i, dir := range subdirs {
+			artist, album, ok := folderTagConsensus(groups[dir])
+			if !ok {
+				agree = false
+				break
+			}
+			album = stripDiscSuffix(album)
+			if i == 0 {
+				refArtist, refAlbum = artist, album
+				continue
+			}
+			if !strings.EqualFold(refAlbum, album) || (refArtist != "" && artist != "" && !strings.EqualFold(refArtist, artist)) {
+				agree = false
+				break
+			}
+		}
+		if !agree {
+			continue
+		}
+
+		var mergedEntries []folderEntry
+		for _, dir := range subdirs {
+			disc := inferDiscNumber(filepath.Base(dir))
+			for _, e := range groups[dir] {
+				if disc > 0 && e.tags.DiscNumber == 0 {
+					tagsCopy := *e.tags
+					tagsCopy.DiscNumber = disc
+					e = folderEntry{tf: e.tf, tags: &tagsCopy}
+				}
+				mergedEntries = append(mergedEntries, e)
+			}
+			merged[dir] = true
+		}
+		out[parent] = mergedEntries
+	}
+	for dir, entries := range groups {
+		if !merged[dir] {
+			out[dir] = entries
+		}
+	}
+	return out
+}
+
+// inferDiscNumber extracts the disc number from a disc-pattern folder name
+// ("CD2" -> 2), or 0 if base doesn't match discFolderPattern at all.
+func inferDiscNumber(base string) int {
+	m := discFolderPattern.FindStringSubmatch(base)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return n
 }

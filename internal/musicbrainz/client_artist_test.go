@@ -25,7 +25,10 @@ const sampleArtistJSON = `{
 			"secondary-types": ["Live"],
 			"first-release-date": "2001-01-01"
 		}
-	]
+	],
+	"genres": [{"name": "idm", "count": 12}],
+	"tags": [{"name": "scottish", "count": 3}],
+	"rating": {"value": 4.5, "votes-count": 42}
 }`
 
 func TestLookupArtist(t *testing.T) {
@@ -44,14 +47,23 @@ func TestLookupArtist(t *testing.T) {
 	if gotPath != "/artist/69158f97-4c07-4c4e-baf8-4e4ab1ed666e" {
 		t.Errorf("path = %q", gotPath)
 	}
-	if gotInc != "release-groups" {
-		t.Errorf("inc = %q, want release-groups", gotInc)
+	if gotInc != "release-groups+genres+tags+ratings" {
+		t.Errorf("inc = %q, want release-groups+genres+tags+ratings", gotInc)
 	}
 	if artist.Name != "Boards of Canada" {
 		t.Errorf("Name = %q", artist.Name)
 	}
 	if len(artist.ReleaseGroups) != 2 {
 		t.Fatalf("len(ReleaseGroups) = %d, want 2", len(artist.ReleaseGroups))
+	}
+	if len(artist.Genres) != 1 || artist.Genres[0].Name != "idm" {
+		t.Errorf("Genres = %+v, want [idm]", artist.Genres)
+	}
+	if len(artist.Tags) != 1 || artist.Tags[0].Name != "scottish" {
+		t.Errorf("Tags = %+v, want [scottish]", artist.Tags)
+	}
+	if artist.Rating.Value != 4.5 || artist.Rating.VotesCount != 42 {
+		t.Errorf("Rating = %+v, want {4.5 42}", artist.Rating)
 	}
 	if artist.ReleaseGroups[0].PrimaryType != "Album" || artist.ReleaseGroups[0].FirstReleaseDate != "1998-04-20" {
 		t.Errorf("ReleaseGroups[0] = %+v", artist.ReleaseGroups[0])

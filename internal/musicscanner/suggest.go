@@ -2,8 +2,11 @@ package musicscanner
 
 import (
 	"encoding/json"
+	"fmt"
+	"path/filepath"
 
 	"github.com/cantinode/cantinode/internal/musicbrainz"
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
@@ -61,4 +64,52 @@ func (s *Scanner) SuggestMatches(fileIDs []int64, release *musicbrainz.ReleaseWi
 		})
 	}
 	return out
+}
+
+// UnmatchedFileGroup pairs an unmatched track_file with the folder "group
+// key" auto-match and the automatic scanner both treat it as part of.
+type UnmatchedFileGroup struct {
+	musiclibrary.TrackFile
+	// GroupKey is normally the file's own containing directory, but — for
+	// files under sibling CD1/CD2/Disc-N subfolders of the same multi-disc
+	// album — their shared parent directory instead, so the unmatched-files
+	// review page groups exactly the same way ScanRootFolder's own
+	// automatic matching does (see groupMultiDiscFolders).
+	GroupKey string `json:"groupKey"`
+}
+
+// ListUnmatchedWithGroups returns every currently unmatched track file,
+// each tagged with its computed GroupKey — the unmatched-files review
+// page's own folder grouping, kept in one place (here) rather than
+// duplicating groupMultiDiscFolders' heuristic in the frontend.
+func (s *Scanner) ListUnmatchedWithGroups() ([]UnmatchedFileGroup, error) {
+	files, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusUnmatched)
+	if err != nil {
+		return nil, fmt.Errorf("list unmatched track files: %w", err)
+	}
+
+	raw := map[string][]folderEntry{}
+	for i := range files {
+		tf := &files[i]
+		var tags tagreader.Tags
+		if tf.TagsJSON != "" {
+			_ = json.Unmarshal([]byte(tf.TagsJSON), &tags)
+		}
+		dir := filepath.Dir(tf.Path)
+		raw[dir] = append(raw[dir], folderEntry{tf: tf, tags: &tags})
+	}
+	grouped := groupMultiDiscFolders(raw)
+
+	keyByID := make(map[int64]string, len(files))
+	for key, entries := range grouped {
+		for _, e := range entries {
+			keyByID[e.tf.ID] = key
+		}
+	}
+
+	out := make([]UnmatchedFileGroup, len(files))
+	for i, f := range files {
+		out[i] = UnmatchedFileGroup{TrackFile: f, GroupKey: keyByID[f.ID]}
+	}
+	return out, nil
 }

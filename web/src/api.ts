@@ -289,6 +289,12 @@ export interface MusicTrackFile {
   organizedAt?: string;
 }
 
+// UnmatchedTrackFile is MusicTrackFile plus the folder "group key" the
+// server computed for it — see listUnmatchedTrackFiles.
+export interface UnmatchedTrackFile extends MusicTrackFile {
+  groupKey: string;
+}
+
 // TrackSuggestion is one proposed track_file → recording slot from
 // suggestTrackFileMatches — a proposal only, nothing commits until it's
 // sent through matchTrackFile like any other match.
@@ -326,6 +332,24 @@ export interface ReleaseGroupTracklist {
   releaseMbid: string;
   releaseTitle: string;
   tracks: ReleaseGroupTrack[];
+}
+
+// ReleaseGroupVersion is one known release (pressing/edition) of a release
+// group, cached so the matching UI can offer a version picker without a
+// live MusicBrainz call — see listReleaseGroupVersions.
+export interface ReleaseGroupVersion {
+  id: number;
+  releaseGroupMbid: string;
+  releaseMbid: string;
+  title: string;
+  releaseDate: string;
+  country: string;
+  status: string;
+  disambiguation: string;
+  trackCount: number;
+  mediaSummary: string;
+  isRepresentative: boolean;
+  fetchedAt: string;
 }
 
 export interface WantedAlbum {
@@ -372,6 +396,7 @@ export interface MusicScanState {
 export interface MusicSettings {
   organizeOnMatch: boolean;
   minMatchConfidence: number;
+  autoMatchConfidence: number;
   musicbrainzContactEmail: string;
   audioDbApiKey: string;
 }
@@ -397,6 +422,14 @@ export function proxiedImage(url?: string): string | undefined {
 // an <img src>, so the API key rides the query string (no header needed).
 export function musicAlbumCoverUrl(albumId: number): string {
   return `/api/v1/music/album/${albumId}/cover?apikey=${encodeURIComponent(getApiKey())}`;
+}
+
+// musicReleaseGroupCoverUrl is musicAlbumCoverUrl's counterpart for a
+// wanted/missing album — no owned albums row (and so no specific release
+// mbid) exists yet, so this resolves cover art via the release group's own
+// cached representative release instead.
+export function musicReleaseGroupCoverUrl(releaseGroupMbid: string): string {
+  return `/api/v1/music/releasegroup/${encodeURIComponent(releaseGroupMbid)}/cover?apikey=${encodeURIComponent(getApiKey())}`;
 }
 
 export function setApiKey(key: string) {
@@ -612,6 +645,10 @@ export const api = {
     request<void>(`/api/v1/music/artist/${id}/refresh`, { method: "POST" }),
   listMissingMusicReleaseGroups: (id: number) =>
     request<MusicReleaseGroup[]>(`/api/v1/music/artist/${id}/missing`),
+  listReleaseGroupVersions: (releaseGroupMbid: string) =>
+    request<ReleaseGroupVersion[]>(
+      `/api/v1/music/releasegroup/${encodeURIComponent(releaseGroupMbid)}/versions`,
+    ),
   getReleaseGroupTracks: (releaseGroupMbid: string) =>
     request<ReleaseGroupTracklist>(
       `/api/v1/music/releasegroup/${encodeURIComponent(releaseGroupMbid)}/tracks`,
@@ -656,11 +693,11 @@ export const api = {
   listMusicTrackFiles: (trackId: number) =>
     request<MusicTrackFile[]>(`/api/v1/music/track/${trackId}/files`),
   listUnmatchedTrackFiles: () =>
-    request<MusicTrackFile[]>("/api/v1/music/trackfile/unmatched"),
-  suggestTrackFileMatches: (fileIds: number[], releaseGroupMbid: string) =>
+    request<UnmatchedTrackFile[]>("/api/v1/music/trackfile/unmatched"),
+  suggestTrackFileMatches: (fileIds: number[], releaseGroupMbid: string, releaseMbid = "") =>
     request<{ releaseTitle: string; suggestions: TrackSuggestion[] }>(
       "/api/v1/music/trackfile/match-suggest",
-      json({ fileIds, releaseGroupMbid }),
+      json({ fileIds, releaseGroupMbid, releaseMbid }),
     ),
   searchMusicBrainzRecordings: (artist: string, album: string, title: string) =>
     request<MusicBrainzRecordingResult[]>(

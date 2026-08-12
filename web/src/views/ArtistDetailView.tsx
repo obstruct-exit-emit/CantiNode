@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api,
   musicAlbumCoverUrl,
+  musicReleaseGroupCoverUrl,
   proxiedImage,
   type MusicAlbum,
   type MusicArtist,
@@ -41,6 +42,7 @@ type GridAlbum =
       releaseDate: string;
       primaryType: string;
       status: WantedAlbum["status"];
+      releaseGroupMbid: string;
     };
 
 function sortGridAlbums(items: GridAlbum[], key: string, dir: SortDir): GridAlbum[] {
@@ -56,6 +58,27 @@ function sortGridAlbums(items: GridAlbum[], key: string, dir: SortDir): GridAlbu
       break;
   }
   return dir === "desc" ? by.reverse() : by;
+}
+
+// WantedPoster shows a wanted/missing album's cover art via its cached
+// representative release (see musicReleaseGroupCoverUrl) — falls back to
+// the same plain letter tile owned albums use when there's genuinely no
+// cover art (a 404, most commonly a release Cover Art Archive has nothing
+// for) rather than a broken-image icon.
+function WantedPoster({ releaseGroupMbid, title }: { releaseGroupMbid: string; title: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !releaseGroupMbid) {
+    return <div className="poster fallback">{title.charAt(0)}</div>;
+  }
+  return (
+    <img
+      className="poster"
+      src={musicReleaseGroupCoverUrl(releaseGroupMbid)}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 // Full-page artist detail, mirroring the author page: header with portrait,
@@ -229,6 +252,7 @@ export default function ArtistDetailView({
       releaseDate: w.releaseDate,
       primaryType: w.primaryType,
       status: w.status,
+      releaseGroupMbid: w.releaseGroupMbid,
     })),
   ];
   const selectedWantedAlbum = wanted.find((w) => w.id === selectedWantedId) ?? null;
@@ -397,7 +421,7 @@ export default function ArtistDetailView({
                   onClick={() => selectWanted(g.id)}
                   title="Show this wanted album's actions"
                 >
-                  <div className="poster fallback">{g.title.charAt(0)}</div>
+                  <WantedPoster releaseGroupMbid={g.releaseGroupMbid} title={g.title} />
                   <span className="poster-title">{g.title}</span>
                   <span className="poster-sub">
                     {g.releaseDate ? g.releaseDate.slice(0, 4) + " · " : ""}

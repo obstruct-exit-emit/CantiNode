@@ -257,6 +257,16 @@ type MusicSettings struct {
 	// no effect on a direct MBID match (from the file's own tags) or a
 	// whole-folder release match, both always accepted regardless.
 	MinMatchConfidence float64 `yaml:"min_match_confidence" json:"minMatchConfidence"`
+	// AutoMatchConfidence is the minimum name-similarity score (0-1) the
+	// unmatched-files page's "Auto-match" action needs before it pre-fills
+	// the artist/album dropdowns for the user — a separate, generally
+	// stricter threshold from MinMatchConfidence: that one gates an
+	// automatic scan silently committing a match, this one only gates
+	// whether a dropdown gets pre-selected for a human to review (and
+	// change) before anything is even proposed, let alone applied. Doesn't
+	// apply to the version dropdown, which is picked by file-count
+	// closeness instead of name similarity.
+	AutoMatchConfidence float64 `yaml:"auto_match_confidence" json:"autoMatchConfidence"`
 	// MusicBrainzContactEmail is included in the User-Agent CantiNode sends
 	// MusicBrainz, as required by its API usage policy
 	// (https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting) so MB can
@@ -274,8 +284,9 @@ type MusicSettings struct {
 
 func defaultMusic() MusicSettings {
 	return MusicSettings{
-		OrganizeOnMatch:    false,
-		MinMatchConfidence: 0.75,
+		OrganizeOnMatch:     false,
+		MinMatchConfidence:  0.75,
+		AutoMatchConfidence: 0.85,
 	}
 }
 
@@ -444,6 +455,9 @@ func (c *Config) MusicSettings() MusicSettings {
 	m := c.Music
 	if m.MinMatchConfidence <= 0 {
 		m.MinMatchConfidence = defaultMusic().MinMatchConfidence
+	}
+	if m.AutoMatchConfidence <= 0 {
+		m.AutoMatchConfidence = defaultMusic().AutoMatchConfidence
 	}
 	return m
 }

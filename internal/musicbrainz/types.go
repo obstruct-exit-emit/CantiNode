@@ -1,5 +1,10 @@
 package musicbrainz
 
+import (
+	"fmt"
+	"strings"
+)
+
 // ArtistRef is a minimal MusicBrainz artist reference, as embedded in an
 // artist-credit.
 type ArtistRef struct {
@@ -126,15 +131,44 @@ type ReleaseGroupSummary struct {
 	FirstReleaseDate string   `json:"first-release-date"`
 }
 
+// Genre is one of MusicBrainz's own curated genre tags (inc=genres) —
+// distinct from Tag, which is free-form community folksonomy.
+type Genre struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// Tag is a free-form community folksonomy tag (inc=tags).
+type Tag struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// Rating is MusicBrainz's community rating (inc=ratings) — Value is 0-5
+// (possibly fractional, zero when nobody's rated it yet), VotesCount how
+// many votes it's based on.
+type Rating struct {
+	Value      float64 `json:"value"`
+	VotesCount int     `json:"votes-count"`
+}
+
 // Artist is a MusicBrainz artist, with its release groups (when fetched
 // via LookupArtist's inc=release-groups). Score is only populated by
 // SearchArtists (0-100, MusicBrainz's own relevance ranking) — always 0
 // on a direct LookupArtist, same convention as Recording.Score.
+//
+// Genres/Tags/Rating are only populated when LookupArtist's inc includes
+// genres+tags+ratings (see client.go) — cached by internal/api even though
+// nothing displays them yet, so a future feature never needs a fresh
+// MusicBrainz round trip for data already fetched once.
 type Artist struct {
 	ID            string                `json:"id"`
 	Name          string                `json:"name"`
 	SortName      string                `json:"sort-name"`
 	ReleaseGroups []ReleaseGroupSummary `json:"release-groups"`
+	Genres        []Genre               `json:"genres"`
+	Tags          []Tag                 `json:"tags"`
+	Rating        Rating                `json:"rating"`
 	Score         int                   `json:"score"`
 }
 
@@ -158,11 +192,70 @@ type ReleaseSearchResult struct {
 	// browse-by-release-group request. Used to prefer an official release
 	// as the representative tracklist for a release group CantiNode
 	// doesn't own yet (see pickRepresentativeRelease).
-	Status       string         `json:"status"`
-	ArtistCredit []ArtistCredit `json:"artist-credit"`
-	ReleaseGroup ReleaseGroup   `json:"release-group"`
-	TrackCount   int            `json:"track-count"` // aggregate across every medium
-	Score        int            `json:"score"`
+	Status         string         `json:"status"`
+	Country        string         `json:"country"`
+	Disambiguation string         `json:"disambiguation"`
+	ArtistCredit   []ArtistCredit `json:"artist-credit"`
+	ReleaseGroup   ReleaseGroup   `json:"release-group"`
+	TrackCount     int            `json:"track-count"` // aggregate across every medium
+	// Media is populated when the request includes inc=media (see
+	// BrowseReleaseGroupReleases) — enough to show/compare an edition's
+	// disc layout (e.g. "2×CD") without paying for a full tracklist fetch.
+	Media []ReleaseMediumSummary `json:"media"`
+	Score int                    `json:"score"`
+}
+
+// ReleaseMediumSummary is one disc/side of a release, as returned by
+// inc=media — format and track count only, no actual tracklist. Distinct
+// from ReleaseMedium (LookupReleaseWithTracklist's richer per-track view).
+type ReleaseMediumSummary struct {
+	Format     string `json:"format"`
+	TrackCount int    `json:"track-count"`
+}
+
+// TotalTrackCount returns r's total track count across every medium —
+// from Media when populated (inc=media), falling back to the flat
+// TrackCount field a search response carries instead.
+func (r ReleaseSearchResult) TotalTrackCount() int {
+	if len(r.Media) == 0 {
+		return r.TrackCount
+	}
+	total := 0
+	for _, m := range r.Media {
+		total += m.TrackCount
+	}
+	return total
+}
+
+// MediaSummary renders r.Media as a short human label ("2×CD", "Digital
+// Media", "CD + DVD") for a version picker — empty when Media wasn't
+// requested/populated.
+func (r ReleaseSearchResult) MediaSummary() string {
+	if len(r.Media) == 0 {
+		return ""
+	}
+	counts := map[string]int{}
+	var order []string
+	for _, m := range r.Media {
+		format := m.Format
+		if format == "" {
+			format = "Unknown"
+		}
+		if counts[format] == 0 {
+			order = append(order, format)
+		}
+		counts[format]++
+	}
+	var parts []string
+	for _, format := range order {
+		n := counts[format]
+		if n > 1 {
+			parts = append(parts, fmt.Sprintf("%d×%s", n, format))
+		} else {
+			parts = append(parts, format)
+		}
+	}
+	return strings.Join(parts, " + ")
 }
 
 type releaseSearchResponse struct {

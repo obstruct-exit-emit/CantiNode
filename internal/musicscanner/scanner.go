@@ -179,6 +179,12 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 		return result, fmt.Errorf("walk %s: %w", rf.Path, err)
 	}
 
+	// Merge CD1/CD2/Disc-N sibling subfolders of the same multi-disc album
+	// into one logical group before matching — see groupMultiDiscFolders.
+	// Purely an in-memory regrouping for matching purposes; files stay
+	// exactly where they are on disk until an explicit Organize action.
+	groups = groupMultiDiscFolders(groups)
+
 	// Sorted for deterministic scan behavior/logging, not correctness —
 	// map iteration order would otherwise vary run to run.
 	dirs := make([]string, 0, len(groups))
@@ -284,6 +290,8 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 		}
 		result.FilesRemoved++
 	}
+
+	groups = groupMultiDiscFolders(groups)
 
 	dirs := make([]string, 0, len(groups))
 	for d := range groups {

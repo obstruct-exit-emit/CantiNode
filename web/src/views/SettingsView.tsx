@@ -506,6 +506,27 @@ function MusicCard({ onError }: { onError: (message: string) => void }) {
             file's own embedded tags or a whole-folder release match; both
             are always accepted. Default 75%.
           </p>
+          <label>
+            Auto-match dropdown confidence:{" "}
+            {Math.round(settings.autoMatchConfidence * 100)}%
+            <input
+              type="range"
+              min={0.5}
+              max={1}
+              step={0.01}
+              value={settings.autoMatchConfidence}
+              onChange={(e) =>
+                setSettings({ ...settings, autoMatchConfidence: Number(e.target.value) })
+              }
+            />
+          </label>
+          <p className="muted field-note">
+            How sure a name match has to be before the unmatched-files
+            page's "Auto-match" button pre-fills the artist/album dropdowns
+            for you — anything below is left for you to pick by hand. Never
+            applies anything on its own either way; you still review and
+            approve every suggested track match. Default 85%.
+          </p>
         </Section>
 
         <div className="settings-actions">
