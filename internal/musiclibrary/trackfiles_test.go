@@ -20,6 +20,49 @@ func TestListTrackFilesByStatusEmptyIsNotNil(t *testing.T) {
 	}
 }
 
+// TestListTrackFilesByIDs is the bulk counterpart to GetTrackFile — used by
+// musicscanner's SuggestMatches to fetch a whole folder's worth of files in
+// one query. A requested id with no matching row must simply be absent from
+// the result, not an error, so the caller can still process the others.
+func TestListTrackFilesByIDs(t *testing.T) {
+	db := newTestStore(t)
+	rfID := testMusicRoot(t, db)
+
+	tf1, err := db.UpsertTrackFileByPath(rfID, "/music/one.mp3", 1000, "mp3", 320, 200000, `{}`)
+	if err != nil {
+		t.Fatalf("UpsertTrackFileByPath 1: %v", err)
+	}
+	tf2, err := db.UpsertTrackFileByPath(rfID, "/music/two.mp3", 1000, "mp3", 320, 200000, `{}`)
+	if err != nil {
+		t.Fatalf("UpsertTrackFileByPath 2: %v", err)
+	}
+
+	got, err := db.ListTrackFilesByIDs([]int64{tf1.ID, tf2.ID, 999999})
+	if err != nil {
+		t.Fatalf("ListTrackFilesByIDs: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got = %+v, want 2 (the missing id must be silently absent)", got)
+	}
+	if got[tf1.ID] == nil || got[tf1.ID].Path != "/music/one.mp3" {
+		t.Errorf("got[tf1.ID] = %+v, want the /music/one.mp3 row", got[tf1.ID])
+	}
+	if got[tf2.ID] == nil || got[tf2.ID].Path != "/music/two.mp3" {
+		t.Errorf("got[tf2.ID] = %+v, want the /music/two.mp3 row", got[tf2.ID])
+	}
+	if _, ok := got[999999]; ok {
+		t.Error("got[999999] present, want absent")
+	}
+}
+
+func TestListTrackFilesByIDsEmptyInput(t *testing.T) {
+	db := newTestStore(t)
+	got, err := db.ListTrackFilesByIDs(nil)
+	if err != nil || len(got) != 0 {
+		t.Errorf("ListTrackFilesByIDs(nil) = %v, %v, want empty map, nil", got, err)
+	}
+}
+
 func TestUpsertTrackFileByPathInsertsThenUpdatesWithoutTouchingMatch(t *testing.T) {
 	db := newTestStore(t)
 

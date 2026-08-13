@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type MusicArtist,
@@ -59,8 +59,14 @@ function diceSimilarity(a: string, b: string): number {
 // confidence bar. Stripped before either happens.
 const discSuffixPattern = /[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[)\]]?\s*$/i;
 
+// discPrefixPattern is discSuffixPattern's mirror for the other common
+// per-disc tagging convention — a LEADING qualifier ("CD1 - Moonglow",
+// "Disc 2: Moonglow") instead of a trailing one — mirroring
+// internal/musicscanner/folder_match.go's own discPrefixPattern.
+const discPrefixPattern = /^(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[\s:.-]+/i;
+
 function stripDiscSuffix(album: string): string {
-  return album.replace(discSuffixPattern, "").trim();
+  return album.replace(discPrefixPattern, "").replace(discSuffixPattern, "").trim();
 }
 
 // tagConsensus picks the most common non-empty Artist/Album tag across a
@@ -345,16 +351,30 @@ function AutoMatchPanel({
   const [suggestions, setSuggestions] = useState<TrackSuggestion[] | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [autoMatching, setAutoMatching] = useState(false);
-  const [applyingId, setApplyingId] = useState<number | null>(null);
+  const [applyingIds, setApplyingIds] = useState<Set<number>>(new Set());
   const [approvedIds, setApprovedIds] = useState<Set<number>>(new Set());
+
+  // requestToken guards against an out-of-order async response clobbering
+  // a newer selection — e.g. a user picking a different album before its
+  // predecessor's version-list fetch resolves would otherwise leave
+  // versions/releaseMbid populated from the WRONG (previous) album while
+  // albumMbid already shows the new one, so a "Suggest matches" click
+  // could silently build suggestions from a stale, mismatched release.
+  // Every user-initiated action (picking artist/album, or clicking
+  // Auto-match) bumps this before starting its own async chain; any
+  // in-flight fetch whose captured token no longer matches when it
+  // resolves is simply ignored.
+  const requestToken = useRef(0);
 
   // fetchAlbumsForArtist loads id's own wanted+missing albums into the
   // Album dropdown — shared by the plain artist picker and autoMatch,
   // which both need the same combined, sorted list (autoMatch additionally
   // needs it back as a value to fuzzy-match against, not just as a
-  // side-effecting state update).
-  const fetchAlbumsForArtist = (id: number): Promise<AlbumOption[]> =>
-    Promise.all([api.listWantedMusicAlbums(id), api.listMissingMusicReleaseGroups(id)]).then(
+  // side-effecting state update). Ignores its own result if superseded by
+  // a newer pick/auto-match before the request resolves.
+  const fetchAlbumsForArtist = (id: number): Promise<AlbumOption[]> => {
+    const token = requestToken.current;
+    return Promise.all([api.listWantedMusicAlbums(id), api.listMissingMusicReleaseGroups(id)]).then(
       ([wanted, missing]) => {
         const combined = [
           ...wanted.map((w: WantedAlbum) => ({
@@ -368,22 +388,28 @@ function AutoMatchPanel({
             sub: `missing${m.firstReleaseDate ? " · " + m.firstReleaseDate.slice(0, 4) : ""}`,
           })),
         ].sort((a, b) => a.title.localeCompare(b.title));
-        setAlbums(combined);
+        if (requestToken.current === token) setAlbums(combined);
         return combined;
       },
     );
+  };
 
   // fetchVersionsForAlbum loads mbid's cached release versions/editions
   // into the Version dropdown — shared by the plain album picker (which
   // also auto-picks the file-count-closest version as a starting default,
-  // still freely changeable) and autoMatch.
-  const fetchVersionsForAlbum = (mbid: string): Promise<ReleaseGroupVersion[]> =>
-    api.listReleaseGroupVersions(mbid).then((vs) => {
-      setVersions(vs);
+  // still freely changeable) and autoMatch. Ignores its own result if
+  // superseded by a newer pick/auto-match before the request resolves.
+  const fetchVersionsForAlbum = (mbid: string): Promise<ReleaseGroupVersion[]> => {
+    const token = requestToken.current;
+    return api.listReleaseGroupVersions(mbid).then((vs) => {
+      if (requestToken.current === token) setVersions(vs);
       return vs;
     });
+  };
 
   const pickArtist = (id: number | "") => {
+    requestToken.current++;
+    const token = requestToken.current;
     setArtistId(id);
     setAlbums(null);
     setAlbumMbid("");
@@ -391,12 +417,14 @@ function AutoMatchPanel({
     setReleaseMbid("");
     setSuggestions(null);
     if (id === "") return;
-    fetchAlbumsForArtist(id).catch((err: unknown) =>
-      onError(String(err instanceof Error ? err.message : err)),
-    );
+    fetchAlbumsForArtist(id).catch((err: unknown) => {
+      if (requestToken.current === token) onError(String(err instanceof Error ? err.message : err));
+    });
   };
 
   const pickAlbum = (mbid: string) => {
+    requestToken.current++;
+    const token = requestToken.current;
     setAlbumMbid(mbid);
     setVersions(null);
     setReleaseMbid("");
@@ -404,10 +432,13 @@ function AutoMatchPanel({
     if (!mbid) return;
     fetchVersionsForAlbum(mbid)
       .then((vs) => {
+        if (requestToken.current !== token) return; // superseded by a newer pick
         const best = pickBestVersionByFileCount(vs, files.length);
         if (best) setReleaseMbid(best.releaseMbid);
       })
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+      .catch((err: unknown) => {
+        if (requestToken.current === token) onError(String(err instanceof Error ? err.message : err));
+      });
   };
 
   // autoMatch fills in the artist/album/version dropdowns itself, each
@@ -435,6 +466,8 @@ function AutoMatchPanel({
     }
     if (!bestArtist || bestArtistScore < autoMatchConfidence) return;
 
+    requestToken.current++;
+    const token = requestToken.current;
     setAutoMatching(true);
     try {
       setArtistId(bestArtist.id);
@@ -443,7 +476,7 @@ function AutoMatchPanel({
       setReleaseMbid("");
       setSuggestions(null);
       const combined = await fetchAlbumsForArtist(bestArtist.id);
-      if (!tagAlbum) return;
+      if (requestToken.current !== token || !tagAlbum) return; // superseded, or no album tag to match against
 
       let bestAlbum: AlbumOption | null = null;
       let bestAlbumScore = 0;
@@ -458,11 +491,16 @@ function AutoMatchPanel({
 
       setAlbumMbid(bestAlbum.mbid);
       const vs = await fetchVersionsForAlbum(bestAlbum.mbid);
+      if (requestToken.current !== token) return; // superseded by a newer pick/auto-match
       const bestVersion = pickBestVersionByFileCount(vs, files.length);
       if (bestVersion) setReleaseMbid(bestVersion.releaseMbid);
     } catch (err) {
-      onError(String(err instanceof Error ? err.message : err));
+      if (requestToken.current === token) onError(String(err instanceof Error ? err.message : err));
     } finally {
+      // Always clears, even if superseded — this call genuinely finished
+      // (or failed) either way, and the button's own "Auto-matching…"
+      // label must not get stuck forever just because its results no
+      // longer apply.
       setAutoMatching(false);
     }
   };
@@ -487,7 +525,7 @@ function AutoMatchPanel({
   };
 
   const approve = (s: TrackSuggestion) => {
-    setApplyingId(s.trackFileId);
+    setApplyingIds((prev) => new Set(prev).add(s.trackFileId));
     api
       .matchTrackFile(s.trackFileId, s.recordingMbid, s.releaseMbid)
       .then(() => {
@@ -495,23 +533,53 @@ function AutoMatchPanel({
         onApplied();
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setApplyingId(null));
+      .finally(() =>
+        setApplyingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(s.trackFileId);
+          return next;
+        }),
+      );
   };
 
+  // Fires every pending suggestion's match request in parallel rather than
+  // awaiting them one at a time — these are independent writes (each its
+  // own trackFileId), so there's nothing to serialize for. Promise.allSettled
+  // (not Promise.all) so one failing suggestion doesn't abort the others;
+  // every failure still gets reported via onError.
   const approveAll = async () => {
     if (!suggestions) return;
-    for (const s of suggestions) {
-      if (approvedIds.has(s.trackFileId)) continue;
-      setApplyingId(s.trackFileId);
-      try {
-        await api.matchTrackFile(s.trackFileId, s.recordingMbid, s.releaseMbid);
-        setApprovedIds((prev) => new Set(prev).add(s.trackFileId));
-      } catch (err) {
-        onError(String(err instanceof Error ? err.message : err));
+    const targets = suggestions.filter((s) => !approvedIds.has(s.trackFileId));
+    if (targets.length === 0) return;
+    setApplyingIds((prev) => {
+      const next = new Set(prev);
+      for (const s of targets) next.add(s.trackFileId);
+      return next;
+    });
+    const results = await Promise.allSettled(
+      targets.map((s) => api.matchTrackFile(s.trackFileId, s.recordingMbid, s.releaseMbid).then(() => s)),
+    );
+    const approved = results
+      .filter((r): r is PromiseFulfilledResult<TrackSuggestion> => r.status === "fulfilled")
+      .map((r) => r.value.trackFileId);
+    if (approved.length > 0) {
+      setApprovedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of approved) next.add(id);
+        return next;
+      });
+    }
+    for (const r of results) {
+      if (r.status === "rejected") {
+        onError(String(r.reason instanceof Error ? r.reason.message : r.reason));
       }
     }
-    setApplyingId(null);
-    onApplied();
+    setApplyingIds((prev) => {
+      const next = new Set(prev);
+      for (const s of targets) next.delete(s.trackFileId);
+      return next;
+    });
+    if (approved.length > 0) onApplied();
   };
 
   const pending = (suggestions ?? []).filter((s) => !approvedIds.has(s.trackFileId));
@@ -595,7 +663,7 @@ function AutoMatchPanel({
               {suggestions.length === 0 && " Try a different album, or match these by hand below."}
             </span>
             {pending.length > 1 && (
-              <button className="toggle" disabled={applyingId !== null} onClick={approveAll}>
+              <button className="toggle" disabled={applyingIds.size > 0} onClick={approveAll}>
                 Approve all ({pending.length})
               </button>
             )}
@@ -616,8 +684,8 @@ function AutoMatchPanel({
                         </span>
                       </span>
                       <span className="row-actions">
-                        <button disabled={applyingId !== null} onClick={() => approve(s)}>
-                          {applyingId === s.trackFileId ? "Approving…" : "Approve"}
+                        <button disabled={applyingIds.size > 0} onClick={() => approve(s)}>
+                          {applyingIds.has(s.trackFileId) ? "Approving…" : "Approve"}
                         </button>
                       </span>
                     </div>

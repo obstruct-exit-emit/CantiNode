@@ -60,16 +60,20 @@ func TestReplaceAndListReleaseGroupVersions(t *testing.T) {
 // test for a real bug found live in production: migration 022 carries over
 // a release group's pre-existing single-tracklist-cache row as a
 // release_group_versions row with only release_mbid/title populated
-// (track_count=0, status=""). HasReleaseGroupVersions must NOT count that
-// placeholder as "already cached" — otherwise the backfill sweep skips
-// every artist that predates this feature forever, and the version
-// dropdown shows just the one stale entry instead of the real list.
+// (fetched=0, per migration 023's retroactive backfill). HasReleaseGroupVersions
+// must NOT count that placeholder as "already cached" — otherwise the
+// backfill sweep skips every artist that predates this feature forever, and
+// the version dropdown shows just the one stale entry instead of the real
+// list. ReplaceReleaseGroupVersions itself always marks fetched=1 (every
+// call represents genuinely-fetched data), so the placeholder here is seeded
+// directly via SQL to simulate what migration 022+023 actually leave behind.
 func TestHasReleaseGroupVersionsIgnoresMigratedPlaceholder(t *testing.T) {
 	s := newTestStore(t)
 
-	if err := s.ReplaceReleaseGroupVersions("rg-migrated", []ReleaseGroupVersion{
-		{ReleaseGroupMBID: "rg-migrated", ReleaseMBID: "rel-old", Title: "Some Album", IsRepresentative: true},
-	}); err != nil {
+	if _, err := s.db.Exec(
+		`INSERT INTO release_group_versions (release_group_mbid, release_mbid, title, is_representative, fetched)
+		 VALUES (?, ?, ?, 1, 0)`,
+		"rg-migrated", "rel-old", "Some Album"); err != nil {
 		t.Fatalf("seed migrated placeholder: %v", err)
 	}
 
@@ -88,6 +92,29 @@ func TestHasReleaseGroupVersionsIgnoresMigratedPlaceholder(t *testing.T) {
 	has, err = s.HasReleaseGroupVersions("rg-real")
 	if err != nil || !has {
 		t.Errorf("HasReleaseGroupVersions(rg-real) = %v, %v, want true", has, err)
+	}
+}
+
+// TestHasReleaseGroupVersionsCountsGenuinelySparseRealData is the case that
+// motivated replacing the old field-value heuristic
+// (track_count > 0 || status != "") with an explicit fetched column: a real
+// MusicBrainz release whose browse response happens to have neither field
+// populated used to be misclassified as a migration placeholder forever,
+// triggering an unbounded live re-fetch on every scan. With the explicit
+// flag, ReplaceReleaseGroupVersions marks it fetched=1 regardless of how
+// sparse the fetched data itself is.
+func TestHasReleaseGroupVersionsCountsGenuinelySparseRealData(t *testing.T) {
+	s := newTestStore(t)
+
+	if err := s.ReplaceReleaseGroupVersions("rg-sparse", []ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-sparse", ReleaseMBID: "rel-sparse", Title: "Some Album", IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("seed sparse real version: %v", err)
+	}
+
+	has, err := s.HasReleaseGroupVersions("rg-sparse")
+	if err != nil || !has {
+		t.Errorf("HasReleaseGroupVersions(rg-sparse) = %v, %v, want true (genuinely fetched, just sparse)", has, err)
 	}
 }
 
@@ -151,14 +178,24 @@ func TestDeleteReleaseGroupCachePurgesVersionsAndTracklist(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed rg-2 versions: %v", err)
 	}
+	if err := s.ReplaceReleaseGroupVersions("rg-3", []ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-3", ReleaseMBID: "rel-3", Title: "Album Three", IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("seed rg-3 versions: %v", err)
+	}
 	if err := s.SetCachedTracklist("rel-1", "rg-1", `[]`); err != nil {
 		t.Fatalf("seed rg-1 tracklist: %v", err)
 	}
 	if err := s.SetCachedTracklist("rel-2", "rg-2", `[]`); err != nil {
 		t.Fatalf("seed rg-2 tracklist: %v", err)
 	}
+	if err := s.SetCachedTracklist("rel-3", "rg-3", `[]`); err != nil {
+		t.Fatalf("seed rg-3 tracklist: %v", err)
+	}
 
-	if err := s.DeleteReleaseGroupCache([]string{"rg-1"}); err != nil {
+	// Two release groups purged in the same call — the batched IN-clause
+	// delete must cover every id passed, not just the first.
+	if err := s.DeleteReleaseGroupCache([]string{"rg-1", "rg-3"}); err != nil {
 		t.Fatalf("DeleteReleaseGroupCache: %v", err)
 	}
 
@@ -167,6 +204,12 @@ func TestDeleteReleaseGroupCachePurgesVersionsAndTracklist(t *testing.T) {
 	}
 	if _, err := s.GetCachedTracklist("rel-1"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("rg-1 tracklist after delete: err = %v, want ErrNotFound", err)
+	}
+	if versions, err := s.ListReleaseGroupVersions("rg-3"); err != nil || len(versions) != 0 {
+		t.Errorf("rg-3 versions after delete = %+v, err %v, want empty", versions, err)
+	}
+	if _, err := s.GetCachedTracklist("rel-3"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("rg-3 tracklist after delete: err = %v, want ErrNotFound", err)
 	}
 
 	if versions, err := s.ListReleaseGroupVersions("rg-2"); err != nil || len(versions) != 1 {
@@ -245,10 +288,97 @@ func TestReleaseGroupMBIDsStillReferencedEmptyInput(t *testing.T) {
 	}
 }
 
+// TestReleaseGroupMBIDsWithRealVersions is the bulk counterpart to
+// TestHasReleaseGroupVersionsIgnoresMigratedPlaceholder — confirms the
+// batched form used by the backfill sweep applies the same
+// placeholder-vs-real distinction as the single-release-group check.
+func TestReleaseGroupMBIDsWithRealVersions(t *testing.T) {
+	s := newTestStore(t)
+
+	if _, err := s.db.Exec(
+		`INSERT INTO release_group_versions (release_group_mbid, release_mbid, title, is_representative, fetched)
+		 VALUES (?, ?, ?, 1, 0)`,
+		"rg-placeholder", "rel-old", "Some Album"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceReleaseGroupVersions("rg-real", []ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-real", ReleaseMBID: "rel-real", Title: "Some Album", Status: "Official", TrackCount: 10, IsRepresentative: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ReleaseGroupMBIDsWithRealVersions([]string{"rg-placeholder", "rg-real", "rg-never-cached"})
+	if err != nil {
+		t.Fatalf("ReleaseGroupMBIDsWithRealVersions: %v", err)
+	}
+	if got["rg-placeholder"] {
+		t.Error("rg-placeholder should not count as having real versions")
+	}
+	if !got["rg-real"] {
+		t.Error("rg-real should count as having real versions")
+	}
+	if got["rg-never-cached"] {
+		t.Error("rg-never-cached should not count as having real versions")
+	}
+}
+
+func TestReleaseGroupMBIDsWithRealVersionsEmptyInput(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.ReleaseGroupMBIDsWithRealVersions(nil)
+	if err != nil || len(got) != 0 {
+		t.Errorf("ReleaseGroupMBIDsWithRealVersions(nil) = %v, %v, want empty map, nil", got, err)
+	}
+}
+
 func TestDeleteReleaseGroupCacheEmptyInputIsNoop(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.DeleteReleaseGroupCache(nil); err != nil {
 		t.Errorf("DeleteReleaseGroupCache(nil) = %v, want nil", err)
+	}
+}
+
+// TestListReleaseGroupVersionsBulk is the bulk counterpart to
+// TestReplaceAndListReleaseGroupVersions — confirms one call can collect
+// every requested release group's versions at once (used by internal/api's
+// purgeArtistCaches to avoid one query per release group when purging an
+// artist's whole discography).
+func TestListReleaseGroupVersionsBulk(t *testing.T) {
+	s := newTestStore(t)
+
+	if err := s.ReplaceReleaseGroupVersions("rg-1", []ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-1", ReleaseMBID: "rel-1a", Title: "Album One", IsRepresentative: true},
+		{ReleaseGroupMBID: "rg-1", ReleaseMBID: "rel-1b", Title: "Album One (Remaster)"},
+	}); err != nil {
+		t.Fatalf("seed rg-1: %v", err)
+	}
+	if err := s.ReplaceReleaseGroupVersions("rg-2", []ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-2", ReleaseMBID: "rel-2", Title: "Album Two", IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("seed rg-2: %v", err)
+	}
+	// rg-3 is deliberately never seeded — absent from the result, not an
+	// error, same as a single-group ListReleaseGroupVersions miss.
+
+	got, err := s.ListReleaseGroupVersionsBulk([]string{"rg-1", "rg-2", "rg-3"})
+	if err != nil {
+		t.Fatalf("ListReleaseGroupVersionsBulk: %v", err)
+	}
+	if len(got["rg-1"]) != 2 {
+		t.Errorf("rg-1 versions = %+v, want 2", got["rg-1"])
+	}
+	if len(got["rg-2"]) != 1 {
+		t.Errorf("rg-2 versions = %+v, want 1", got["rg-2"])
+	}
+	if _, ok := got["rg-3"]; ok {
+		t.Errorf("rg-3 = %+v, want absent (never cached)", got["rg-3"])
+	}
+}
+
+func TestListReleaseGroupVersionsBulkEmptyInput(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.ListReleaseGroupVersionsBulk(nil)
+	if err != nil || len(got) != 0 {
+		t.Errorf("ListReleaseGroupVersionsBulk(nil) = %v, %v, want empty map, nil", got, err)
 	}
 }
 

@@ -20,10 +20,11 @@ import (
 )
 
 type testAPI struct {
-	srv    *httptest.Server
-	apiKey string
-	db     *sql.DB
-	t      *testing.T
+	srv     *httptest.Server
+	apiKey  string
+	db      *sql.DB
+	dataDir string
+	t       *testing.T
 }
 
 func newTestAPI(t *testing.T) *testAPI {
@@ -42,7 +43,15 @@ func newTestAPI(t *testing.T) *testAPI {
 	handler, _ := NewRouter(cfg, db, "test")
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return &testAPI{srv: srv, apiKey: cfg.APIKey, db: db, t: t}
+	return &testAPI{srv: srv, apiKey: cfg.APIKey, db: db, dataDir: dir, t: t}
+}
+
+// coverArtPath returns where the router's own coverart.Client (see
+// router.go's NewRouter) would cache releaseMBID's front cover — used by
+// tests that need to seed or assert on the actual on-disk cache file, not
+// just database rows.
+func (a *testAPI) coverArtPath(releaseMBID, ext string) string {
+	return filepath.Join(a.dataDir, "covers", "music", releaseMBID+ext)
 }
 
 // call makes an authenticated request and decodes the JSON response into out

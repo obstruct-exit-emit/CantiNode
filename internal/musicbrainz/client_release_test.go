@@ -1,6 +1,7 @@
 package musicbrainz
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -200,6 +201,81 @@ func TestLookupReleaseWithTracklistNotFound(t *testing.T) {
 
 	if _, err := c.LookupReleaseWithTracklist(t.Context(), "does-not-exist"); err == nil {
 		t.Error("expected an error for a 404 response")
+	}
+}
+
+// TestBrowseReleaseGroupReleasesSinglePage covers the common case: a
+// release group with a handful of editions, all returned in one page.
+func TestBrowseReleaseGroupReleasesSinglePage(t *testing.T) {
+	var requests int
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"release-count": 2,
+			"release-offset": 0,
+			"releases": [
+				{"id": "rel-1", "title": "Moonglow", "status": "Official", "media": [{"format": "CD", "track-count": 10}]},
+				{"id": "rel-2", "title": "Moonglow", "status": "Official", "media": [{"format": "Digital Media", "track-count": 10}]}
+			]
+		}`))
+	})
+
+	releases, err := c.BrowseReleaseGroupReleases(t.Context(), "rg-mbid")
+	if err != nil {
+		t.Fatalf("BrowseReleaseGroupReleases: %v", err)
+	}
+	if requests != 1 {
+		t.Errorf("requests = %d, want exactly 1 (single page)", requests)
+	}
+	if len(releases) != 2 {
+		t.Fatalf("releases = %+v, want 2", releases)
+	}
+	if releases[0].TotalTrackCount() != 10 || releases[0].MediaSummary() != "CD" {
+		t.Errorf("releases[0] = %+v", releases[0])
+	}
+}
+
+// TestBrowseReleaseGroupReleasesPaginatesFully is the regression test for
+// the real bug found in review: BrowseReleaseGroupReleases had its limit
+// bumped from 25 to 100 but was never given a pagination loop, so a
+// heavily-reissued release group (100+ pressings/editions — not rare for
+// a classic album) was still silently truncated. Every page must be
+// fetched and combined.
+func TestBrowseReleaseGroupReleasesPaginatesFully(t *testing.T) {
+	const total = 130
+	var gotOffsets []string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		offset := r.URL.Query().Get("offset")
+		gotOffsets = append(gotOffsets, offset)
+		start := 0
+		fmt.Sscanf(offset, "%d", &start)
+		end := start + 100
+		if end > total {
+			end = total
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf(`{"release-count": %d, "release-offset": %d, "releases": [`, total, start))
+		for i := start; i < end; i++ {
+			if i > start {
+				sb.WriteString(",")
+			}
+			sb.WriteString(fmt.Sprintf(`{"id": "rel-%d", "title": "Moonglow"}`, i))
+		}
+		sb.WriteString(`]}`)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sb.String()))
+	})
+
+	releases, err := c.BrowseReleaseGroupReleases(t.Context(), "rg-mbid")
+	if err != nil {
+		t.Fatalf("BrowseReleaseGroupReleases: %v", err)
+	}
+	if len(releases) != total {
+		t.Fatalf("len(releases) = %d, want %d", len(releases), total)
+	}
+	if len(gotOffsets) != 2 || gotOffsets[0] != "0" || gotOffsets[1] != "100" {
+		t.Errorf("offsets = %v, want [0 100]", gotOffsets)
 	}
 }
 

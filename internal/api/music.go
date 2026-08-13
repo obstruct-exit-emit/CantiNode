@@ -136,7 +136,7 @@ func (s *server) handleMonitorMusicArtist(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "mbid is required")
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.artistRefreshCtx(r)
 	defer cancel()
 
 	mbArtist, err := s.mb.LookupArtist(ctx, req.MBID)
@@ -192,7 +192,7 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 		writeMusicStoreError(w, err)
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.artistRefreshCtx(r)
 	defer cancel()
 	if err := s.refreshMusicArtistMetadata(ctx, id, a.MBID); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -434,10 +434,14 @@ func (s *server) cacheDiscographyVersions(ctx context.Context, groups []musiclib
 // caching — added (or last refreshed) before this feature existed, so
 // their discography was synced under the old single-tracklist scheme and
 // has zero release_group_versions rows for any of their release groups.
-// Runs alongside cacheNewArtistsMetadata on every scan; naturally
-// idempotent (cacheDiscographyVersions skips whatever's already cached),
-// so an interrupted sweep just picks up where it left off on the next
-// scan. Best-effort per artist.
+// Runs alongside cacheNewArtistsMetadata on every scan (backgrounded by
+// the caller, since a large library's full backlog can take minutes to
+// hours to clear at MusicBrainz's rate limit); naturally idempotent
+// (cacheDiscographyVersions skips whatever's already cached, and
+// ReleaseGroupMBIDsWithRealVersions — one batched query per artist rather
+// than one per release group — makes an already-caught-up library cheap
+// to re-check on every subsequent scan), so an interrupted sweep just
+// picks up where it left off next time. Best-effort per artist.
 func (s *server) backfillReleaseGroupVersions(ctx context.Context) {
 	artists, err := s.musicStore.ListArtists()
 	if err != nil {
@@ -453,14 +457,21 @@ func (s *server) backfillReleaseGroupVersions(ctx context.Context) {
 			slog.Warn("music: listing release groups for version backfill", "artist", a.Name, "error", err)
 			continue
 		}
+		if len(groups) == 0 {
+			continue
+		}
+		mbids := make([]string, len(groups))
+		for i, g := range groups {
+			mbids[i] = g.ReleaseGroupMBID
+		}
+		cached, err := s.musicStore.ReleaseGroupMBIDsWithRealVersions(mbids)
+		if err != nil {
+			slog.Warn("music: checking version cache", "artist", a.Name, "error", err)
+			continue
+		}
 		var pending []musiclibrary.ReleaseGroupCache
 		for _, g := range groups {
-			has, err := s.musicStore.HasReleaseGroupVersions(g.ReleaseGroupMBID)
-			if err != nil {
-				slog.Warn("music: checking version cache", "releaseGroup", g.Title, "error", err)
-				continue
-			}
-			if !has {
+			if !cached[g.ReleaseGroupMBID] {
 				pending = append(pending, g)
 			}
 		}
@@ -623,7 +634,7 @@ func (s *server) handleListReleaseGroupVersions(w http.ResponseWriter, r *http.R
 // than issuing a second query.
 func hasRealVersionMetadata(versions []musiclibrary.ReleaseGroupVersion) bool {
 	for _, v := range versions {
-		if v.TrackCount > 0 || v.Status != "" {
+		if v.Fetched {
 			return true
 		}
 	}
@@ -660,6 +671,17 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, gerr.Error())
 		return
 	}
+	// Also snapshot owned albums' own specific release MBIDs — purely
+	// artist-scoped (albums.artist_id cascades away with the artist row
+	// itself, no cross-artist sharing concern the way a cached release
+	// group can have), so their cover art must always be purged
+	// regardless of whether release_group_versions has caught up with
+	// this release group yet (see purgeArtistCaches).
+	albums, alerr := s.musicStore.ListAlbumsByArtist(id)
+	if alerr != nil {
+		writeError(w, http.StatusInternalServerError, alerr.Error())
+		return
+	}
 
 	// Cancel any grab still in flight for one of this artist's wanted
 	// albums before DeleteArtist cascades those rows away — otherwise a
@@ -689,7 +711,7 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 		writeMusicStoreError(w, err)
 		return
 	}
-	s.purgeArtistCaches(*artist, groups)
+	s.purgeArtistCaches(*artist, groups, albums)
 	s.writeDeleteResult(w, deleteFiles, paths)
 }
 
@@ -709,8 +731,17 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 // someone else) — a release group can legitimately be cached under more than
 // one artist, and wiping a still-monitored artist's cached version list,
 // tracklist, and cover art just because a different artist that also
-// referenced it was removed would be a silent data-loss bug.
-func (s *server) purgeArtistCaches(artist musiclibrary.Artist, groups []musiclibrary.ReleaseGroupCache) {
+// referenced it was removed would be a silent data-loss bug. Owned albums'
+// own cover art is different: albums.artist_id is purely artist-scoped (no
+// cross-artist sharing possible the way a cached release group has), so
+// their release MBIDs — snapshotted by the caller before DeleteArtist
+// cascades the albums rows away — are always purged, regardless of whether
+// release_group_versions happened to have caught up with that release
+// group yet. Without this, an artist removed before its background
+// discography-version sweep finished (which can take minutes to hours —
+// see cacheDiscographyVersions) could have its owned albums' cover art
+// survive the removal, contradicting this function's own guarantee.
+func (s *server) purgeArtistCaches(artist musiclibrary.Artist, groups []musiclibrary.ReleaseGroupCache, ownedAlbums []musiclibrary.Album) {
 	var candidateMBIDs []string
 	for _, g := range groups {
 		candidateMBIDs = append(candidateMBIDs, g.ReleaseGroupMBID)
@@ -724,19 +755,30 @@ func (s *server) purgeArtistCaches(artist musiclibrary.Artist, groups []musiclib
 		return
 	}
 
+	seenRelease := map[string]bool{}
 	var releaseMBIDs, releaseGroupMBIDs []string
+	addRelease := func(mbid string) {
+		if mbid != "" && !seenRelease[mbid] {
+			seenRelease[mbid] = true
+			releaseMBIDs = append(releaseMBIDs, mbid)
+		}
+	}
+	for _, a := range ownedAlbums {
+		addRelease(a.MBID)
+	}
 	for _, g := range groups {
-		if stillReferenced[g.ReleaseGroupMBID] {
-			continue
+		if !stillReferenced[g.ReleaseGroupMBID] {
+			releaseGroupMBIDs = append(releaseGroupMBIDs, g.ReleaseGroupMBID)
 		}
-		releaseGroupMBIDs = append(releaseGroupMBIDs, g.ReleaseGroupMBID)
-		versions, err := s.musicStore.ListReleaseGroupVersions(g.ReleaseGroupMBID)
-		if err != nil {
-			slog.Warn("music: listing release group versions before purge", "releaseGroup", g.Title, "error", err)
-			continue
-		}
-		for _, v := range versions {
-			releaseMBIDs = append(releaseMBIDs, v.ReleaseMBID)
+	}
+	versionsByGroup, err := s.musicStore.ListReleaseGroupVersionsBulk(releaseGroupMBIDs)
+	if err != nil {
+		slog.Warn("music: listing release group versions before purge", "artist", artist.Name, "error", err)
+	} else {
+		for _, versions := range versionsByGroup {
+			for _, v := range versions {
+				addRelease(v.ReleaseMBID)
+			}
 		}
 	}
 	if err := s.musicStore.DeleteReleaseGroupCache(releaseGroupMBIDs); err != nil {
@@ -1240,7 +1282,6 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 
 		result, err := s.musicScanner.ScanAll(ctx)
 		s.cacheNewArtistsMetadata(ctx)
-		s.backfillReleaseGroupVersions(ctx)
 
 		s.musicScanMu.Lock()
 		finished := time.Now().UTC()
@@ -1251,6 +1292,15 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 			s.musicScanState.Error = err.Error()
 		}
 		s.musicScanMu.Unlock()
+
+		// Backgrounded separately from the scan itself, and started only
+		// after Running has already flipped back to false: a large
+		// library's full version-cache backlog can take minutes to hours
+		// to clear at MusicBrainz's rate limit (see its own doc comment),
+		// and unlike the scan proper, nothing needs to wait on it — a
+		// second "Scan files" click shouldn't see a stale 409 "already
+		// running" for a sweep that isn't the scan at all.
+		go s.backfillReleaseGroupVersions(context.Background())
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -1353,6 +1403,10 @@ func (s *server) handleWantMusicAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wanted, err := s.musicStore.GetOrCreateWantedAlbum(id, found.ReleaseGroupMBID, found.Title, found.PrimaryType, found.FirstReleaseDate)
+	if errors.Is(err, musiclibrary.ErrAlreadyOwned) {
+		writeError(w, http.StatusBadRequest, "this album is already owned")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -38,10 +38,15 @@ func (s *Scanner) SuggestMatches(fileIDs []int64, release *musicbrainz.ReleaseWi
 	tracks := flattenTracks(release)
 	used := make(map[int]bool, len(tracks))
 
+	byID, err := s.db.ListTrackFilesByIDs(fileIDs)
+	if err != nil {
+		return []TrackSuggestion{}
+	}
+
 	out := []TrackSuggestion{}
 	for _, id := range fileIDs {
-		tf, err := s.db.GetTrackFile(id)
-		if err != nil {
+		tf, ok := byID[id]
+		if !ok {
 			continue
 		}
 		var tags tagreader.Tags

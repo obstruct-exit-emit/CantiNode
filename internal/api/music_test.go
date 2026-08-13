@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/cantinode/cantinode/internal/musiclibrary"
@@ -28,9 +30,13 @@ func TestSuggestTrackFileMatchesRequiresFields(t *testing.T) {
 
 // TestHasRealVersionMetadata is the regression test for a real bug: a
 // migrated placeholder row (release_mbid/title only, from migration 022's
-// carryover of the old single-tracklist-cache scheme) must not be treated
-// as "already fully cached," or handleListReleaseGroupVersions would never
-// re-fetch the real version list for any pre-existing artist.
+// carryover of the old single-tracklist-cache scheme, marked fetched=0 by
+// migration 023) must not be treated as "already fully cached," or
+// handleListReleaseGroupVersions would never re-fetch the real version list
+// for any pre-existing artist. hasRealVersionMetadata now trusts the
+// explicit Fetched flag rather than guessing from TrackCount/Status, so a
+// genuinely-fetched row with sparse field data (some real MusicBrainz
+// releases have neither field populated) must still count as real.
 func TestHasRealVersionMetadata(t *testing.T) {
 	cases := []struct {
 		name string
@@ -39,20 +45,56 @@ func TestHasRealVersionMetadata(t *testing.T) {
 	}{
 		{"empty", nil, false},
 		{"migrated placeholder only", []musiclibrary.ReleaseGroupVersion{
-			{ReleaseMBID: "rel-1", Title: "Album"},
+			{ReleaseMBID: "rel-1", Title: "Album", Fetched: false},
 		}, false},
 		{"genuinely fetched", []musiclibrary.ReleaseGroupVersion{
-			{ReleaseMBID: "rel-1", Title: "Album", Status: "Official", TrackCount: 10},
+			{ReleaseMBID: "rel-1", Title: "Album", Status: "Official", TrackCount: 10, Fetched: true},
 		}, true},
 		{"one placeholder, one real", []musiclibrary.ReleaseGroupVersion{
-			{ReleaseMBID: "rel-1", Title: "Album"},
-			{ReleaseMBID: "rel-2", Title: "Album", TrackCount: 5},
+			{ReleaseMBID: "rel-1", Title: "Album", Fetched: false},
+			{ReleaseMBID: "rel-2", Title: "Album", TrackCount: 5, Fetched: true},
+		}, true},
+		{"genuinely fetched but sparse fields", []musiclibrary.ReleaseGroupVersion{
+			{ReleaseMBID: "rel-1", Title: "Album", Fetched: true},
 		}, true},
 	}
 	for _, c := range cases {
 		if got := hasRealVersionMetadata(c.in); got != c.want {
 			t.Errorf("%s: hasRealVersionMetadata = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// TestWantMusicAlbumRefusesAlreadyOwned is the API-level counterpart to
+// musiclibrary's TestGetOrCreateWantedAlbumRefusesAlreadyOwned — confirms
+// the handler surfaces ErrAlreadyOwned as a clean 400 instead of a 500 or
+// (worse) silently creating a duplicate owned+wanted library-grid entry.
+func TestWantMusicAlbumRefusesAlreadyOwned(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	if err := musicStore.ReplaceArtistReleaseGroups(artist.ID, []musiclibrary.ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-1", Title: "Album One", PrimaryType: "Album", FirstReleaseDate: "2020"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups: %v", err)
+	}
+	if _, err := musicStore.GetOrCreateAlbum(artist.ID, "rel-1", "rg-1", "Album One", "2020", "Album"); err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+
+	a.want(a.call("POST", fmt.Sprintf("/api/v1/music/artist/%d/wanted", artist.ID),
+		map[string]any{"releaseGroupMbid": "rg-1"}, nil), http.StatusBadRequest)
+
+	wanted, err := musicStore.ListWantedAlbumsByArtist(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wanted) != 0 {
+		t.Errorf("wanted albums = %+v, want empty — no duplicate should have been created", wanted)
 	}
 }
 
@@ -155,6 +197,58 @@ func TestRemoveMusicArtistKeepsSharedReleaseGroupCache(t *testing.T) {
 	}
 	if _, err := musicStore.GetCachedTracklist("rel-shared"); !errors.Is(err, musiclibrary.ErrNotFound) {
 		t.Errorf("tracklist after removing both artists: err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestRemoveMusicArtistPurgesOwnedAlbumCoverArtEvenWithoutCachedVersions is
+// the regression test for a real gap found in review: purgeArtistCaches
+// only collected release MBIDs to purge cover art for from
+// release_group_versions — but an artist can be removed before its
+// background discography-version sweep (cacheDiscographyVersions, which
+// can take minutes to hours) has cached anything for a release group at
+// all, in which case that lookup returns nothing and an owned album's
+// cover art survived removal, contradicting handleRemoveMusicArtist's own
+// documented "purges every piece of cached metadata" guarantee. Owned
+// albums' own MBIDs must always be purged regardless.
+func TestRemoveMusicArtistPurgesOwnedAlbumCoverArtEvenWithoutCachedVersions(t *testing.T) {
+	a := newTestAPI(t)
+
+	rootDir := t.TempDir()
+	trackPath := filepath.Join(rootDir, "Boards of Canada", "Geogaddi", "01 - Ready Lets Go.flac")
+	if err := os.MkdirAll(filepath.Dir(trackPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trackPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var rf struct {
+		ID int64 `json:"id"`
+	}
+	a.want(a.call("POST", "/api/v1/rootfolder",
+		map[string]string{"mediaType": "music", "path": rootDir}, &rf), http.StatusCreated)
+
+	artistID, albumID, _ := seedMusicFixture(t, a, rf.ID, trackPath)
+	var album struct {
+		MBID string `json:"mbid"`
+	}
+	a.want(a.call("GET", fmt.Sprintf("/api/v1/music/album/%d", albumID), nil, &album), http.StatusOK)
+
+	// Deliberately do NOT seed release_group_versions for this album's
+	// release group — simulates an artist removed before the background
+	// version-cache sweep (which can take minutes to hours) ever reached
+	// it.
+	coverPath := a.coverArtPath(album.MBID, ".jpg")
+	if err := os.MkdirAll(filepath.Dir(coverPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(coverPath, []byte("fake cover art"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/artist/%d", artistID), nil, nil), http.StatusOK)
+
+	if _, err := os.Stat(coverPath); !os.IsNotExist(err) {
+		t.Errorf("cover art at %s still exists after artist removal (err = %v), want it purged", coverPath, err)
 	}
 }
 

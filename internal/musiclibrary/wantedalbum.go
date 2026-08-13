@@ -43,17 +43,37 @@ func scanWantedAlbum(row interface{ Scan(...any) error }) (*WantedAlbum, error) 
 	return &w, nil
 }
 
+// ErrAlreadyOwned means the requested release group is already an owned
+// album — returned by GetOrCreateWantedAlbum so a caller can refuse to
+// want something already in the library, rather than creating a
+// wanted_albums row that duplicates an owned one. This is the "want an
+// already-owned album" direction of a duplicate the app already guards
+// the opposite way: musicscanner.applyMatch's ClearWantedAlbumByReleaseGroup
+// clears a stale wanted row once a file gets matched into the same
+// release group; without this check here, re-wanting that same album
+// afterward (or wanting an album whose files already happened to be
+// sitting matched on disk) would silently recreate the exact duplicate
+// owned+wanted library-grid entry that fix was written to eliminate.
+var ErrAlreadyOwned = errors.New("musiclibrary: release group is already an owned album")
+
 // GetOrCreateWantedAlbum returns the existing wanted album for
 // (artistID, releaseGroupMBID), inserting one (as WantedStatusWanted) if
 // none exists yet — the discography-cache/want flow calls this once per
 // release group the user picks, so it's naturally idempotent across
-// repeated calls.
+// repeated calls. Returns ErrAlreadyOwned instead of inserting anything
+// if (artistID, releaseGroupMBID) is already an owned album.
 func (s *Store) GetOrCreateWantedAlbum(artistID int64, releaseGroupMBID, title, primaryType, releaseDate string) (*WantedAlbum, error) {
 	existing, err := s.getWantedAlbumByReleaseGroup(artistID, releaseGroupMBID)
 	if err == nil {
 		return existing, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	if _, err := s.getAlbumByReleaseGroupMBID(artistID, releaseGroupMBID); err == nil {
+		return nil, ErrAlreadyOwned
+	} else if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
 

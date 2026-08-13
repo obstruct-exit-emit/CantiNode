@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -124,6 +125,37 @@ func (s *Store) GetTrackFile(id int64) (*TrackFile, error) {
 		return nil, fmt.Errorf("get track file: %w", err)
 	}
 	return tf, nil
+}
+
+// ListTrackFilesByIDs returns every track file in ids, keyed by ID — the
+// bulk form of GetTrackFile, used by musicscanner's SuggestMatches to avoid
+// one round trip per file when proposing matches for a whole folder's worth
+// of files at once. An id with no matching row (already deleted, etc.) is
+// simply absent from the result rather than erroring the whole batch.
+func (s *Store) ListTrackFilesByIDs(ids []int64) (map[int64]*TrackFile, error) {
+	out := make(map[int64]*TrackFile, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.db.Query(trackFileSelect+` WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list track files by ids: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		tf, err := scanTrackFile(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan track file: %w", err)
+		}
+		out[tf.ID] = tf
+	}
+	return out, rows.Err()
 }
 
 // SetTrackFileMatch links id to trackID with the given status/confidence.

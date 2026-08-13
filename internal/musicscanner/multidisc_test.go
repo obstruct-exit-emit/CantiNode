@@ -55,6 +55,34 @@ func TestGroupMultiDiscFoldersMergesSameAlbumDiscs(t *testing.T) {
 	}
 }
 
+// TestGroupMultiDiscFoldersRejectsMismatchedArtistWhenOneSideBlank is the
+// regression test for a real gap found in review: the artist-agreement
+// check only ever fired when BOTH sides had a non-empty artist tag and
+// disagreed — a disc with no artist tag at all (common for poorly-tagged
+// rips) skipped the check entirely, so it could merge into a completely
+// different album/artist that happened to share a post-suffix-strip
+// title. One side blank and the other populated must now count as a
+// mismatch, not a free pass.
+func TestGroupMultiDiscFoldersRejectsMismatchedArtistWhenOneSideBlank(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/Box Set/CD1": {
+			// No artist tag at all on this disc's files.
+			entry(1, "/music/Box Set/CD1/01.flac", "", "Greatest Hits CD 1", 0),
+		},
+		"/music/Box Set/CD2": {
+			// A genuinely different release that happens to share a
+			// post-strip album title.
+			entry(2, "/music/Box Set/CD2/01.flac", "Various Artists", "Greatest Hits CD 2", 0),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups)
+
+	if len(got) != 2 {
+		t.Fatalf("groups = %+v, want 2 separate groups (one side has no artist signal, the other does — must not merge)", got)
+	}
+}
+
 // TestGroupMultiDiscFoldersKeepsLooseFilesInParent is the regression test
 // for a severe bug: a loose file sitting directly in the album's parent
 // directory (e.g. a bonus track dropped outside CD1/CD2) shares its
@@ -130,9 +158,12 @@ func TestStripDiscSuffix(t *testing.T) {
 		"Moonglow (Disc 1)":     "Moonglow",
 		"Moonglow [Disc 2]":     "Moonglow",
 		"Moonglow - CD2":        "Moonglow",
+		"CD1 - Moonglow":        "Moonglow",
+		"CD 2: Moonglow":        "Moonglow",
+		"Disc1 Moonglow":        "Moonglow",
 		"Wish You Were Here":    "Wish You Were Here",
 		"The Wall":              "The Wall",
-		"CD Player Repair Disc": "CD Player Repair Disc", // no trailing disc-number qualifier
+		"CD Player Repair Disc": "CD Player Repair Disc", // no disc-number qualifier at all
 	}
 	for in, want := range cases {
 		if got := stripDiscSuffix(in); got != want {

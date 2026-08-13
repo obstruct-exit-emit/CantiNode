@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/cantinode/cantinode/internal/musicbrainz"
@@ -208,9 +209,15 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 // ScanAlbumFolder rescans a single album's own folder for new or changed
 // audio files and matches them against this album's own tracks — the album
 // page's "Scan files" action, scoped to just this album's directory rather
-// than every root folder. The directory scanned is the common parent of
-// the album's existing track files (there's no other reliable way to know
-// where an album's files live), so this errors on an album with none yet.
+// than every root folder. The directory scanned is the common ancestor of
+// ALL of the album's existing track files' directories (there's no other
+// reliable way to know where an album's files live), so this errors on an
+// album with none yet. Using every existing file rather than just the
+// first one matters for a multi-disc album: existing[0] could land in
+// either CD1 or CD2, and scanning only that one disc's subfolder would
+// silently never discover new/changed files sitting in the other disc's
+// folder — the same sibling-folder walk ScanRootFolder already does for a
+// full library scan.
 //
 // Never runs DeleteTrackFilesMissing (which reconciles a whole root folder
 // against seenPaths — doing that here with a directory-scoped seenPaths
@@ -232,7 +239,11 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 	if err != nil {
 		return nil, fmt.Errorf("get root folder: %w", err)
 	}
-	dir := filepath.Dir(existing[0].Path)
+	fileDirs := make([]string, 0, len(existing))
+	for _, tf := range existing {
+		fileDirs = append(fileDirs, filepath.Dir(tf.Path))
+	}
+	dir := commonAncestorDir(fileDirs)
 
 	result := &ScanResult{Errors: []string{}}
 	groups := map[string][]folderEntry{}
@@ -302,6 +313,36 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 		s.matchFolder(ctx, groups[d], result)
 	}
 	return result, nil
+}
+
+// commonAncestorDir returns the deepest directory that is an ancestor of
+// (or equal to) every directory in dirs — component-wise, not a string
+// prefix (so "/music/Album" and "/music/Album2" correctly reduce to
+// "/music" rather than the meaningless partial-string overlap "/music/Album").
+// Used by ScanAlbumFolder to find one walk root that covers every existing
+// disc subfolder of a multi-disc album. dirs is assumed non-empty.
+func commonAncestorDir(dirs []string) string {
+	common := strings.Split(filepath.Clean(dirs[0]), string(filepath.Separator))
+	for _, d := range dirs[1:] {
+		parts := strings.Split(filepath.Clean(d), string(filepath.Separator))
+		n := len(common)
+		if len(parts) < n {
+			n = len(parts)
+		}
+		i := 0
+		for i < n && common[i] == parts[i] {
+			i++
+		}
+		common = common[:i]
+	}
+	if len(common) == 0 {
+		return string(filepath.Separator)
+	}
+	joined := strings.Join(common, string(filepath.Separator))
+	if joined == "" {
+		return string(filepath.Separator)
+	}
+	return joined
 }
 
 // upsertFile reads path's tags, stats it, and upserts its track_files

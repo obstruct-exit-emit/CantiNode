@@ -329,10 +329,20 @@ var discFolderPattern = regexp.MustCompile(`(?i)^(?:cd|disc|disk|d)[\s_.-]*0*([0
 // merging two discs of the very album this function exists to merge.
 var discSuffixPattern = regexp.MustCompile(`(?i)[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[)\]]?\s*$`)
 
-// stripDiscSuffix removes a trailing disc-number qualifier from album, if
-// present — "Moonglow CD 1" -> "Moonglow", "Wish You Were Here" unchanged.
+// discPrefixPattern is discSuffixPattern's mirror for the other common
+// per-disc tagging convention — a LEADING qualifier ("CD1 - Moonglow",
+// "Disc 2: Moonglow") instead of a trailing one. Real-world rips use
+// either convention about as often, so stripping only trailing qualifiers
+// would still fail to merge two discs tagged with the prefix style.
+var discPrefixPattern = regexp.MustCompile(`(?i)^(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[\s:.-]+`)
+
+// stripDiscSuffix removes a disc-number qualifier from album, wherever it
+// appears — trailing ("Moonglow CD 1" -> "Moonglow") or leading ("CD1 -
+// Moonglow" -> "Moonglow"); "Wish You Were Here" is unchanged either way.
 func stripDiscSuffix(album string) string {
-	return strings.TrimSpace(discSuffixPattern.ReplaceAllString(album, ""))
+	album = discPrefixPattern.ReplaceAllString(album, "")
+	album = discSuffixPattern.ReplaceAllString(album, "")
+	return strings.TrimSpace(album)
 }
 
 // groupMultiDiscFolders re-groups per-directory folder groups (as built by
@@ -393,7 +403,19 @@ func groupMultiDiscFolders(groups map[string][]folderEntry) map[string][]folderE
 				refArtist, refAlbum = artist, album
 				continue
 			}
-			if !strings.EqualFold(refAlbum, album) || (refArtist != "" && artist != "" && !strings.EqualFold(refArtist, artist)) {
+			// Artist agreement: both sides having no artist tag at all is
+			// still "no signal either way" (album match alone decides, as
+			// before) — but one side present and the other blank is now a
+			// mismatch, not a free pass. Previously the check only ever
+			// fired when BOTH sides were non-empty and differed, so a
+			// disc with no artist tag at all could merge into a
+			// completely different album/artist that happened to share a
+			// (post-suffix-strip) title — exactly the kind of mixed
+			// discography/box-set bundle this function exists to keep
+			// apart.
+			artistsAgree := (refArtist == "" && artist == "") ||
+				(refArtist != "" && artist != "" && strings.EqualFold(refArtist, artist))
+			if !strings.EqualFold(refAlbum, album) || !artistsAgree {
 				agree = false
 				break
 			}

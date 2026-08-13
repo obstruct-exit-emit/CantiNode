@@ -111,17 +111,19 @@ func (c *Client) LookupArtist(ctx context.Context, mbid string) (*Artist, error)
 	return &artist, nil
 }
 
-// releaseGroupBrowseLimit is MusicBrainz's own maximum page size for a
-// browse request — the highest single-page cost, minimizing the number of
-// pages (and so the number of rate-limited round trips) a large discography
-// needs.
-const releaseGroupBrowseLimit = 100
+// browseLimit is MusicBrainz's own maximum page size for a browse
+// request — shared by BrowseArtistReleaseGroups and
+// BrowseReleaseGroupReleases, both of which need every page of a
+// potentially large result set: the highest single-page cost minimizes
+// the number of pages (and so the number of rate-limited round trips)
+// either one needs.
+const browseLimit = 100
 
-// releaseGroupBrowseMaxPages bounds how many pages BrowseArtistReleaseGroups
-// will ever fetch (100 × 100 = 10,000 release groups) — a sanity ceiling
-// against a malformed/malicious response looping forever, not a limit any
-// real artist's discography should ever approach.
-const releaseGroupBrowseMaxPages = 100
+// browseMaxPages bounds how many pages either browse loop will ever fetch
+// (100 × 100 = 10,000 rows) — a sanity ceiling against a malformed
+// response looping forever, not a limit any real artist's discography or
+// release group's edition count should ever approach.
+const browseMaxPages = 100
 
 // BrowseArtistReleaseGroups returns mbid's ENTIRE release-group list,
 // fully paginated — MusicBrainz's browse response reports the artist's
@@ -136,11 +138,11 @@ const releaseGroupBrowseMaxPages = 100
 // prolific artist can have hundreds; this fetches all of them.
 func (c *Client) BrowseArtistReleaseGroups(ctx context.Context, mbid string) ([]ReleaseGroupSummary, error) {
 	var out []ReleaseGroupSummary
-	for page := 0; page < releaseGroupBrowseMaxPages; page++ {
-		offset := page * releaseGroupBrowseLimit
+	for page := 0; page < browseMaxPages; page++ {
+		offset := page * browseLimit
 		body, err := c.get(ctx, "/release-group/", url.Values{
 			"artist": {mbid},
-			"limit":  {fmt.Sprintf("%d", releaseGroupBrowseLimit)},
+			"limit":  {fmt.Sprintf("%d", browseLimit)},
 			"offset": {fmt.Sprintf("%d", offset)},
 			"fmt":    {"json"},
 		})
@@ -255,21 +257,38 @@ func (c *Client) SearchReleases(ctx context.Context, artist, release string) ([]
 // cost of a full per-track fetch — enough to tell editions apart (a
 // single-disc reissue vs. the original 2×CD release) and to score a
 // version against a folder's own file count.
+// BrowseReleaseGroupReleases returns releaseGroupMBID's ENTIRE release
+// list, fully paginated — mirrors BrowseArtistReleaseGroups' own fix for
+// the identical bug: a browse response reports the release group's true
+// total (release-count) separately from how many one page returns, so a
+// single request capped at even MusicBrainz's own maximum page size (100)
+// still silently truncates a heavily-reissued release group (100+
+// pressings/editions isn't rare for a classic album). Every page is its
+// own rate-limited request.
 func (c *Client) BrowseReleaseGroupReleases(ctx context.Context, releaseGroupMBID string) ([]ReleaseSearchResult, error) {
-	body, err := c.get(ctx, "/release/", url.Values{
-		"release-group": {releaseGroupMBID},
-		"inc":           {"media"},
-		"fmt":           {"json"},
-		"limit":         {"100"},
-	})
-	if err != nil {
-		return nil, err
+	var out []ReleaseSearchResult
+	for page := 0; page < browseMaxPages; page++ {
+		offset := page * browseLimit
+		body, err := c.get(ctx, "/release/", url.Values{
+			"release-group": {releaseGroupMBID},
+			"inc":           {"media"},
+			"fmt":           {"json"},
+			"limit":         {fmt.Sprintf("%d", browseLimit)},
+			"offset":        {fmt.Sprintf("%d", offset)},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("browse release-group %s releases (offset %d): %w", releaseGroupMBID, offset, err)
+		}
+		var resp releaseBrowseResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("decode release-group %s releases (offset %d): %w", releaseGroupMBID, offset, err)
+		}
+		out = append(out, resp.Releases...)
+		if len(resp.Releases) == 0 || len(out) >= resp.Count {
+			break
+		}
 	}
-	var resp releaseSearchResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("decode release-group %s releases: %w", releaseGroupMBID, err)
-	}
-	return resp.Releases, nil
+	return out, nil
 }
 
 // buildReleaseQuery mirrors buildRecordingQuery's scoping, just without a

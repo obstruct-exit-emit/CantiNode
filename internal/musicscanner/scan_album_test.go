@@ -200,3 +200,81 @@ func TestScanAlbumFolderNeverTouchesSiblingAlbum(t *testing.T) {
 		t.Errorf("sibling album track files = %+v, want its one file untouched", siblingFiles)
 	}
 }
+
+// TestScanAlbumFolderDiscoversNewFilesInSiblingDiscSubfolder is the
+// regression test for a real gap: ScanAlbumFolder used to walk only
+// filepath.Dir(existing[0].Path) — and ListTrackFilesByAlbum orders its
+// result by path, so for a matched multi-disc album existing[0] is
+// deterministically the CD1 file ("CD1" sorts before "CD2"). Any new file
+// dropped into the CD2 sibling folder was therefore never discovered at
+// all: no track_files row, no match attempt, nothing — WalkDir starting
+// from CD1 has no way to reach a directory beside it. commonAncestorDir now
+// walks from the shared parent of EVERY existing file's directory, which
+// for this album is the "Moonglow (2CD)" folder covering both discs.
+func TestScanAlbumFolderDiscoversNewFilesInSiblingDiscSubfolder(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.releaseSearch = []mbReleaseSearchResult{
+		{ID: "rel-main", Title: "Moonglow", Score: 100, TrackCount: 2,
+			ArtistCredit: []mbArtistCredit{{Name: "Avantasia", Artist: mbArtistRef{ID: "artist-mbid", Name: "Avantasia"}}},
+			ReleaseGroup: mbReleaseGroup{ID: "rg-main", Title: "Moonglow", PrimaryType: "Album"}},
+	}
+	fs.releaseLookups["rel-main"] = newTestAlbumRelease("rel-main", "Moonglow", "Track One", "Track Two")
+
+	s, rf := newFolderTestScanner(t, fs)
+
+	albumDir := filepath.Join(rf.Path, "Avantasia", "Moonglow (2CD)")
+	cd1Dir := filepath.Join(albumDir, "CD1")
+	cd2Dir := filepath.Join(albumDir, "CD2")
+	if err := os.MkdirAll(cd1Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cd2Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// One track per disc — groupMultiDiscFolders merges CD1+CD2 into one
+	// logical group for matching, exactly like a real 2-disc rip.
+	buildFLACFile(t, cd1Dir, "01.flac", map[string]string{"ARTIST": "Avantasia", "ALBUM": "Moonglow", "TITLE": "Track One", "TRACKNUMBER": "1"})
+	buildFLACFile(t, cd2Dir, "01.flac", map[string]string{"ARTIST": "Avantasia", "ALBUM": "Moonglow", "TITLE": "Track Two", "TRACKNUMBER": "1"})
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("initial ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 2 {
+		t.Fatalf("initial scan FilesMatched = %d, want 2 (result=%+v)", result.FilesMatched, result)
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil || len(albums) != 1 {
+		t.Fatalf("albums = %+v, err %v, want exactly 1", albums, err)
+	}
+	album := albums[0]
+
+	existing, err := s.db.ListTrackFilesByAlbum(album.ID)
+	if err != nil || len(existing) != 2 {
+		t.Fatalf("existing = %+v, err %v, want 2 matched files", existing, err)
+	}
+	if filepath.Dir(existing[0].Path) != cd1Dir {
+		t.Fatalf("existing[0] = %q, want the CD1 file (path-ordering assumption this test depends on)", existing[0].Path)
+	}
+
+	// A bonus track arrives later, dropped directly into CD2 — the disc
+	// existing[0] (CD1) knows nothing about. Whether this new lone file
+	// goes on to match anything isn't the point (it's alone in its group,
+	// takes the per-file fuzzy fallback with no recording-search fixture
+	// configured, and will simply stay unmatched) — what matters is that
+	// the walk reaches it at all and gives it a track_files row.
+	buildFLACFile(t, cd2Dir, "02.flac", map[string]string{"ARTIST": "Avantasia", "ALBUM": "Moonglow", "TITLE": "Bonus Track", "TRACKNUMBER": "2"})
+
+	if _, err := s.ScanAlbumFolder(t.Context(), album.ID); err != nil {
+		t.Fatalf("ScanAlbumFolder: %v", err)
+	}
+
+	files, err := s.db.ListTrackFilesByRootFolder(rf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 3 {
+		t.Fatalf("track files under root folder = %+v, want 3 (both original disc files plus the newly-discovered CD2 bonus track)", files)
+	}
+}

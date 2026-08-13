@@ -275,6 +275,18 @@ type releaseSearchResponse struct {
 	Count    int                   `json:"count"`
 }
 
+// releaseBrowseResponse is one page of BrowseReleaseGroupReleases — a
+// browse-by-relation response, whose pagination fields are named
+// differently from a full-text search response's (release-count/
+// release-offset here, vs releaseSearchResponse's plain "count" for
+// SearchReleases) — the same distinction releaseGroupBrowseResponse
+// already makes for BrowseArtistReleaseGroups.
+type releaseBrowseResponse struct {
+	Releases []ReleaseSearchResult `json:"releases"`
+	Count    int                   `json:"release-count"`
+	Offset   int                   `json:"release-offset"`
+}
+
 // ReleaseTrack is one track position within a release's medium, as
 // returned by LookupReleaseWithTracklist — distinct from a bare Recording:
 // it carries this specific release's own track/disc position and title,

@@ -1,6 +1,9 @@
 package musiclibrary
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestGetOrCreateWantedAlbumCreatesThenReuses(t *testing.T) {
 	db := newTestStore(t)
@@ -23,6 +26,36 @@ func TestGetOrCreateWantedAlbumCreatesThenReuses(t *testing.T) {
 	}
 	if w2.ID != w1.ID {
 		t.Errorf("second call created a new row: ID = %d, want %d", w2.ID, w1.ID)
+	}
+}
+
+// TestGetOrCreateWantedAlbumRefusesAlreadyOwned is the regression test for
+// the other direction of a duplicate owned+wanted album found live: even
+// though matcher.go's applyMatch already clears a stale wanted row once a
+// file gets matched into the same release group, nothing stopped the
+// reverse — wanting an album that's already owned (a stale "+ Add" click,
+// or an album whose files already happen to be sitting matched on disk)
+// would recreate the exact same duplicate from the other side.
+func TestGetOrCreateWantedAlbumRefusesAlreadyOwned(t *testing.T) {
+	db := newTestStore(t)
+	a, err := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetOrCreateAlbum(a.ID, "rel-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album"); err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+
+	if _, err := db.GetOrCreateWantedAlbum(a.ID, "rg-mbid", "Geogaddi", "Album", "2002-02-04"); !errors.Is(err, ErrAlreadyOwned) {
+		t.Fatalf("GetOrCreateWantedAlbum for an owned release group: err = %v, want ErrAlreadyOwned", err)
+	}
+
+	wanted, err := db.ListWantedAlbumsByArtist(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wanted) != 0 {
+		t.Errorf("wanted albums = %+v, want empty — no row should have been created", wanted)
 	}
 }
 

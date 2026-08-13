@@ -25,22 +25,34 @@ type ReleaseGroupVersion struct {
 	TrackCount       int       `json:"trackCount"`
 	MediaSummary     string    `json:"mediaSummary"`
 	IsRepresentative bool      `json:"isRepresentative"`
-	FetchedAt        time.Time `json:"fetchedAt"`
+	// Fetched is false only for a placeholder row migration 022 carried
+	// over from the old single-release-tracklist scheme (release_mbid/
+	// title only, everything else blank) — every row ReplaceReleaseGroupVersions
+	// itself ever inserts is genuinely fetched, so this is always true for
+	// anything written after that one-time migration. Replaced an earlier
+	// heuristic (guessing "placeholder" from TrackCount==0 && Status=="")
+	// that could misclassify a real MusicBrainz release with neither field
+	// populated — see migration 023.
+	Fetched   bool      `json:"fetched"`
+	FetchedAt time.Time `json:"fetchedAt"`
 }
 
-const releaseGroupVersionSelect = `SELECT id, release_group_mbid, release_mbid, title, release_date, country, status, disambiguation, track_count, media_summary, is_representative, fetched_at FROM release_group_versions`
+const releaseGroupVersionSelect = `SELECT id, release_group_mbid, release_mbid, title, release_date, country, status, disambiguation, track_count, media_summary, is_representative, fetched, fetched_at FROM release_group_versions`
 
 func scanReleaseGroupVersion(row interface{ Scan(...any) error }) (ReleaseGroupVersion, error) {
 	var v ReleaseGroupVersion
 	err := row.Scan(&v.ID, &v.ReleaseGroupMBID, &v.ReleaseMBID, &v.Title, &v.ReleaseDate, &v.Country,
-		&v.Status, &v.Disambiguation, &v.TrackCount, &v.MediaSummary, &v.IsRepresentative, &v.FetchedAt)
+		&v.Status, &v.Disambiguation, &v.TrackCount, &v.MediaSummary, &v.IsRepresentative, &v.Fetched, &v.FetchedAt)
 	return v, err
 }
 
 // ReplaceReleaseGroupVersions replaces every cached version of
 // releaseGroupMBID with versions — delete-then-reinsert, mirroring
 // ReplaceArtistReleaseGroups: the point of a refresh is "whatever
-// MusicBrainz has now, wholesale," not a fine-grained diff.
+// MusicBrainz has now, wholesale," not a fine-grained diff. Every row this
+// writes is marked fetched=1 unconditionally — this function is only ever
+// called with data just pulled live from MusicBrainz (see internal/api's
+// cacheReleaseGroupVersions), never with a placeholder.
 func (s *Store) ReplaceReleaseGroupVersions(releaseGroupMBID string, versions []ReleaseGroupVersion) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -51,14 +63,21 @@ func (s *Store) ReplaceReleaseGroupVersions(releaseGroupMBID string, versions []
 	if _, err := tx.Exec(`DELETE FROM release_group_versions WHERE release_group_mbid = ?`, releaseGroupMBID); err != nil {
 		return fmt.Errorf("clear existing versions: %w", err)
 	}
-	for _, v := range versions {
+	if len(versions) > 0 {
+		rowPlaceholder := "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+		valuePlaceholders := make([]string, len(versions))
+		args := make([]any, 0, len(versions)*10)
+		for i, v := range versions {
+			valuePlaceholders[i] = rowPlaceholder
+			args = append(args, releaseGroupMBID, v.ReleaseMBID, v.Title, v.ReleaseDate, v.Country, v.Status,
+				v.Disambiguation, v.TrackCount, v.MediaSummary, v.IsRepresentative)
+		}
 		if _, err := tx.Exec(
 			`INSERT INTO release_group_versions
-			 (release_group_mbid, release_mbid, title, release_date, country, status, disambiguation, track_count, media_summary, is_representative)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			releaseGroupMBID, v.ReleaseMBID, v.Title, v.ReleaseDate, v.Country, v.Status,
-			v.Disambiguation, v.TrackCount, v.MediaSummary, v.IsRepresentative); err != nil {
-			return fmt.Errorf("insert version %s: %w", v.ReleaseMBID, err)
+			 (release_group_mbid, release_mbid, title, release_date, country, status, disambiguation, track_count, media_summary, is_representative, fetched)
+			 VALUES `+strings.Join(valuePlaceholders, ","),
+			args...); err != nil {
+			return fmt.Errorf("insert versions: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -90,6 +109,41 @@ func (s *Store) ListReleaseGroupVersions(releaseGroupMBID string) ([]ReleaseGrou
 	return out, rows.Err()
 }
 
+// ListReleaseGroupVersionsBulk is the bulk form of ListReleaseGroupVersions
+// — one query for every release group in releaseGroupMBIDs instead of one
+// per release group. Used by internal/api's purgeArtistCaches to collect
+// every cached release MBID (for cover-art purging) across an entire
+// artist's unreferenced discography at once. Grouping order within each
+// release group's slice is unspecified (unlike ListReleaseGroupVersions,
+// which orders by representative/date) — every caller of this bulk form so
+// far only needs the release MBIDs, not a meaningful ordering.
+func (s *Store) ListReleaseGroupVersionsBulk(releaseGroupMBIDs []string) (map[string][]ReleaseGroupVersion, error) {
+	out := make(map[string][]ReleaseGroupVersion, len(releaseGroupMBIDs))
+	if len(releaseGroupMBIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(releaseGroupMBIDs))
+	args := make([]any, len(releaseGroupMBIDs))
+	for i, mbid := range releaseGroupMBIDs {
+		placeholders[i] = "?"
+		args[i] = mbid
+	}
+	rows, err := s.db.Query(releaseGroupVersionSelect+
+		` WHERE release_group_mbid IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list release group versions in bulk: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		v, err := scanReleaseGroupVersion(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan release group version: %w", err)
+		}
+		out[v.ReleaseGroupMBID] = append(out[v.ReleaseGroupMBID], v)
+	}
+	return out, rows.Err()
+}
+
 // HasReleaseGroupVersions reports whether releaseGroupMBID has a genuinely
 // fetched cached version — not just the placeholder row migration 022
 // carried over from the old single-release-tracklist scheme (release_mbid/
@@ -104,7 +158,7 @@ func (s *Store) ListReleaseGroupVersions(releaseGroupMBID string) ([]ReleaseGrou
 func (s *Store) HasReleaseGroupVersions(releaseGroupMBID string) (bool, error) {
 	var n int
 	err := s.db.QueryRow(
-		`SELECT COUNT(1) FROM release_group_versions WHERE release_group_mbid = ? AND (track_count > 0 OR status != '')`,
+		`SELECT COUNT(1) FROM release_group_versions WHERE release_group_mbid = ? AND fetched = 1`,
 		releaseGroupMBID).Scan(&n)
 	if err != nil {
 		return false, fmt.Errorf("check release group versions: %w", err)
@@ -168,6 +222,42 @@ func (s *Store) ReleaseGroupMBIDsStillReferenced(releaseGroupMBIDs []string) (ma
 	return referenced, rows.Err()
 }
 
+// ReleaseGroupMBIDsWithRealVersions is the bulk form of
+// HasReleaseGroupVersions — filters releaseGroupMBIDs down to the subset
+// that already have at least one genuinely-fetched version cached (not
+// just a migration-022 placeholder row), in one query instead of one per
+// release group. Used by the backfill sweep (see internal/api's
+// backfillReleaseGroupVersions) to check an artist's entire discography
+// at once rather than round-tripping per release group.
+func (s *Store) ReleaseGroupMBIDsWithRealVersions(releaseGroupMBIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(releaseGroupMBIDs))
+	if len(releaseGroupMBIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(releaseGroupMBIDs))
+	args := make([]any, len(releaseGroupMBIDs))
+	for i, mbid := range releaseGroupMBIDs {
+		placeholders[i] = "?"
+		args[i] = mbid
+	}
+	rows, err := s.db.Query(
+		`SELECT DISTINCT release_group_mbid FROM release_group_versions
+		 WHERE fetched = 1 AND release_group_mbid IN (`+strings.Join(placeholders, ",")+`)`,
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("check release group versions in bulk: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var mbid string
+		if err := rows.Scan(&mbid); err != nil {
+			return nil, fmt.Errorf("scan release group mbid: %w", err)
+		}
+		out[mbid] = true
+	}
+	return out, rows.Err()
+}
+
 // DeleteReleaseGroupCache purges every cached version and tracklist for
 // releaseGroupMBIDs — used when an artist is removed (see internal/api's
 // handleRemoveMusicArtist): unlike artist_release_groups (which cascades
@@ -179,18 +269,24 @@ func (s *Store) DeleteReleaseGroupCache(releaseGroupMBIDs []string) error {
 	if len(releaseGroupMBIDs) == 0 {
 		return nil
 	}
+	placeholders := make([]string, len(releaseGroupMBIDs))
+	args := make([]any, len(releaseGroupMBIDs))
+	for i, mbid := range releaseGroupMBIDs {
+		placeholders[i] = "?"
+		args[i] = mbid
+	}
+	inClause := "(" + strings.Join(placeholders, ",") + ")"
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
-	for _, mbid := range releaseGroupMBIDs {
-		if _, err := tx.Exec(`DELETE FROM release_group_versions WHERE release_group_mbid = ?`, mbid); err != nil {
-			return fmt.Errorf("delete release group versions %s: %w", mbid, err)
-		}
-		if _, err := tx.Exec(`DELETE FROM release_tracklist_cache WHERE release_group_mbid = ?`, mbid); err != nil {
-			return fmt.Errorf("delete release tracklist cache %s: %w", mbid, err)
-		}
+	if _, err := tx.Exec(`DELETE FROM release_group_versions WHERE release_group_mbid IN `+inClause, args...); err != nil {
+		return fmt.Errorf("delete release group versions: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM release_tracklist_cache WHERE release_group_mbid IN `+inClause, args...); err != nil {
+		return fmt.Errorf("delete release tracklist cache: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)

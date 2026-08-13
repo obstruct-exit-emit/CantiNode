@@ -13,8 +13,22 @@ import (
 
 const metadataTimeout = 60 * time.Second
 
+// artistRefreshTimeout budgets handleMonitorMusicArtist/handleRefreshMusicArtist,
+// whose synchronous path includes BrowseArtistReleaseGroups — now fully
+// paginated (see internal/musicbrainz's browseMaxPages) rather than
+// truncated at 25, so an extremely prolific artist (well into the
+// thousands of release groups) can need many sequential requests at
+// MusicBrainz's ~1.1s-per-request rate limit. metadataTimeout's 60s was
+// sized for the single-request lookups the rest of this package makes and
+// leaves too little headroom here.
+const artistRefreshTimeout = 5 * time.Minute
+
 func (s *server) metadataCtx(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(r.Context(), metadataTimeout)
+}
+
+func (s *server) artistRefreshCtx(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), artistRefreshTimeout)
 }
 
 func pathID(r *http.Request) (int64, bool) {
