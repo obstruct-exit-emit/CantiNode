@@ -384,6 +384,98 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **An artist's release-group list, and now also a release group's own list
+  of editions/pressings, were silently capped at MusicBrainz's default page
+  size (25/page).** The artist-discography cap was fixed first
+  (`BrowseArtistReleaseGroups`, replacing `LookupArtist`'s `inc=release-groups`
+  sub-resource — verified live: Boards of Canada went from a capped 25 to
+  its real 41, Sex Pistols to 126); a full code-review pass afterward found
+  the release-version picker's own release-list fetch
+  (`BrowseReleaseGroupReleases`) had the exact same bug, fixed the same way.
+  Both now paginate fully.
+- **`release_group_versions` rows carried over from the old single-tracklist
+  cache scheme (migration 022) could be mistaken for a genuinely-fetched,
+  just sparse, real MusicBrainz release** — the original heuristic guessed
+  "not yet fetched" from `track_count == 0 && status == ""`, which a real
+  release with neither field populated could also match, causing an
+  unbounded, repeated live re-fetch for that one release group on every
+  scan and every version-dropdown open. Replaced with an explicit `fetched`
+  column (migration 023) instead of guessing.
+- **The album page's "Scan files" only ever looked in one specific CD
+  subfolder of a multi-disc album**, not the album's other discs — it
+  derived its scan directory from the first existing track file's own
+  folder, and `ListTrackFilesByAlbum`'s path-ordering makes that
+  deterministically the CD1 folder, so a new or changed file dropped into
+  CD2 (or any other sibling disc folder) was never discovered. It now walks
+  the common ancestor of every existing file's directory instead.
+- **The unmatched-files auto-match panel could apply a stale pick's result
+  after a newer one had already superseded it** — picking a different
+  artist/album/version while a previous fetch was still in flight, or
+  triggering a second auto-match before the first finished, could let the
+  older async call's response clobber what the newer selection had already
+  set. Every async chain (artist/album/version pick, auto-match) now
+  carries a request token and discards its own result if a newer action
+  has started since.
+- **CD1/CD2/Disc-N folder-grouping for matching had several real gaps**,
+  found and fixed across two passes the same night: a disc subfolder with
+  no artist tag at all skipped the artist-agreement check entirely (one
+  side blank, other populated read as "no conflict" instead of a mismatch,
+  risking a merge into a completely different album/artist); a loose file
+  sitting directly in the album's parent folder (e.g. a bonus track outside
+  CD1/CD2) shared its group key with the merge target, so the catch-all
+  copy-through-unmerged-groups step could silently overwrite the merged
+  CD1+CD2 result with just that one loose file, discarding every disc
+  track; and `discSuffixPattern` (both the Go scanner and its TypeScript
+  mirror) only made a trailing `)` optional, never `]` (so `"Album [Disc
+  2]"` wasn't stripped before comparison) and only stripped a *trailing*
+  qualifier, never a *leading* one (`"CD1 - Moonglow"` didn't normalize to
+  `"Moonglow"`). All fixed, with regression tests.
+- **Removing an artist could leave a shared release group's cached cover
+  art orphaned, or leave an owned album's cover art behind entirely.**
+  `purgeArtistCaches` originally purged a removed artist's whole cached
+  discography unconditionally, including a release group a *different*,
+  still-present artist also references (a collaboration/split release both
+  discographies list) — silent data loss for the artist left behind; fixed
+  with a `ReleaseGroupMBIDsStillReferenced` check that skips anything still
+  referenced elsewhere. Separately, owned albums' own cover art was never
+  added to the purge list at all (only cached release-group *version*
+  metadata was) — fixed by unconditionally including every owned album's
+  release MBID before filtering.
+- **An album that was Wanted before its files ended up matched via any path
+  other than the grab→import pipeline kept showing up twice in the library
+  grid** — once owned, once still wanted, each side resolving cover art
+  differently (which is what made the latent bug visible as two
+  different-quality covers for the same album). Fixed from both directions:
+  `applyMatch` now clears any `wanted_albums` row for the same
+  (artist, release group) once a file actually matches into it, and
+  `GetOrCreateWantedAlbum` now refuses to create a wanted-album row for a
+  release group that's already owned in the first place.
+- **Artist biographies from TheAudioDB were always empty** — the client
+  struct tagged the field `strBiographyEN`, but TheAudioDB's English
+  biography field is actually just `strBiography` (only *other* languages
+  get a suffix: `strBiographyDE`, `strBiographyFR`, …). Not a
+  data-availability gap, a typo present since this client was written; the
+  test fixtures used the same wrong field name, which is exactly why it
+  went undetected — they validated the code against itself, not real
+  TheAudioDB data. Confirmed against TheAudioDB's live API before fixing.
+- **`backfillReleaseGroupVersions` (the sweep that catches artists added
+  before version caching existed) was defined but never actually called
+  from `handleTriggerMusicScan`** — the backfill never ran on any scan.
+  Wired in, then moved to a background goroutine (fired after the scan's
+  own `Running` flag clears) so it no longer blocks the scan-trigger
+  request while it walks a whole library's discographies.
+- **The library grid always showed "0 albums," even for artists that
+  genuinely owned some** — `handleListMusicArtists` returned plain artist
+  rows with no album-count field at all. Now attaches owned/total counts in
+  bulk. The total was initially the artist's whole cached discography size
+  (`CountReleaseGroupsByArtist`), which read as "1/126" for an artist with
+  a big catalog and nothing else wanted — not useful — so it was changed
+  again the same night to `owned/(owned+wanted)` via a new
+  `CountWantedAlbumsByArtist`, matching what Missing actually offers.
+- Also hardened `cacheAllVersionTracklists`/`getReleaseWithTracklist`
+  against an unparseable cached tracklist row being treated as
+  "already warm" forever, so a corrupted cache entry can self-heal on the
+  next fetch instead of silently starving the tracklist view.
 - **Importing a finished download copied everything in it, junk included** —
   NFOs, cover-art images, sample/proof folders, `.sfv`/`.m3u` sidecar
   files, all of it landed in the music library alongside the actual audio.
@@ -835,6 +927,22 @@ in progress. Highlights from the hardening period, newest first:
   covering clients that ignore the delete-files flag.
 
 ### Changed
+- **Monitoring or refreshing an artist gets its own 5-minute timeout**
+  (`handleMonitorMusicArtist`/`handleRefreshMusicArtist`), up from the 60s
+  shared with every other single-request metadata endpoint — now that
+  release-group pagination fetches every page instead of truncating (see
+  Fixed above), an extremely prolific artist's discography sync can need
+  more sequential MusicBrainz requests than the old budget comfortably
+  allowed.
+- Renamed the unmatched-files page's per-folder toggle from **"Auto-match…"**
+  to **"Match…"** — it opens a panel for manual dropdown picking as much as
+  automatic pre-filling, so "Auto-match" undersold what it actually does.
+- Several per-row database round trips became single batched queries
+  (`purgeArtistCaches`' version lookups, `DeleteReleaseGroupCache`'s
+  per-mbid deletes, `ReplaceReleaseGroupVersions`' per-row insert,
+  `SuggestMatches`' per-file lookup), and the unmatched-files page's
+  "Approve all" now fires every suggestion's match request in parallel
+  instead of awaiting them one at a time.
 - **Prowlarr integration no longer pretends to be a Readarr application.**
   The old model added CantiNode to Prowlarr as an "application" — Prowlarr
   would push its indexers into CantiNode via a Readarr-v1-shaped API

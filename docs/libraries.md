@@ -112,10 +112,12 @@ existed — so picking among them afterward never calls MusicBrainz again.
 **Scan files** on the Music page or an artist's own page walks every music
 root folder — both trigger the same library-wide scan; there's no
 artist-scoped scan. An **album's own page** is the exception: its **Scan
-files** button really is scoped to just that one album, walking only its
-own folder (derived from where its existing files already live) and never
-touching a sibling album's records — useful for picking up a file you
-dropped in by hand without paying for a full library walk. **Organize…**
+files** button really is scoped to just that one album, walking only the
+folder(s) its existing files already live in — the shared parent of all of
+them, so a multi-disc album's CD1/CD2/etc. subfolders are all covered, not
+just whichever one happens to be scanned first — and never touching a
+sibling album's records. Useful for picking up a file you dropped in by
+hand (on any disc) without paying for a full library walk. **Organize…**
 is scoped everywhere it appears: from an artist page it previews and
 applies moves for that artist's own files, from an album page for just that
 album's.

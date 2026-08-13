@@ -253,6 +253,12 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    per-disc Album-tag suffixes ("Album CD 1"/"Album CD 2") sank the
    auto-match album-name score below its confidence threshold. See
    [CHANGELOG](CHANGELOG.md).
+7. [ ] **Auto-swap the old file after an "Upgrades allowed" grab** — right
+   now a successful upgrade grab (item 2 above) lands *alongside* the
+   previously-owned file instead of replacing it; removing the old one is
+   still a manual step. Needs a judgment call before it's just wired up
+   mechanically — delete the old file outright once the new one imports
+   and organizes cleanly, or move it aside for the user to confirm first.
 
 ## Future 💡
 
