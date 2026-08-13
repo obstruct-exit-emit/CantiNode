@@ -184,3 +184,24 @@ func (s *Store) DeleteWantedAlbum(id int64) error {
 	}
 	return nil
 }
+
+// ClearWantedAlbumByReleaseGroup removes (artistID, releaseGroupMBID)'s
+// wanted_albums row, if one exists — called once a file actually gets
+// matched into that same album (see musicscanner.applyMatch), so an album
+// that was wanted before its files happened to already be sitting
+// unmatched on disk doesn't linger as "wanted" forever once it's plainly
+// owned. The grab→import pipeline already does the equivalent cleanup on
+// a successful import (see WantedStatus's own doc comment); this is the
+// same cleanup for the scan/manual-match/auto-match path, which never
+// touches wanted_albums at all otherwise. A no-op, not an error, when
+// there's no such row — matching a file usually has nothing to clean up
+// here.
+func (s *Store) ClearWantedAlbumByReleaseGroup(artistID int64, releaseGroupMBID string) error {
+	if releaseGroupMBID == "" {
+		return nil
+	}
+	if _, err := s.db.Exec(`DELETE FROM wanted_albums WHERE artist_id = ? AND release_group_mbid = ?`, artistID, releaseGroupMBID); err != nil {
+		return fmt.Errorf("clear wanted album by release group: %w", err)
+	}
+	return nil
+}

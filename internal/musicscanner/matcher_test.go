@@ -207,6 +207,49 @@ func TestScanRootFolderMatchesDirectMBID(t *testing.T) {
 	}
 }
 
+// TestMatchClearsStaleWantedAlbum is the regression test for a real bug
+// found live: an album added to Wanted before its files happened to
+// already be sitting unmatched on disk (or matched through any path other
+// than the grab→import pipeline, which is the only place that already
+// clears a wanted_albums row) kept showing up as a second, wanted-looking
+// copy of the very same release group right alongside the newly-owned
+// one — different cover art too, since the wanted copy's art resolves via
+// the release group's own representative release, not necessarily the
+// specific release the file matched.
+func TestMatchClearsStaleWantedAlbum(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-mbid": sampleRecording("rec-mbid", 0), // artist-mbid / rg-mbid
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	artist, err := s.db.GetOrCreateArtist("artist-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Geogaddi", "Album", "2002-02-04"); err != nil {
+		t.Fatal(err)
+	}
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":               "Alpha and Omega",
+		"ARTIST":              "Boards of Canada",
+		"MUSICBRAINZ_TRACKID": "rec-mbid",
+	})
+
+	if _, err := s.ScanRootFolder(ctx, rf); err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+
+	wanted, err := s.db.ListWantedAlbumsByArtist(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wanted) != 0 {
+		t.Errorf("wanted albums after match = %+v, want empty (the album is now owned, not still wanted)", wanted)
+	}
+}
+
 func TestScanRootFolderFuzzyMatchAboveThreshold(t *testing.T) {
 	s, rf := newTestScanner(t, nil, []mbRecording{sampleRecording("rec-mbid", 90)})
 	ctx := t.Context()

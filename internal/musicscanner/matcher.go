@@ -90,6 +90,16 @@ func (s *Scanner) applyMatch(tf *musiclibrary.TrackFile, rec musicbrainz.Recordi
 	if err != nil {
 		return fmt.Errorf("get or create album: %w", err)
 	}
+	// This album is now demonstrably owned — if it was also sitting in
+	// Wanted (added before its files happened to already exist unmatched
+	// on disk, or matched here via a path the grab→import pipeline never
+	// touches), it must not keep showing up as a second, wanted copy of
+	// the same release group alongside the real owned one. Best-effort:
+	// a leftover wanted row is a cosmetic duplicate, not worth failing an
+	// otherwise-successful match over.
+	if err := s.db.ClearWantedAlbumByReleaseGroup(artist.ID, release.ReleaseGroup.ID); err != nil {
+		s.logger.Warn("clearing wanted album after match", "artist", artist.Name, "album", album.Title, "error", err)
+	}
 
 	if discNumber == 0 {
 		discNumber = 1

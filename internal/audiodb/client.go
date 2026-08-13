@@ -86,7 +86,13 @@ type artistLookupResponse struct {
 }
 
 type audioDBArtist struct {
-	BiographyEN  string `json:"strBiographyEN"`
+	// Biography is TheAudioDB's English artist biography — the field is
+	// genuinely named "strBiography" with no language suffix (other
+	// languages get one: strBiographyDE, strBiographyFR, ...); there is no
+	// "strBiographyEN" in TheAudioDB's actual schema at all, so a struct
+	// tag of that name silently decoded to an empty string for every
+	// artist, always, regardless of whether TheAudioDB really had a bio.
+	Biography    string `json:"strBiography"`
 	ArtistThumb  string `json:"strArtistThumb"`
 	ArtistFanart string `json:"strArtistFanart"`
 }
@@ -116,7 +122,7 @@ func (c *Client) LookupArtistByMBID(ctx context.Context, mbid string) (*ArtistMe
 	if imageURL == "" {
 		imageURL = a.ArtistFanart
 	}
-	return &ArtistMeta{Bio: a.BiographyEN, ImageURL: imageURL}, nil
+	return &ArtistMeta{Bio: a.Biography, ImageURL: imageURL}, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {

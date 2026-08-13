@@ -22,7 +22,7 @@ const sampleArtistJSON = `{
 		{
 			"idArtist": "111239",
 			"strArtist": "Coldplay",
-			"strBiographyEN": "Coldplay are a British rock band formed in London in 1996.",
+			"strBiography": "Coldplay are a British rock band formed in London in 1996.",
 			"strArtistThumb": "https://example.com/thumb.jpg",
 			"strArtistFanart": "https://example.com/fanart.jpg"
 		}
@@ -60,7 +60,7 @@ const sampleArtistNoThumbJSON = `{
 		{
 			"idArtist": "111239",
 			"strArtist": "Coldplay",
-			"strBiographyEN": "Bio text.",
+			"strBiography": "Bio text.",
 			"strArtistThumb": "",
 			"strArtistFanart": "https://example.com/fanart.jpg"
 		}
