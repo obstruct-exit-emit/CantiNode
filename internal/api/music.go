@@ -55,26 +55,26 @@ func (s *server) handleListMusicArtists(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	total, err := s.musicStore.CountReleaseGroupsByArtist()
+	wanted, err := s.musicStore.CountWantedAlbumsByArtist()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	out := make([]musicArtistDetail, len(artists))
 	for i, a := range artists {
-		out[i] = musicArtistDetail{Artist: a, OwnedAlbumCount: owned[a.ID], TotalAlbumCount: total[a.ID]}
+		out[i] = musicArtistDetail{Artist: a, OwnedAlbumCount: owned[a.ID], TotalAlbumCount: owned[a.ID] + wanted[a.ID]}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 // musicArtistDetail is musiclibrary.Artist plus its owned/total album
 // counts — the artist page's header, and (owned/total only) the library
-// grid's poster-card subtitle. TotalAlbumCount is the artist's entire
-// cached discography size (artist_release_groups) — 0 for an artist
-// that's never had its discography synced (found purely by a scan
-// matching a file, before cacheNewArtistsMetadata's own background sweep
-// reaches it), in which case the grid falls back to showing just the
-// owned count.
+// grid's poster-card subtitle. TotalAlbumCount is owned + wanted,
+// deliberately NOT the artist's entire cached discography — an artist
+// with a big catalog and nothing else wanted should read as "1/1", not
+// "1/126" against every release group Missing would otherwise list. 0 for
+// an artist that owns and wants nothing at all, in which case the grid
+// falls back to showing just the owned count.
 type musicArtistDetail struct {
 	musiclibrary.Artist
 	OwnedAlbumCount int `json:"ownedAlbumCount"`
@@ -97,12 +97,12 @@ func (s *server) handleGetMusicArtist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	groups, err := s.musicStore.ListArtistReleaseGroups(id)
+	wanted, err := s.musicStore.ListWantedAlbumsByArtist(id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, musicArtistDetail{Artist: *a, OwnedAlbumCount: len(albums), TotalAlbumCount: len(groups)})
+	writeJSON(w, http.StatusOK, musicArtistDetail{Artist: *a, OwnedAlbumCount: len(albums), TotalAlbumCount: len(albums) + len(wanted)})
 }
 
 // handleSearchMusicArtists proxies a fuzzy artist search to MusicBrainz —

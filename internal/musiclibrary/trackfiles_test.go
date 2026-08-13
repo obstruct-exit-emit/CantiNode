@@ -325,3 +325,37 @@ func TestCountReleaseGroupsByArtist(t *testing.T) {
 		t.Errorf("counts[%d] = %d, want 3", artist.ID, counts[artist.ID])
 	}
 }
+
+// TestCountWantedAlbumsByArtist confirms the count backing the library
+// grid's "owned/total" subtitle counts only wanted_albums rows, not the
+// artist's entire cached discography — an artist with a big catalog and
+// nothing wanted beyond what's owned should read as a small total, not a
+// number reflecting every release group Missing would otherwise list.
+func TestCountWantedAlbumsByArtist(t *testing.T) {
+	db := newTestStore(t)
+
+	artist, err := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A big cached discography the artist doesn't actually want any more
+	// of yet — must not count toward "wanted".
+	if err := db.ReplaceArtistReleaseGroups(artist.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-1", Title: "Album One"},
+		{ReleaseGroupMBID: "rg-2", Title: "Album Two"},
+		{ReleaseGroupMBID: "rg-3", Title: "Album Three"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetOrCreateWantedAlbum(artist.ID, "rg-2", "Album Two", "Album", "2021"); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := db.CountWantedAlbumsByArtist()
+	if err != nil {
+		t.Fatalf("CountWantedAlbumsByArtist: %v", err)
+	}
+	if counts[artist.ID] != 1 {
+		t.Errorf("counts[%d] = %d, want 1 (only the actually-wanted album, not the whole discography)", artist.ID, counts[artist.ID])
+	}
+}

@@ -189,12 +189,41 @@ func (s *Store) CountOwnedAlbumsByArtist() (map[int64]int, error) {
 	return out, rows.Err()
 }
 
+// CountWantedAlbumsByArtist returns, for every artist with at least one,
+// how many wanted_albums rows it has — combined with
+// CountOwnedAlbumsByArtist, the "total" half of the library grid's
+// owned/total subtitle (owned + wanted, deliberately NOT the artist's
+// entire discography — an artist with a big catalog and nothing else
+// wanted shouldn't read as "1/126", just "1/1"). An artist with nothing
+// wanted simply has no entry in the returned map.
+func (s *Store) CountWantedAlbumsByArtist() (map[int64]int, error) {
+	rows, err := s.db.Query(`SELECT artist_id, COUNT(*) FROM wanted_albums GROUP BY artist_id`)
+	if err != nil {
+		return nil, fmt.Errorf("count wanted albums by artist: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[int64]int{}
+	for rows.Next() {
+		var artistID int64
+		var count int
+		if err := rows.Scan(&artistID, &count); err != nil {
+			return nil, fmt.Errorf("scan wanted album count: %w", err)
+		}
+		out[artistID] = count
+	}
+	return out, rows.Err()
+}
+
 // CountReleaseGroupsByArtist returns, for every artist with at least one,
-// the size of its cached discography (artist_release_groups) — owned,
-// wanted, and missing combined, the "total" half of the library grid's
-// owned/total subtitle. An artist with none cached yet (never monitored,
-// or found by a scan before cacheNewArtistsMetadata's background sweep
-// reached it) simply has no entry in the returned map.
+// the size of its entire cached discography (artist_release_groups) —
+// owned, wanted, and missing combined. Not currently used for the library
+// grid's own owned/total subtitle (see CountWantedAlbumsByArtist) — kept
+// as its own accurately-named query for whatever wants the real
+// discography size rather than just the owned+wanted subset. An artist
+// with none cached yet (never monitored, or found by a scan before
+// cacheNewArtistsMetadata's background sweep reached it) simply has no
+// entry in the returned map.
 func (s *Store) CountReleaseGroupsByArtist() (map[int64]int, error) {
 	rows, err := s.db.Query(`SELECT artist_id, COUNT(*) FROM artist_release_groups GROUP BY artist_id`)
 	if err != nil {
