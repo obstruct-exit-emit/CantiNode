@@ -158,6 +158,62 @@ func (s *Store) ListArtists() ([]Artist, error) {
 	return out, rows.Err()
 }
 
+// CountOwnedAlbumsByArtist returns, for every artist with at least one, how
+// many of its albums have at least one matched track file — the same
+// "owned" test ListAlbumsByArtist itself uses, computed for every artist in
+// one query rather than one round trip per artist (see
+// internal/api's handleListMusicArtists, the library grid). An artist with
+// zero owned albums simply has no entry in the returned map — callers
+// should treat a missing key as 0, not an error.
+func (s *Store) CountOwnedAlbumsByArtist() (map[int64]int, error) {
+	rows, err := s.db.Query(`
+		SELECT al.artist_id, COUNT(DISTINCT al.id)
+		FROM albums al
+		JOIN tracks t ON t.album_id = al.id
+		JOIN track_files tf ON tf.track_id = t.id
+		GROUP BY al.artist_id`)
+	if err != nil {
+		return nil, fmt.Errorf("count owned albums by artist: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[int64]int{}
+	for rows.Next() {
+		var artistID int64
+		var count int
+		if err := rows.Scan(&artistID, &count); err != nil {
+			return nil, fmt.Errorf("scan owned album count: %w", err)
+		}
+		out[artistID] = count
+	}
+	return out, rows.Err()
+}
+
+// CountReleaseGroupsByArtist returns, for every artist with at least one,
+// the size of its cached discography (artist_release_groups) — owned,
+// wanted, and missing combined, the "total" half of the library grid's
+// owned/total subtitle. An artist with none cached yet (never monitored,
+// or found by a scan before cacheNewArtistsMetadata's background sweep
+// reached it) simply has no entry in the returned map.
+func (s *Store) CountReleaseGroupsByArtist() (map[int64]int, error) {
+	rows, err := s.db.Query(`SELECT artist_id, COUNT(*) FROM artist_release_groups GROUP BY artist_id`)
+	if err != nil {
+		return nil, fmt.Errorf("count release groups by artist: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[int64]int{}
+	for rows.Next() {
+		var artistID int64
+		var count int
+		if err := rows.Scan(&artistID, &count); err != nil {
+			return nil, fmt.Errorf("scan release group count: %w", err)
+		}
+		out[artistID] = count
+	}
+	return out, rows.Err()
+}
+
 // DeleteArtist deletes id outright — the whole-library "Remove artist"
 // action. Cascades (per the schema's own FK setup) to albums -> tracks
 // and artist_release_groups. Deliberately does NOT cascade to

@@ -247,6 +247,7 @@ export interface MusicArtist {
   createdAt: string;
   updatedAt: string;
   ownedAlbumCount?: number;
+  totalAlbumCount?: number;
 }
 
 export interface MusicAlbum {

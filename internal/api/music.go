@@ -41,20 +41,44 @@ func writeMusicStoreError(w http.ResponseWriter, err error) {
 
 // --- Artists ---
 
+// handleListMusicArtists serves the library grid — each artist annotated
+// with its owned/total album counts (see musicArtistDetail) in bulk, one
+// query each rather than one round trip per artist.
 func (s *server) handleListMusicArtists(w http.ResponseWriter, r *http.Request) {
 	artists, err := s.musicStore.ListArtists()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, artists)
+	owned, err := s.musicStore.CountOwnedAlbumsByArtist()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	total, err := s.musicStore.CountReleaseGroupsByArtist()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]musicArtistDetail, len(artists))
+	for i, a := range artists {
+		out[i] = musicArtistDetail{Artist: a, OwnedAlbumCount: owned[a.ID], TotalAlbumCount: total[a.ID]}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
-// musicArtistDetail is musiclibrary.Artist plus its owned-album count — the
-// artist page's header.
+// musicArtistDetail is musiclibrary.Artist plus its owned/total album
+// counts — the artist page's header, and (owned/total only) the library
+// grid's poster-card subtitle. TotalAlbumCount is the artist's entire
+// cached discography size (artist_release_groups) — 0 for an artist
+// that's never had its discography synced (found purely by a scan
+// matching a file, before cacheNewArtistsMetadata's own background sweep
+// reaches it), in which case the grid falls back to showing just the
+// owned count.
 type musicArtistDetail struct {
 	musiclibrary.Artist
 	OwnedAlbumCount int `json:"ownedAlbumCount"`
+	TotalAlbumCount int `json:"totalAlbumCount"`
 }
 
 func (s *server) handleGetMusicArtist(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +97,12 @@ func (s *server) handleGetMusicArtist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, musicArtistDetail{Artist: *a, OwnedAlbumCount: len(albums)})
+	groups, err := s.musicStore.ListArtistReleaseGroups(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, musicArtistDetail{Artist: *a, OwnedAlbumCount: len(albums), TotalAlbumCount: len(groups)})
 }
 
 // handleSearchMusicArtists proxies a fuzzy artist search to MusicBrainz —
@@ -173,17 +202,22 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 }
 
 // refreshMusicArtistMetadata caches mbid's entire release-group list (any
-// primary/secondary type — the Missing section lets the user pick), its
-// genres/tags/rating, and best-effort fetches bio/image from TheAudioDB. A
-// TheAudioDB failure is never fatal — the MusicBrainz side alone is enough
-// to succeed.
+// primary/secondary type — the Missing section lets the user pick, fully
+// paginated via BrowseArtistReleaseGroups rather than the truncated-at-25
+// list a plain artist lookup returns), its genres/tags/rating, and
+// best-effort fetches bio/image from TheAudioDB. A TheAudioDB failure is
+// never fatal — the MusicBrainz side alone is enough to succeed.
 func (s *server) refreshMusicArtistMetadata(ctx context.Context, artistID int64, mbid string) error {
 	mbArtist, err := s.mb.LookupArtist(ctx, mbid)
 	if err != nil {
 		return err
 	}
-	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(mbArtist.ReleaseGroups))
-	for _, rg := range mbArtist.ReleaseGroups {
+	releaseGroups, err := s.mb.BrowseArtistReleaseGroups(ctx, mbid)
+	if err != nil {
+		return err
+	}
+	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(releaseGroups))
+	for _, rg := range releaseGroups {
 		groups = append(groups, musiclibrary.ReleaseGroupCache{
 			ReleaseGroupMBID: rg.ID,
 			Title:            rg.Title,

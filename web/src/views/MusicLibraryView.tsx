@@ -115,7 +115,15 @@ export default function MusicLibraryView({
                       )}
                       <span className="poster-title">{a.name}</span>
                       <span className="poster-sub">
-                        {a.ownedAlbumCount ?? 0} album{(a.ownedAlbumCount ?? 0) === 1 ? "" : "s"}
+                        {a.totalAlbumCount ? (
+                          <>
+                            {a.ownedAlbumCount ?? 0}/{a.totalAlbumCount} owned
+                          </>
+                        ) : (
+                          <>
+                            {a.ownedAlbumCount ?? 0} album{(a.ownedAlbumCount ?? 0) === 1 ? "" : "s"}
+                          </>
+                        )}
                         {!a.isMonitored && " · unmonitored"}
                       </span>
                     </button>

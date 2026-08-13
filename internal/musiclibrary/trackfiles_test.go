@@ -238,3 +238,90 @@ func TestListArtistsAndAlbumsOnlyShowMatchedContent(t *testing.T) {
 		t.Errorf("ListAlbumsByArtist = %+v, want just album %d", albums, album.ID)
 	}
 }
+
+// TestCountOwnedAlbumsByArtist is the regression test for a real bug: the
+// library grid's poster-card subtitle always read "0 albums" for every
+// artist, even ones with real owned albums, because
+// handleListMusicArtists never attached an owned-album count at all
+// (only the single-artist detail endpoint did). CountOwnedAlbumsByArtist
+// is the bulk query that backs the fix — same "owned" test
+// ListAlbumsByArtist itself uses (a matched track file), computed for
+// every artist in one query.
+func TestCountOwnedAlbumsByArtist(t *testing.T) {
+	db := newTestStore(t)
+	rfID := testMusicRoot(t, db)
+
+	artistWithAlbum, err := db.GetOrCreateArtist("a-mbid", "Has Albums", "Has Albums")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album1, err := db.GetOrCreateAlbum(artistWithAlbum.ID, "al-1-mbid", "rg-1-mbid", "Album One", "2020", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album2, err := db.GetOrCreateAlbum(artistWithAlbum.ID, "al-2-mbid", "rg-2-mbid", "Album Two", "2021", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track1, err := db.GetOrCreateTrack(album1.ID, "t-1-mbid", "Song One", 1, 1, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	track2, err := db.GetOrCreateTrack(album2.ID, "t-2-mbid", "Song Two", 1, 1, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tf1, _ := db.UpsertTrackFileByPath(rfID, "/music/a1.mp3", 1, "mp3", 128, 1000, "{}")
+	if err := db.SetTrackFileMatch(tf1.ID, &track1.ID, StatusMatched, 0.9); err != nil {
+		t.Fatal(err)
+	}
+	tf2, _ := db.UpsertTrackFileByPath(rfID, "/music/a2.mp3", 1, "mp3", 128, 1000, "{}")
+	if err := db.SetTrackFileMatch(tf2.ID, &track2.ID, StatusMatched, 0.9); err != nil {
+		t.Fatal(err)
+	}
+
+	// An artist that's monitored but owns nothing yet — must not show up
+	// in the owned-count map at all (a missing key, not a zero entry).
+	unowned, err := db.GetOrCreateArtist("unowned-mbid", "Nothing Owned", "Nothing Owned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetArtistMonitored(unowned.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := db.CountOwnedAlbumsByArtist()
+	if err != nil {
+		t.Fatalf("CountOwnedAlbumsByArtist: %v", err)
+	}
+	if counts[artistWithAlbum.ID] != 2 {
+		t.Errorf("counts[%d] = %d, want 2", artistWithAlbum.ID, counts[artistWithAlbum.ID])
+	}
+	if _, ok := counts[unowned.ID]; ok {
+		t.Errorf("counts[%d] = %d, want no entry at all", unowned.ID, counts[unowned.ID])
+	}
+}
+
+func TestCountReleaseGroupsByArtist(t *testing.T) {
+	db := newTestStore(t)
+
+	artist, err := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceArtistReleaseGroups(artist.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-1", Title: "Album One"},
+		{ReleaseGroupMBID: "rg-2", Title: "Album Two"},
+		{ReleaseGroupMBID: "rg-3", Title: "Album Three"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := db.CountReleaseGroupsByArtist()
+	if err != nil {
+		t.Fatalf("CountReleaseGroupsByArtist: %v", err)
+	}
+	if counts[artist.ID] != 3 {
+		t.Errorf("counts[%d] = %d, want 3", artist.ID, counts[artist.ID])
+	}
+}

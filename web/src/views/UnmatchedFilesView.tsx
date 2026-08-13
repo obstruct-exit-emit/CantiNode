@@ -259,8 +259,9 @@ export default function UnmatchedFilesView({ onError }: { onError: (message: str
                   <button
                     className={autoMatchDir === dir ? "toggle on" : "toggle"}
                     onClick={() => setAutoMatchDir(autoMatchDir === dir ? null : dir)}
+                    title="Match this folder's files against one of your library's own wanted/missing albums — pick the artist/album/version by hand, or let Auto-match guess"
                   >
-                    {autoMatchDir === dir ? "Close auto-match" : "Auto-match…"}
+                    {autoMatchDir === dir ? "Close match" : "Match…"}
                   </button>
                 </div>
                 {autoMatchDir === dir && (

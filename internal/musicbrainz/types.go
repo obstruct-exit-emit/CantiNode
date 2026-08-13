@@ -119,9 +119,9 @@ type recordingSearchResponse struct {
 	Count      int         `json:"count"`
 }
 
-// ReleaseGroupSummary is one of an artist's release groups, as returned
-// by LookupArtist — enough to decide whether internal/acquisition should
-// want it (PrimaryType == "Album", no secondary types like Live/
+// ReleaseGroupSummary is one of an artist's release groups, as returned by
+// BrowseArtistReleaseGroups — enough to decide whether internal/acquisition
+// should want it (PrimaryType == "Album", no secondary types like Live/
 // Compilation) without a further lookup.
 type ReleaseGroupSummary struct {
 	ID               string   `json:"id"`
@@ -129,6 +129,15 @@ type ReleaseGroupSummary struct {
 	PrimaryType      string   `json:"primary-type"`
 	SecondaryTypes   []string `json:"secondary-types"`
 	FirstReleaseDate string   `json:"first-release-date"`
+}
+
+// releaseGroupBrowseResponse is one page of BrowseArtistReleaseGroups —
+// Count is the artist's TRUE total release-group count (not just this
+// page's length), needed to know when every page has been fetched.
+type releaseGroupBrowseResponse struct {
+	ReleaseGroups []ReleaseGroupSummary `json:"release-groups"`
+	Count         int                   `json:"release-group-count"`
+	Offset        int                   `json:"release-group-offset"`
 }
 
 // Genre is one of MusicBrainz's own curated genre tags (inc=genres) —
@@ -152,24 +161,27 @@ type Rating struct {
 	VotesCount int     `json:"votes-count"`
 }
 
-// Artist is a MusicBrainz artist, with its release groups (when fetched
-// via LookupArtist's inc=release-groups). Score is only populated by
-// SearchArtists (0-100, MusicBrainz's own relevance ranking) — always 0
-// on a direct LookupArtist, same convention as Recording.Score.
+// Artist is a MusicBrainz artist. Score is only populated by SearchArtists
+// (0-100, MusicBrainz's own relevance ranking) — always 0 on a direct
+// LookupArtist, same convention as Recording.Score. Release groups are
+// deliberately NOT part of this type — LookupArtist's own inc=release-groups
+// sub-resource is silently capped at MusicBrainz's default page size (25),
+// which truncated every artist's discography before this comment was
+// written; BrowseArtistReleaseGroups is the real, fully-paginated way to
+// get an artist's complete release-group list.
 //
 // Genres/Tags/Rating are only populated when LookupArtist's inc includes
 // genres+tags+ratings (see client.go) — cached by internal/api even though
 // nothing displays them yet, so a future feature never needs a fresh
 // MusicBrainz round trip for data already fetched once.
 type Artist struct {
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	SortName      string                `json:"sort-name"`
-	ReleaseGroups []ReleaseGroupSummary `json:"release-groups"`
-	Genres        []Genre               `json:"genres"`
-	Tags          []Tag                 `json:"tags"`
-	Rating        Rating                `json:"rating"`
-	Score         int                   `json:"score"`
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	SortName string  `json:"sort-name"`
+	Genres   []Genre `json:"genres"`
+	Tags     []Tag   `json:"tags"`
+	Rating   Rating  `json:"rating"`
+	Score    int     `json:"score"`
 }
 
 type artistSearchResponse struct {

@@ -91,14 +91,14 @@ func (c *Client) LookupRecording(ctx context.Context, mbid string) (*Recording, 
 	return &rec, nil
 }
 
-// LookupArtist fetches a single artist by MBID, with their full release
-// group list plus genres/tags/rating — used by internal/acquisition to
-// seed a newly monitored artist's wanted albums, and by
-// internal/api.refreshMusicArtistMetadata to cache everything about the
-// artist worth keeping, even fields nothing displays yet.
+// LookupArtist fetches a single artist by MBID — identity plus genres/
+// tags/rating — used by internal/acquisition to seed a newly monitored
+// artist, and by internal/api.refreshMusicArtistMetadata to cache
+// everything about the artist worth keeping, even fields nothing displays
+// yet. Does NOT include release groups — see BrowseArtistReleaseGroups.
 func (c *Client) LookupArtist(ctx context.Context, mbid string) (*Artist, error) {
 	body, err := c.get(ctx, "/artist/"+url.PathEscape(mbid), url.Values{
-		"inc": {"release-groups+genres+tags+ratings"},
+		"inc": {"genres+tags+ratings"},
 		"fmt": {"json"},
 	})
 	if err != nil {
@@ -109,6 +109,54 @@ func (c *Client) LookupArtist(ctx context.Context, mbid string) (*Artist, error)
 		return nil, fmt.Errorf("decode artist %s: %w", mbid, err)
 	}
 	return &artist, nil
+}
+
+// releaseGroupBrowseLimit is MusicBrainz's own maximum page size for a
+// browse request — the highest single-page cost, minimizing the number of
+// pages (and so the number of rate-limited round trips) a large discography
+// needs.
+const releaseGroupBrowseLimit = 100
+
+// releaseGroupBrowseMaxPages bounds how many pages BrowseArtistReleaseGroups
+// will ever fetch (100 × 100 = 10,000 release groups) — a sanity ceiling
+// against a malformed/malicious response looping forever, not a limit any
+// real artist's discography should ever approach.
+const releaseGroupBrowseMaxPages = 100
+
+// BrowseArtistReleaseGroups returns mbid's ENTIRE release-group list,
+// fully paginated — MusicBrainz's browse response reports the artist's
+// true total count (release-group-count) separately from how many a single
+// page returns, so this keeps fetching successive pages (each its own
+// rate-limited request) until every one has been collected. This is the
+// fix for a real bug: LookupArtist's inc=release-groups sub-resource is
+// silently capped at MusicBrainz's default page size (25) with no way to
+// ask for more from that endpoint — every artist's cached discography was
+// truncated to (at most) its first 25 release groups, in whatever order
+// MusicBrainz happened to return them, regardless of the real total. A
+// prolific artist can have hundreds; this fetches all of them.
+func (c *Client) BrowseArtistReleaseGroups(ctx context.Context, mbid string) ([]ReleaseGroupSummary, error) {
+	var out []ReleaseGroupSummary
+	for page := 0; page < releaseGroupBrowseMaxPages; page++ {
+		offset := page * releaseGroupBrowseLimit
+		body, err := c.get(ctx, "/release-group/", url.Values{
+			"artist": {mbid},
+			"limit":  {fmt.Sprintf("%d", releaseGroupBrowseLimit)},
+			"offset": {fmt.Sprintf("%d", offset)},
+			"fmt":    {"json"},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("browse artist %s release groups (offset %d): %w", mbid, offset, err)
+		}
+		var resp releaseGroupBrowseResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("decode artist %s release groups (offset %d): %w", mbid, offset, err)
+		}
+		out = append(out, resp.ReleaseGroups...)
+		if len(resp.ReleaseGroups) == 0 || len(out) >= resp.Count {
+			break
+		}
+	}
+	return out, nil
 }
 
 // SearchArtists fuzzy-searches for artists matching name, ordered by
