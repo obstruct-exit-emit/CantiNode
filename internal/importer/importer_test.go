@@ -542,3 +542,107 @@ func TestPollOnceMatchesItemIDCaseInsensitively(t *testing.T) {
 		t.Fatalf("PollOnce result = %+v, want 1 imported despite the case mismatch", result)
 	}
 }
+
+// TestSwapUpgradedFilesReplacesOnlyMatchedTracks exercises swapUpgradedFiles
+// directly (full ScanAll-based matching would need a real MusicBrainz mock
+// this package's test setup doesn't wire up): two tracks each start with
+// one owned file; only one of them gets a genuinely new matched file (as if
+// an upgrade grab's release only matched partially). The replaced track's
+// old file must be deleted from disk and its track_files row removed; the
+// untouched track's old file must survive untouched, so a partial upgrade
+// can never leave a track with nothing.
+func TestSwapUpgradedFilesReplacesOnlyMatchedTracks(t *testing.T) {
+	sab, _ := mockSab(t, "", "Completed")
+	svc, _, musicStore, root := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Test Album", "2020", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trackReplaced, err := musicStore.GetOrCreateTrack(album.ID, "track-replaced-mbid", "Track One", 1, 1, 200000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trackUntouched, err := musicStore.GetOrCreateTrack(album.ID, "track-untouched-mbid", "Track Two", 2, 1, 200000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rootFolders, err := musicStore.ListRootFolders()
+	if err != nil || len(rootFolders) == 0 {
+		t.Fatalf("root folders = %+v, err %v", rootFolders, err)
+	}
+	rf := rootFolders[0]
+
+	oldPathReplaced := filepath.Join(root, "old-track-one.flac")
+	if err := os.WriteFile(oldPathReplaced, []byte("old audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTFReplaced, err := musicStore.UpsertTrackFileByPath(rf.ID, oldPathReplaced, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetTrackFileMatch(oldTFReplaced.ID, &trackReplaced.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPathUntouched := filepath.Join(root, "old-track-two.flac")
+	if err := os.WriteFile(oldPathUntouched, []byte("old audio 2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTFUntouched, err := musicStore.UpsertTrackFileByPath(rf.ID, oldPathUntouched, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetTrackFileMatch(oldTFUntouched.ID, &trackUntouched.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := musicStore.ListTrackFilesByAlbum(album.ID)
+	if err != nil || len(before) != 2 {
+		t.Fatalf("before = %+v, err %v, want 2", before, err)
+	}
+
+	// The "upgrade" import: a new, better file lands for track one only —
+	// track two's release didn't end up matching this round.
+	newPath := filepath.Join(root, "new-track-one.flac")
+	if err := os.WriteFile(newPath, []byte("shiny new audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newTF, err := musicStore.UpsertTrackFileByPath(rf.ID, newPath, 200, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetTrackFileMatch(newTF.ID, &trackReplaced.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.swapUpgradedFiles(album.ID, before)
+
+	if _, statErr := os.Stat(oldPathReplaced); !os.IsNotExist(statErr) {
+		t.Errorf("old file for the replaced track should be deleted from disk, stat err = %v", statErr)
+	}
+	if _, statErr := os.Stat(oldPathUntouched); statErr != nil {
+		t.Errorf("old file for the untouched track should survive untouched, stat err = %v", statErr)
+	}
+	if _, statErr := os.Stat(newPath); statErr != nil {
+		t.Errorf("new file should survive, stat err = %v", statErr)
+	}
+
+	after, err := musicStore.ListTrackFilesByAlbum(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 {
+		t.Fatalf("track files after swap = %+v, want 2 (new track-one file + untouched track-two file)", after)
+	}
+	for _, tf := range after {
+		if tf.ID == oldTFReplaced.ID {
+			t.Errorf("old track_files row for the replaced track should have been deleted: %+v", tf)
+		}
+	}
+}

@@ -225,10 +225,16 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    surfaces on its own. One unsupervised night in (2026-08-11, alongside
    items 1/2/5 going live) came back clean, but that's a start, not the
    "weeks of daily use" this gate actually wants.
-4. [ ] **Upgrade "Add artist" search results** (`MusicLibraryView.tsx`'s
-   `AddArtistPanel`) to the same poster-card grid pattern `ReleaseBrowser`'s
-   neighbors already got this session, instead of the current bare
-   name-plus-button text list.
+4. [x] **Upgrade "Add artist" search results** — done 2026-08-13:
+   `AddArtistPanel` now renders the same `.poster-grid`/`.poster-card`
+   pattern the Library grid and an artist's Albums grid already use,
+   instead of a bare name-plus-button text list. MusicBrainz's artist
+   search returns no image at all, so every card uses the same lettered
+   fallback tile `WantedPoster` degrades to when there's genuinely no cover
+   art — but `musicbrainz.Artist` and the search response now also carry
+   `type`/`country`/`disambiguation` (previously fetched but never
+   surfaced), shown as the card's subtitle, which is the one thing that
+   actually helps pick the right artist among several same-named results.
 5. [x] **A deliberate pass over delete/scan/organize edge cases** — done
    overnight 2026-08-11, two real bugs found and fixed the same way the
    delete-files regression and Activity lag were: removing an artist/album
@@ -253,12 +259,26 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    per-disc Album-tag suffixes ("Album CD 1"/"Album CD 2") sank the
    auto-match album-name score below its confidence threshold. See
    [CHANGELOG](CHANGELOG.md).
-7. [ ] **Auto-swap the old file after an "Upgrades allowed" grab** — right
-   now a successful upgrade grab (item 2 above) lands *alongside* the
-   previously-owned file instead of replacing it; removing the old one is
-   still a manual step. Needs a judgment call before it's just wired up
-   mechanically — delete the old file outright once the new one imports
-   and organizes cleanly, or move it aside for the user to confirm first.
+7. [x] **Auto-swap the old file after an "Upgrades allowed" grab** — done
+   2026-08-13, delete-outright (the judgment call this item flagged):
+   `grabs.upgrade_album_id` (migration 024) ties an upgrade grab to the
+   album it's for, the way `wanted_album_id` already ties a normal grab to
+   a wanted album. Once `internal/importer` scans a completed upgrade
+   grab's files in, `swapUpgradedFiles` compares the album's track files
+   before and after the scan and deletes the old file for every track that
+   just gained a genuinely new matched one — track-by-track, not the whole
+   album at once, so a partial/failed match on the new release can never
+   leave a track with nothing.
+8. [x] **Sort the Library grid** — done 2026-08-13: `SortControl.tsx` gets
+   a `sortArtists` (name / recently-added / album count / missing count,
+   mirroring `sortAlbums`/`sortReleaseGroups`), wired into
+   `MusicLibraryView.tsx` via the same `SortSelect`/`DirectionButtons` an
+   artist's own Albums grid already uses.
+9. [x] **Retry a failed grab from Activity** — done 2026-08-13: a failed
+   grab's history row now shows "Search again" (whenever it's tied to a
+   wanted album or an upgrade, which is every music grab) — expands the
+   same `ReleaseBrowser` the album page itself uses, right there in
+   Activity, instead of sending the user off to find the album by hand.
 
 ## Future 💡
 

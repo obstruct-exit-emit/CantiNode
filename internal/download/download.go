@@ -336,16 +336,22 @@ func (s *Service) Grab(ctx context.Context, protocol, url, title string) (*GrabR
 }
 
 // GrabRelease sends a release to the best client for its protocol and
-// records the grab (tied to a wanted album when wantedAlbumID > 0, so
-// internal/importer can update that row's status once the grab resolves)
-// so the queue and grab history can show its progress.
-func (s *Service) GrabRelease(ctx context.Context, protocol, url, title, guid string, wantedAlbumID int64, mediaType string) (*GrabResult, *GrabRecord, error) {
+// records the grab so the queue and grab history can show its progress.
+// wantedAlbumID > 0 ties it to a wanted album, so internal/importer can
+// update that row's status once the grab resolves; upgradeAlbumID > 0 ties
+// it to an already-owned album instead (see handleGrabAlbumUpgrade), so
+// internal/importer can swap the old file out once the better one is
+// matched back in. At most one of the two is ever set — a grab is either
+// for something not yet owned or an upgrade of something that already is,
+// never both.
+func (s *Service) GrabRelease(ctx context.Context, protocol, url, title, guid string, wantedAlbumID, upgradeAlbumID int64, mediaType string) (*GrabResult, *GrabRecord, error) {
 	result, err := s.Grab(ctx, protocol, url, title)
 	if err != nil {
 		return nil, nil, err
 	}
 	grab := &GrabRecord{
 		WantedAlbumID:  wantedAlbumID,
+		UpgradeAlbumID: upgradeAlbumID,
 		ClientConfigID: result.ClientID,
 		ClientItemID:   result.ID,
 		Title:          title,

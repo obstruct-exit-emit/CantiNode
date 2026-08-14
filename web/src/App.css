@@ -1079,6 +1079,23 @@ button.owned-link:hover {
   margin-top: 0.75rem;
 }
 
+/* .grid-controls pairs a filter input with a SortSelect/DirectionButtons
+   pair on one row (see MusicLibraryView) — the filter grows to fill the
+   remaining space instead of keeping its own full-width default. */
+.grid-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.grid-controls .grid-filter {
+  flex: 1 1 200px;
+  width: auto;
+  margin-top: 0;
+}
+
 button.show-more {
   display: block;
   margin: 1rem auto 0;

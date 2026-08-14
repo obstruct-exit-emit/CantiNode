@@ -1,4 +1,4 @@
-import type { MusicAlbum, MusicReleaseGroup } from "../api";
+import type { MusicAlbum, MusicArtist, MusicReleaseGroup } from "../api";
 
 // RELEASE_CATEGORY_ORDER is the fixed display order for grouping a music
 // release by type — albums always lead, everything else follows in this
@@ -62,7 +62,7 @@ export type SortDir = "asc" | "desc";
 // what the app already showed before ascending/descending existed as a
 // choice: rating and date read highest/newest first, title and series read
 // alphabetically first. Picking a key starts here; DirectionSelect flips it.
-const DESCENDING_BY_DEFAULT = new Set(["date", "rating"]);
+const DESCENDING_BY_DEFAULT = new Set(["date", "rating", "added", "albums", "missing"]);
 export function defaultDirFor(key: string): SortDir {
   return DESCENDING_BY_DEFAULT.has(key) ? "desc" : "asc";
 }
@@ -144,6 +144,39 @@ export function sortAlbums(albums: MusicAlbum[], key: string, dir: SortDir = def
       break;
     case "date": // ascending = oldest first
       by.sort((a, b) => (a.releaseDate || "").localeCompare(b.releaseDate || ""));
+      break;
+    default:
+      break;
+  }
+  return dir === "desc" ? by.reverse() : by;
+}
+
+// sortArtists is the MusicArtist equivalent, for the Library grid.
+// "albums"/"missing" fall back to 0 for an artist whose counts haven't
+// loaded yet (both optional on MusicArtist) rather than sorting them
+// unpredictably relative to ones that have.
+export function sortArtists(
+  artists: MusicArtist[],
+  key: string,
+  dir: SortDir = defaultDirFor(key),
+): MusicArtist[] {
+  const by = [...artists];
+  switch (key) {
+    case "name":
+      by.sort((a, b) => a.name.localeCompare(b.name));
+      break;
+    case "added":
+      by.sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+      break;
+    case "albums":
+      by.sort((a, b) => (a.totalAlbumCount ?? 0) - (b.totalAlbumCount ?? 0));
+      break;
+    case "missing":
+      by.sort(
+        (a, b) =>
+          (a.totalAlbumCount ?? 0) - (a.ownedAlbumCount ?? 0) -
+          ((b.totalAlbumCount ?? 0) - (b.ownedAlbumCount ?? 0)),
+      );
       break;
     default:
       break;

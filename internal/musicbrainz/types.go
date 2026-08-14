@@ -175,13 +175,22 @@ type Rating struct {
 // nothing displays them yet, so a future feature never needs a fresh
 // MusicBrainz round trip for data already fetched once.
 type Artist struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	SortName string  `json:"sort-name"`
-	Genres   []Genre `json:"genres"`
-	Tags     []Tag   `json:"tags"`
-	Rating   Rating  `json:"rating"`
-	Score    int     `json:"score"`
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	SortName       string  `json:"sort-name"`
+	// Type ("Person", "Group", "Orchestra", "Choir", ...), Disambiguation,
+	// and Country only ever come back populated from SearchArtists — the
+	// "monitor an artist" search UI's only real way to tell apart two
+	// results that share a name, since search results carry no image.
+	// LookupArtist (an already-known artist's own single-record fetch)
+	// doesn't request or need them.
+	Type           string  `json:"type,omitempty"`
+	Disambiguation string  `json:"disambiguation,omitempty"`
+	Country        string  `json:"country,omitempty"`
+	Genres         []Genre `json:"genres"`
+	Tags           []Tag   `json:"tags"`
+	Rating         Rating  `json:"rating"`
+	Score          int     `json:"score"`
 }
 
 type artistSearchResponse struct {

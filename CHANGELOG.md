@@ -11,6 +11,30 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Four quality-of-life items from a code-review-driven pass, all live
+  2026-08-13:**
+  - **Upgrades allowed" grabs now auto-swap the old file** instead of
+    leaving it alongside the new one forever. `grabs.upgrade_album_id`
+    (migration 024) ties an upgrade grab to the album it's for, mirroring
+    `wanted_album_id`'s tie to a wanted album; once `internal/importer`
+    scans a completed upgrade grab in, it deletes the old file for every
+    track that just gained a genuinely new matched one — track-by-track,
+    so a partial or failed match on the new release can never leave a
+    track with nothing.
+  - **The Library grid can be sorted** (name, recently-added, album count,
+    missing count), not just filtered by name — the same `SortSelect`/
+    `DirectionButtons` control an artist's own Albums grid already uses.
+  - **"Add artist" search results are a poster-card grid** now, matching
+    the Library grid and an artist's Albums grid instead of a bare
+    name-plus-button list. MusicBrainz's artist search returns no image,
+    so every card falls back to the same lettered tile used elsewhere when
+    there's no cover art — but the search response now also surfaces
+    type/country/disambiguation, shown as the card's subtitle, to help
+    pick the right artist among same-named results.
+  - **A failed grab can be retried straight from Activity** — "Search
+    again" on a failed history row expands the same `ReleaseBrowser` the
+    album page itself uses, instead of sending you off to find the album
+    by hand.
 - **Release-version selection, fuller metadata caching, and multi-disc-
   aware auto-matching.** The matching UI can now pick a specific
   MusicBrainz release (pressing/edition) instead of always matching

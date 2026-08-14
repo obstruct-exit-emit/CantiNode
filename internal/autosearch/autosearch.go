@@ -189,7 +189,7 @@ func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist,
 
 	gctx, gcancel := context.WithTimeout(ctx, grabTimeout)
 	defer gcancel()
-	_, _, err = s.downloads.GrabRelease(gctx, best.Protocol, best.DownloadURL, best.Title, best.GUID, wanted.ID, "music")
+	_, _, err = s.downloads.GrabRelease(gctx, best.Protocol, best.DownloadURL, best.Title, best.GUID, wanted.ID, 0, "music")
 	if err != nil {
 		s.logger.Warn("autosearch: grab failed", "artist", artist.Name, "album", wanted.Title, "release", best.Title, "error", err)
 		if revertErr := s.music.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusWanted); revertErr != nil {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, proxiedImage, type MusicArtist, type MusicBrainzArtistResult } from "../api";
 import { PosterGridSkeleton } from "../components/Skeleton";
+import { SortSelect, DirectionButtons, sortArtists, defaultDirFor, type SortDir } from "../components/SortControl";
 
 // The Music library — a *arr-style poster grid of artists; clicking one
 // opens their full detail page (albums, tracks, missing releases). Mirrors
@@ -20,6 +21,12 @@ export default function MusicLibraryView({
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState("");
   const [visible, setVisible] = useState(60);
+  const [sort, setSort] = useState("name");
+  const [sortDir, setSortDir] = useState<SortDir>(defaultDirFor("name"));
+  const changeSort = (key: string) => {
+    setSort(key);
+    setSortDir(defaultDirFor(key));
+  };
 
   const reload = useCallback(() => {
     api
@@ -89,21 +96,42 @@ export default function MusicLibraryView({
           </div>
         ) : (
           (() => {
-            const filtered = artists.filter((a) =>
-              a.name.toLowerCase().includes(filter.toLowerCase()),
+            const filtered = sortArtists(
+              artists.filter((a) => a.name.toLowerCase().includes(filter.toLowerCase())),
+              sort,
+              sortDir,
             );
             return (
               <>
-                {artists.length > 10 && (
-                  <input
-                    className="grid-filter"
-                    placeholder="Filter artists…"
-                    value={filter}
-                    onChange={(e) => {
-                      setFilter(e.target.value);
-                      setVisible(60);
-                    }}
-                  />
+                {artists.length > 1 && (
+                  <div className="grid-controls">
+                    {artists.length > 10 && (
+                      <input
+                        className="grid-filter"
+                        placeholder="Filter artists…"
+                        value={filter}
+                        onChange={(e) => {
+                          setFilter(e.target.value);
+                          setVisible(60);
+                        }}
+                      />
+                    )}
+                    {artists.length > 1 && (
+                      <>
+                        <SortSelect
+                          value={sort}
+                          onChange={changeSort}
+                          options={[
+                            ["name", "Name"],
+                            ["added", "Recently added"],
+                            ["albums", "Album count"],
+                            ["missing", "Missing count"],
+                          ]}
+                        />
+                        <DirectionButtons value={sortDir} onChange={setSortDir} />
+                      </>
+                    )}
+                  </div>
                 )}
                 <div className="poster-grid">
                   {filtered.slice(0, visible).map((a) => (
@@ -215,20 +243,30 @@ function AddArtistPanel({
         <p className="muted">No matches on MusicBrainz.</p>
       )}
       {results.length > 0 && (
-        <ul className="rows">
-          {results.map((a) => (
-            <li key={a.id}>
-              <div className="row">
-                <span>{a.name}</span>
-                <span className="row-actions">
-                  <button disabled={addingMbid !== null} onClick={() => monitor(a.id)}>
-                    {addingMbid === a.id ? "Adding…" : "+ Add & Monitor"}
-                  </button>
+        <div className="poster-grid compact">
+          {results.map((a) => {
+            // No image available at all for a not-yet-added search result
+            // (MusicBrainz's artist search doesn't return one) — the
+            // lettered fallback tile every poster-card falls back to
+            // elsewhere when there's genuinely no cover art.
+            const meta = [a.type, a.country, a.disambiguation].filter(Boolean).join(" · ");
+            return (
+              <button
+                key={a.id}
+                className="poster-card"
+                disabled={addingMbid !== null}
+                onClick={() => monitor(a.id)}
+                title={a.disambiguation ? `Disambiguation: ${a.disambiguation}` : undefined}
+              >
+                <div className="poster fallback">{a.name.charAt(0)}</div>
+                <span className="poster-title">{a.name}</span>
+                <span className="poster-sub">
+                  {addingMbid === a.id ? "Adding…" : meta || "Add & monitor"}
                 </span>
-              </div>
-            </li>
-          ))}
-        </ul>
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );

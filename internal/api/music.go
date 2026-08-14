@@ -1544,7 +1544,7 @@ func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Reque
 
 	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
 	defer cancel()
-	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, wanted.ID, "music")
+	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, wanted.ID, 0, "music")
 	if err != nil {
 		// The claim already flipped status to "downloading" — release it
 		// back to "wanted" so this isn't stuck unsearchable after a failed
@@ -1717,7 +1717,7 @@ func (s *server) handleGrabAlbumUpgrade(w http.ResponseWriter, r *http.Request) 
 
 	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
 	defer cancel()
-	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, 0, "music")
+	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, 0, id, "music")
 	if errors.Is(err, download.ErrNoClient) {
 		writeError(w, http.StatusServiceUnavailable,
 			"no enabled "+req.Protocol+" download client — add one under Settings")

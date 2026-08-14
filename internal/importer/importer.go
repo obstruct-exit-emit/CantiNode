@@ -235,6 +235,19 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 			"grab_id", g.ID, "dest", dest)
 		return false
 	}
+	// Captured before the scan (which is what actually matches the new
+	// files in) so swapUpgradedFiles below can tell which files are the
+	// ones this upgrade is meant to replace, as opposed to whatever the
+	// scan itself just added.
+	var beforeUpgrade []musiclibrary.TrackFile
+	if g.UpgradeAlbumID > 0 {
+		var err error
+		beforeUpgrade, err = s.music.ListTrackFilesByAlbum(g.UpgradeAlbumID)
+		if err != nil {
+			s.logger.Warn("importer: list track files before upgrade import, old file(s) will be left in place",
+				"grab_id", g.ID, "upgrade_album_id", g.UpgradeAlbumID, "error", err)
+		}
+	}
 	if _, err := s.scanner.ScanAll(ctx); err != nil {
 		s.logger.Warn("importer: post-import scan failed, the next scan will still pick these files up",
 			"grab_id", g.ID, "error", err)
@@ -255,6 +268,9 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 			s.logger.Error("importer: remove satisfied wanted album", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
 		}
 	}
+	if g.UpgradeAlbumID > 0 {
+		s.swapUpgradedFiles(g.UpgradeAlbumID, beforeUpgrade)
+	}
 	// The copy is safely in the library now — remove the download from its
 	// client, deleting its own data too, so a finished grab doesn't sit
 	// around in the download folder or the client's history forever.
@@ -272,6 +288,60 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 
 	s.logger.Info("importer: imported completed download", "grab_id", g.ID, "title", g.Title, "dest", dest)
 	return true
+}
+
+// swapUpgradedFiles deletes the old, now-superseded file for each track an
+// upgrade grab (handleGrabAlbumUpgrade, tracked via GrabRecord.UpgradeAlbumID)
+// just replaced with a better one. before is the album's track files
+// captured right before the scan that imports and matches the new ones in
+// — comparing against the album's current state after that scan identifies
+// exactly which files are new. Deliberately swaps track-by-track rather
+// than wiping every pre-existing file once anything new shows up: a track
+// the new release didn't end up matching (a partial or failed match) keeps
+// whatever file it already had, so a bad upgrade can never leave a track
+// with nothing. Best-effort and non-fatal — the import itself already
+// succeeded either way, so a failure here is logged and left for manual
+// cleanup, never treated as reason to fail the import.
+func (s *Service) swapUpgradedFiles(albumID int64, before []musiclibrary.TrackFile) {
+	beforeIDs := make(map[int64]bool, len(before))
+	oldByTrack := make(map[int64][]musiclibrary.TrackFile)
+	for _, tf := range before {
+		beforeIDs[tf.ID] = true
+		if tf.TrackID != nil {
+			oldByTrack[*tf.TrackID] = append(oldByTrack[*tf.TrackID], tf)
+		}
+	}
+
+	after, err := s.music.ListTrackFilesByAlbum(albumID)
+	if err != nil {
+		s.logger.Warn("importer: list track files after upgrade import, old file(s) left in place",
+			"album_id", albumID, "error", err)
+		return
+	}
+
+	newlyMatchedTracks := make(map[int64]bool)
+	for _, tf := range after {
+		if beforeIDs[tf.ID] || tf.TrackID == nil || tf.MatchStatus != musiclibrary.StatusMatched {
+			continue
+		}
+		newlyMatchedTracks[*tf.TrackID] = true
+	}
+
+	for trackID := range newlyMatchedTracks {
+		for _, old := range oldByTrack[trackID] {
+			if err := os.Remove(old.Path); err != nil && !os.IsNotExist(err) {
+				s.logger.Warn("importer: deleting file superseded by an upgrade failed, leaving its row in place",
+					"album_id", albumID, "path", old.Path, "error", err)
+				continue
+			}
+			if err := s.music.DeleteTrackFile(old.ID); err != nil {
+				s.logger.Warn("importer: deleting superseded track file row failed",
+					"album_id", albumID, "track_file_id", old.ID, "error", err)
+				continue
+			}
+			s.logger.Info("importer: deleted file superseded by an upgrade", "album_id", albumID, "path", old.Path)
+		}
+	}
 }
 
 // deleteDownloadData removes a completed download's own files after a

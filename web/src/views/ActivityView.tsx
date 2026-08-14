@@ -3,6 +3,7 @@ import { api, type BlockEntry, type GrabRecord, type QueueItem } from "../api";
 import { relativeTime } from "../format";
 import { RowsSkeleton } from "../components/Skeleton";
 import { useUi } from "../ui";
+import ReleaseBrowser from "../components/ReleaseBrowser";
 
 export default function ActivityView({
   onError,
@@ -24,6 +25,7 @@ export default function ActivityView({
   // the three.
   const [itemsLoading, setItemsLoading] = useState(true);
   const [removing, setRemoving] = useState("");
+  const [retryGrabId, setRetryGrabId] = useState<number | null>(null);
 
   const reload = useCallback(() => {
     api
@@ -220,34 +222,72 @@ export default function ActivityView({
               <p className="muted">No grabs match the filter.</p>
             )}
             <ul className="rows">
-              {history.map((g) => (
-                <li key={g.id}>
-                  <div className="row">
-                    <span>
-                      {g.title}
-                      {g.message && <span className="file-path muted"> — {g.message}</span>}
-                    </span>
-                    <span className="row-actions">
-                      <span className="muted" title={g.grabbedAt}>
-                        {relativeTime(g.grabbedAt)}
+              {history.map((g) => {
+                // A failed grab tied to a wanted album or an owned-album
+                // upgrade can search again right here — same release list
+                // "Search releases"/"Search upgrade" opens from the album
+                // page, without navigating away from Activity first. A
+                // grab with neither (shouldn't happen for a music grab,
+                // but the data doesn't guarantee it) has nothing to retry
+                // against.
+                const canRetry = g.status === "failed" && (!!g.wantedAlbumId || !!g.upgradeAlbumId);
+                return (
+                  <li key={g.id}>
+                    <div className="row">
+                      <span>
+                        {g.title}
+                        {g.message && <span className="file-path muted"> — {g.message}</span>}
                       </span>
-                      <span className="muted">{g.protocol}</span>
-                      <span className={`owned ${g.status === "failed" ? "no" : "yes"}`}>
-                        {g.status}
+                      <span className="row-actions">
+                        <span className="muted" title={g.grabbedAt}>
+                          {relativeTime(g.grabbedAt)}
+                        </span>
+                        <span className="muted">{g.protocol}</span>
+                        <span className={`owned ${g.status === "failed" ? "no" : "yes"}`}>
+                          {g.status}
+                        </span>
+                        {g.status === "grabbed" && (
+                          <button
+                            className="danger"
+                            title="Clear this pending grab without touching the download client — use this when the download itself is already gone but a new search still says one is pending"
+                            onClick={() => cancelGrab(g)}
+                          >
+                            cancel
+                          </button>
+                        )}
+                        {canRetry && (
+                          <button
+                            className={retryGrabId === g.id ? "toggle on" : "toggle"}
+                            title="Search for a different release"
+                            onClick={() => setRetryGrabId(retryGrabId === g.id ? null : g.id)}
+                          >
+                            {retryGrabId === g.id ? "Hide releases" : "Search again"}
+                          </button>
+                        )}
                       </span>
-                      {g.status === "grabbed" && (
-                        <button
-                          className="danger"
-                          title="Clear this pending grab without touching the download client — use this when the download itself is already gone but a new search still says one is pending"
-                          onClick={() => cancelGrab(g)}
-                        >
-                          cancel
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                </li>
-              ))}
+                    </div>
+                    {retryGrabId === g.id && g.wantedAlbumId ? (
+                      <ReleaseBrowser
+                        wantedAlbumId={g.wantedAlbumId}
+                        onGrabbed={() => {
+                          setRetryGrabId(null);
+                          reload();
+                        }}
+                        onClose={() => setRetryGrabId(null)}
+                      />
+                    ) : retryGrabId === g.id && g.upgradeAlbumId ? (
+                      <ReleaseBrowser
+                        upgradeAlbumId={g.upgradeAlbumId}
+                        onGrabbed={() => {
+                          setRetryGrabId(null);
+                          reload();
+                        }}
+                        onClose={() => setRetryGrabId(null)}
+                      />
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
             {history.length < histTotal && (
               <button

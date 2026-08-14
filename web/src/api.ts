@@ -118,6 +118,7 @@ export interface ReleaseCandidate extends Release {
 export interface GrabRecord {
   id: number;
   wantedAlbumId?: number;
+  upgradeAlbumId?: number;
   title: string;
   protocol: string;
   status: "grabbed" | "imported" | "failed";
@@ -368,6 +369,9 @@ export interface MusicBrainzArtistResult {
   id: string;
   name: string;
   sortName: string;
+  type?: string;
+  disambiguation?: string;
+  country?: string;
   score: number;
 }
 
