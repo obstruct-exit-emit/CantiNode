@@ -20,7 +20,7 @@ import { useUi } from "../ui";
 // only way to discover that; keep this in sync if IsSupported's list ever
 // changes.
 const tagWritableFormats = new Set([
-  "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "dsf",
+  "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav",
 ]);
 
 // Full-page album detail: header with cover art, release info, and

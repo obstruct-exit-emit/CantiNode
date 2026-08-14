@@ -1,7 +1,11 @@
 // Package tagreader reads embedded metadata (artist/album/track, and any
 // MusicBrainz IDs already embedded by a ripper or Picard) out of an audio
-// file, using github.com/dhowden/tag — pure Go, no cgo, matching the rest
-// of CantiNode.
+// file. Most formats go through github.com/dhowden/tag (pure Go, no cgo);
+// WAV is the one exception — dhowden/tag can open a WAV file but returns
+// "no tags found" for every one tested, confirmed against a real file with
+// genuine RIFF INFO tags — so it routes through go.senan.xyz/taglib
+// instead (the same TagLib-via-WASM/wazero dependency internal/tagwriter
+// already uses to write WAV's tags — see readTagLib).
 //
 // Audio properties (duration, bitrate) are not read here: dhowden/tag only
 // parses metadata containers, not the audio stream itself, so decoding
@@ -42,15 +46,18 @@ type Tags struct {
 	MusicBrainzRecordingID    string // identifies this specific track/recording
 }
 
-// audioExtensions are the file extensions worth attempting to read —
-// dhowden/tag detects the actual format from file content, so this is
-// purely a fast pre-filter for the scanner's directory walk, limited to
-// the file types dhowden/tag actually supports (MP3, MP4/M4A family,
-// FLAC, OGG/Vorbis, DSF — see tag.FileType). Notably not WAV, WMA, or
-// Opus-in-Ogg, which it doesn't parse tags from.
+// audioExtensions are the file extensions worth attempting to read — a
+// fast pre-filter for the scanner's directory walk, covering every format
+// either backend actually reads tags from: MP3, MP4/M4A family, FLAC,
+// OGG/Vorbis, Opus-in-Ogg (dhowden/tag detects the actual container
+// format from file content and, despite this package's own doc comment
+// once claiming otherwise, does correctly parse OpusTags — it treats it
+// as an alias of the byte-identical VorbisComment structure; see ogg.go's
+// opusTagsPrefix), and DSF via dhowden/tag; WAV via go.senan.xyz/taglib.
+// Not WMA — neither backend reads it.
 var audioExtensions = map[string]bool{
 	".mp3": true, ".flac": true, ".m4a": true, ".m4b": true, ".m4p": true,
-	".ogg": true, ".oga": true, ".dsf": true,
+	".ogg": true, ".oga": true, ".opus": true, ".dsf": true, ".wav": true,
 }
 
 // IsAudioFile reports whether path's extension is one tagreader can read.
@@ -60,6 +67,10 @@ func IsAudioFile(path string) bool {
 
 // Read parses the audio file at path and returns its tags.
 func Read(path string) (*Tags, error) {
+	if extOf(path) == "wav" {
+		return readTagLib(path)
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
@@ -71,6 +82,10 @@ func Read(path string) (*Tags, error) {
 		return nil, fmt.Errorf("read tags from %s: %w", path, err)
 	}
 	return fromMetadata(m), nil
+}
+
+func extOf(path string) string {
+	return strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
 }
 
 func fromMetadata(m tag.Metadata) *Tags {

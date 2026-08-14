@@ -1,0 +1,11 @@
+sample.wav is copied unmodified from go.senan.xyz/taglib's own test
+fixtures (testdata/eg.wav) — already a direct dependency of this project
+(see go.mod), licensed LGPL-2.1 (full text: the module's own LICENSE file,
+https://pkg.go.dev/go.senan.xyz/taglib?tab=licenses). Used here to test
+readTagLib, the WAV read path dhowden/tag can't cover (see tagreader.go's
+package doc comment for why).
+
+sample.opus is a local transcode of that same eg.wav (`opusenc --bitrate 32
+eg.wav sample.opus`), used to confirm dhowden/tag really does correctly
+read OpusTags via Read() end-to-end (it treats OpusTags as an alias of the
+byte-identical VorbisComment structure — see ogg.go's opusTagsPrefix).

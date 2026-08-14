@@ -11,8 +11,8 @@ import (
 func TestIsAudioFile(t *testing.T) {
 	cases := map[string]bool{
 		"song.mp3": true, "song.flac": true, "song.m4a": true,
-		"song.ogg": true, "song.MP3": true,
-		"cover.jpg": false, "readme.txt": false, "song.wav": false,
+		"song.ogg": true, "song.MP3": true, "song.opus": true, "song.wav": true,
+		"cover.jpg": false, "readme.txt": false, "song.wma": false,
 	}
 	for name, want := range cases {
 		if got := IsAudioFile(name); got != want {

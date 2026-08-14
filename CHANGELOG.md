@@ -11,23 +11,27 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
-- **"Write tags" now covers every format the scanner can actually read tags
-  from**, not just MP3/FLAC: the MP4/M4A family (M4A/M4B/M4P), OGG/OGA
-  (Vorbis comments), and DSF now write too, via `go.senan.xyz/taglib`
-  (upstream TagLib compiled to WASM, run through wazero — no cgo, no new
-  runtime dependency) rather than hand-rolling each container's own
-  binary format the way the existing MP3/FLAC writers do. MP4 in
-  particular was deliberately left unsupported before now: its metadata
-  atom sits before the audio data, so resizing it means correctly
-  rewriting every track's chunk-offset table (`stco`/`co64`) or the file's
-  audio silently points at the wrong bytes — exactly the kind of mistake a
-  mature, extensively-used library is worth depending on to get right
-  rather than re-deriving under time pressure. WAV and Opus-in-Ogg are
-  still not covered, but only because neither is in `tagreader`'s own
-  supported-extensions list to begin with — a file in either format never
-  reaches the scanner at all, so writing tags to it wouldn't do anything
-  yet. The album page's "write tags" button is now hidden for a file
-  format it doesn't cover, instead of only failing after the click. See
+- **"Write tags" (and scanning generally) now covers every popular audio
+  format**: MP3/FLAC as before, plus the MP4/M4A family (M4A/M4B/M4P),
+  OGG/OGA (Vorbis comments), Opus-in-Ogg, DSF, and WAV. Writing routes
+  through `go.senan.xyz/taglib` (upstream TagLib compiled to WASM, run
+  through wazero — no cgo, no new runtime dependency) for everything past
+  MP3/FLAC rather than hand-rolling each container's own binary format.
+  MP4 in particular was deliberately left unsupported before now: its
+  metadata atom sits before the audio data, so resizing it means
+  correctly rewriting every track's chunk-offset table (`stco`/`co64`) or
+  the file's audio silently points at the wrong bytes — exactly the kind
+  of mistake a mature, extensively-used library is worth depending on to
+  get right rather than re-deriving under time pressure. WAV needed a
+  matching change on the *read* side too — `dhowden/tag` (everything
+  else's tag reader) opens a WAV file without erroring but returns "no
+  tags found" for every one tested, so `internal/tagreader` now reads WAV
+  through the same taglib backend; Opus-in-Ogg turned out to need nothing
+  extra, since `dhowden/tag` already parses `OpusTags` correctly (as an
+  alias of the byte-identical `VorbisComment` structure) despite this
+  project's own now-corrected doc comment once claiming otherwise. The
+  album page's "write tags" button is hidden for any file format neither
+  backend covers, instead of only failing after the click. See
   [Fixed](#fixed) below for a real bug this surfaced in a dependency.
 - **Four quality-of-life items from a code-review-driven pass, all live
   2026-08-13:**

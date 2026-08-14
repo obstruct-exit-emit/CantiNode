@@ -15,11 +15,8 @@
 // mature, extensively-used library own that correctness beats re-deriving
 // it from scratch.
 //
-// Every format tagreader can actually read tags from is now covered — MP3,
-// FLAC, the MP4/M4A family, OGG/Vorbis, and DSF. WAV and Opus-in-Ogg are
-// deliberately left out: neither is in tagreader's own audioExtensions
-// list, so a file in either format never reaches this package at all —
-// adding a writer for a format nothing scans in wouldn't do anything.
+// Every format tagreader can actually read tags from is covered — MP3,
+// FLAC, the MP4/M4A family, OGG/Vorbis, Opus-in-Ogg, DSF, and WAV.
 package tagwriter
 
 import (
@@ -62,7 +59,7 @@ func Write(path string, tags Tags) error {
 		return writeID3v2(path, tags)
 	case "flac":
 		return writeFLACVorbisComment(path, tags)
-	case "m4a", "m4b", "m4p", "ogg", "oga", "dsf":
+	case "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav":
 		return writeTagLib(path, tags)
 	default:
 		return ErrUnsupportedFormat
@@ -74,7 +71,7 @@ func Write(path string, tags Tags) error {
 // rather than letting the user hit ErrUnsupportedFormat after the fact.
 func IsSupported(path string) bool {
 	switch extOf(path) {
-	case "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "dsf":
+	case "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav":
 		return true
 	default:
 		return false

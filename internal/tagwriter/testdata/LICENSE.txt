@@ -33,3 +33,15 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
+sample.wav is copied unmodified from go.senan.xyz/taglib's own test
+fixtures (testdata/eg.wav) — already a direct dependency of this project
+(see go.mod), licensed LGPL-2.1 (full text: the module's own LICENSE file,
+https://pkg.go.dev/go.senan.xyz/taglib?tab=licenses).
+
+sample.opus is a local transcode of that same eg.wav, produced with
+opus-tools' opusenc (`opusenc --bitrate 32 eg.wav sample.opus`) purely to
+get a real, valid, minimal Ogg-Opus container for writeTagLib's Opus
+round-trip test — not sourced from anywhere else.

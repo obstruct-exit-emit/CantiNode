@@ -107,6 +107,28 @@ func TestWriteTagLibDSF(t *testing.T) {
 	assertTags(t, path, tags)
 }
 
+func TestWriteTagLibWAV(t *testing.T) {
+	path := copyFixture(t, "sample.wav")
+	tags := fullTags()
+	if err := Write(path, tags); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	assertTags(t, path, tags)
+}
+
+// TestWriteTagLibOpus round-trips through internal/tagreader's real Read()
+// (not just taglib reading its own write) the same way the other
+// writeTagLib tests do — proving both halves of Opus support agree with
+// each other, not just that each independently believes it works.
+func TestWriteTagLibOpus(t *testing.T) {
+	path := copyFixture(t, "sample.opus")
+	tags := fullTags()
+	if err := Write(path, tags); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	assertTags(t, path, tags)
+}
+
 // TestWriteTagLibPreservesUntrackedFields is the regression test for the
 // real gap setField exists to close: WriteTags only touches keys present
 // in the map, so a field CantiNode's own Tags struct doesn't know about
