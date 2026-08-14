@@ -144,7 +144,9 @@ marked **default**: the folder a new automatic grab lands in when the
 artist it's for doesn't already have files anywhere. An artist that
 already owns files always has new grabs join them there instead, so an
 existing discography never splits across folders on its own — the default
-only matters the first time an artist is grabbed.
+only matters the first time an artist is grabbed. Deleting the current
+default folder promotes another remaining one automatically; there's
+always exactly one default as long as at least one root folder exists.
 
 An artist page's **Move to…** dropdown relocates their owned, matched
 files to a different root folder — the button only appears once you have
@@ -156,7 +158,10 @@ page) is left out and stays on the old root folder, since there's no
 artist-scoped query that could ever find it. The move itself runs in the
 background, same as a library scan, since it can mean copying many GB
 across physical drives rather than a fast same-drive rename — the page
-shows progress and you're free to navigate away. It's a pure relocation,
+shows progress and you're free to navigate away. A move and a library
+scan can't run at the same time (each refuses to start while the other is
+in progress): both touch the same file records, and letting them race
+risks losing or duplicating one. It's a pure relocation,
 not a re-organize: each file keeps the exact same path *relative to its
 own root folder*, whatever that already is, just under the new root; run
 **Organize…** afterward if you also want the naming template reapplied. A

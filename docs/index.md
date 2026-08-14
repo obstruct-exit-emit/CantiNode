@@ -17,7 +17,7 @@ add a root folder for it.
 
 | Type | Metadata | Formats |
 |---|---|---|
-| Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a, opus, wav |
+| Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a/m4b/m4p, ogg/oga, opus, dsf, wav |
 
 ## Highlights
 

@@ -27,7 +27,7 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 
 | Library | Metadata | Formats |
 |---|---|---|
-| Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a, opus, wav |
+| Music | MusicBrainz (artist/album/track identity) + TheAudioDB (bio/photo) | flac, mp3, m4a/m4b/m4p, ogg/oga, opus, dsf, wav |
 
 **🔍 One acquisition pipeline, fully automatic**
 - **A Prowlarr connection** — one indexer that searches everything a self-hosted Prowlarr instance already has configured, no per-indexer duplication and no pretending to be a Readarr app; manual Newznab/Torznab entry works too

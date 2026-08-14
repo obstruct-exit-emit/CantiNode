@@ -385,7 +385,7 @@ export default function ArtistDetailView({
               <select
                 value={moveTargetId}
                 disabled={busy || moving}
-                title="Move this artist's whole discography to a different root folder"
+                title="Move this artist's owned albums to a different root folder"
                 onChange={(e) => previewMove(e.target.value === "" ? "" : Number(e.target.value))}
               >
                 <option value="">Move to…</option>

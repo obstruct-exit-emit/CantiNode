@@ -42,7 +42,8 @@ internal/musicbrainz/  MusicBrainz API client (artist/release lookup+search)
 internal/audiodb/      TheAudioDB client (artist bio/photo)
 internal/coverart/     Cover Art Archive client + local album-art cache
 internal/tagreader/    reads embedded audio tags (MBIDs, title, track#)
-internal/tagwriter/    rewrites embedded audio tags on organize
+internal/tagwriter/    rewrites embedded audio tags (the standalone
+                       "write tags" action — not part of organize)
 internal/indexer/      Newznab/Torznab clients, search fan-out, backoff;
                        native-source registry
   prowlarr/            native source: searches a Prowlarr instance's own

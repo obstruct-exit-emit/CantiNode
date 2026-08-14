@@ -2204,7 +2204,7 @@ function RootFoldersCard({
       <p className="muted">
         Where your libraries live on disk — more than one is fine, all
         serving the same music library; name each one however you like and
-        move an artist's whole discography between them from their own
+        move an artist's owned albums between them from their own
         page. The scanner walks every one of these to match files you
         already own; note the path must exist on the machine running
         CantiNode (in WSL, Windows drives are under <code>/mnt/c/…</code>).

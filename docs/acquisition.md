@@ -25,9 +25,11 @@ Each indexer carries an **audio category list** (default `3010,3040`) —
 adjust per indexer if yours differ. (The Prowlarr connection uses this too,
 passed as its search categories; there's no per-connection override yet.)
 
-An indexer that keeps failing **rests with exponential backoff** (5 minutes
-doubling up to 6 hours) instead of being retried every sweep; one success
-clears it.
+An indexer that keeps failing **rests with exponential backoff** instead
+of being retried every sweep — the first 2 consecutive failures are
+tolerated with no penalty (a single flaky sweep shouldn't sideline an
+indexer), then the 3rd starts a 2-minute rest, doubling per failure after
+that up to a 20-minute cap; one success clears it.
 
 ### Native indexers
 

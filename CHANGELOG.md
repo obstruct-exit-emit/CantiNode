@@ -12,7 +12,7 @@ in progress. Highlights from the hardening period, newest first:
 
 ### Added
 - **Multiple, freely-named root folders, with a "Move to…" action to
-  relocate an artist's whole discography between them.** Settings → Media
+  relocate an artist's owned, matched files between them.** Settings → Media
   Management already allowed adding more than one music root folder, but
   they were path-only (no name) and every new automatic grab landed in
   whichever one happened to be first — with several folders configured,
@@ -457,6 +457,35 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Nine real bugs in the same night's root-folders/Move feature, found
+  bug-hunting it before anyone hit them live**: a concurrent library scan
+  and artist move shared no lock at all — both touch the same
+  `track_files` rows, and a scan's `DeleteTrackFilesMissing` racing a
+  move's `SetTrackFileLocation` could lose or duplicate a row, so each now
+  refuses to start while the other is running. Deleting the current
+  default root folder left *zero* folders marked default, with nothing to
+  notice or fix it (`DeleteRootFolder` now promotes another remaining
+  folder atomically). Adding a root folder's "become default" logic was a
+  separate, non-transactional check-then-update — two concurrent adds to
+  an empty table could both lose that race and leave no default
+  (`CreateRootFolder` now does insert + conditional default-assignment in
+  one transaction). A move whose file copy succeeded but whose database
+  update then failed left the file permanently stuck — every retry hit
+  "destination already exists" forever, since nothing on disk or in the
+  database ever changed; it now rolls the file back to its original
+  location on a database-write failure, so a retry starts clean. The move
+  preview endpoint never checked artist existence, silently returning an
+  empty-but-200 plan for a bad id instead of a 404. The artist page called
+  the admin-only `GET /rootfolder` unconditionally, 403ing — with a
+  visible error toast — on every single artist-page visit for a non-admin
+  account; now gated on being an admin, matching root-folder management
+  being admin-only everywhere else. A whole-move failure (e.g. the
+  destination folder vanishing mid-move) set an error on the backend that
+  the frontend never read, so the UI just showed "Moved 0 file(s)" with no
+  explanation; also replaced the move-status poll's free-standing
+  recursive `setTimeout` (no cleanup on unmount) with a proper
+  `useEffect`+`setInterval`, matching the pattern already used elsewhere
+  in this app. See [Libraries](docs/libraries.md#root-folders).
 - **A second real `dhowden/tag` MP4 bug, found bug-hunting the new tag
   code above before anyone hit it live**: `metadataMP4.fileType` is
   initialized to `UnknownFileType` (`""`) in `ReadAtoms` (mp4.go) and
