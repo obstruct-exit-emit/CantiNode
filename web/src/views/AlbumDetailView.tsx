@@ -16,12 +16,18 @@ import { useUi } from "../ui";
 // tagWritableFormats mirrors internal/tagwriter.IsSupported's own format
 // list — kept here rather than round-tripping to the API just to ask,
 // since it's small and rarely changes. Gates the "write tags" button so
-// clicking it on an unsupported format (WAV, WMA, Opus, ...) isn't the
-// only way to discover that; keep this in sync if IsSupported's list ever
+// clicking it on an unsupported format (WMA, AIFF, ...) isn't the only
+// way to discover that; keep this in sync if IsSupported's list ever
 // changes.
-const tagWritableFormats = new Set([
-  "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav",
-]);
+//
+// This is matched against a track_file's own reported format (see
+// internal/tagreader.Tags.Format), not its extension — "oga" and "opus"
+// are deliberately absent even though tagwriter writes both: dhowden/tag
+// (the reader) identifies every Ogg-container file as "ogg" regardless of
+// its actual extension, so a .oga or .opus file's own format is always
+// reported as "ogg", never "oga"/"opus". Listing them here would be dead,
+// untestable code.
+const tagWritableFormats = new Set(["mp3", "flac", "m4a", "m4b", "m4p", "ogg", "dsf", "wav"]);
 
 // Full-page album detail: header with cover art, release info, and
 // album-scoped Scan/Organize/Remove actions (unlike the artist page's

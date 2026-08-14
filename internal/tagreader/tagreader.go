@@ -81,7 +81,25 @@ func Read(path string) (*Tags, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read tags from %s: %w", path, err)
 	}
-	return fromMetadata(m), nil
+	t := fromMetadata(m)
+	if t.Format == "" {
+		// dhowden/tag's MP4 reader (mp4.go) never actually assigns
+		// metadataMP4.fileType — it's initialized to UnknownFileType
+		// ("") in ReadAtoms and nothing afterward ever sets it, so
+		// FileType() always returns "" for every M4A/M4B/M4P file,
+		// confirmed directly against the pinned dependency source and
+		// empirically against a real fixture. That empty string was
+		// getting stored verbatim as this file's format (in the
+		// track_files DB row, and from there into every UI that reads
+		// it, e.g. the album page's write-tags button gate, which used
+		// it to decide the format was unsupported). Falling back to the
+		// extension only when content-detection came back with nothing
+		// keeps the original resilience for every format dhowden/tag
+		// DOES detect (a wrong extension on an MP3/FLAC/OGG/DSF file
+		// still reports its true, sniffed format, not a guess).
+		t.Format = extOf(path)
+	}
+	return t, nil
 }
 
 func extOf(path string) string {

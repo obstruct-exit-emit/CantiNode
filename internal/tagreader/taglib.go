@@ -3,7 +3,6 @@ package tagreader
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	taglib "go.senan.xyz/taglib"
 )
@@ -13,19 +12,16 @@ import (
 // against a real file with genuine RIFF INFO tags (see the package doc
 // comment). go.senan.xyz/taglib (upstream TagLib via WASM/wazero — no
 // cgo, the same dependency internal/tagwriter already uses to write WAV's
-// tags) reads them correctly.
+// tags) reads them correctly. Format is hardcoded to "wav" rather than
+// consulted via a second ReadProperties call into the WASM runtime: Read
+// only ever calls this function for a path whose extension is already
+// exactly "wav" (see Read's own dispatch), so there's nothing left to
+// detect — every scanned WAV file would otherwise pay for two WASM calls
+// instead of one for a question already answered.
 func readTagLib(path string) (*Tags, error) {
 	raw, err := taglib.ReadTags(path)
 	if err != nil {
 		return nil, fmt.Errorf("read tags from %s: %w", path, err)
-	}
-
-	// Properties is only consulted for Format — best-effort, since a
-	// failure here says nothing about whether the tags themselves (already
-	// read above) are trustworthy.
-	format := extOf(path)
-	if props, err := taglib.ReadProperties(path); err == nil && props.Format != "" {
-		format = strings.ToLower(props.Format)
 	}
 
 	return &Tags{
@@ -36,7 +32,7 @@ func readTagLib(path string) (*Tags, error) {
 		TrackNumber:               leadingInt(firstTag(raw, taglib.TrackNumber)),
 		DiscNumber:                leadingInt(firstTag(raw, taglib.DiscNumber)),
 		Year:                      leadingInt(firstTag(raw, taglib.Date)),
-		Format:                    format,
+		Format:                    "wav",
 		MusicBrainzArtistID:       firstTag(raw, taglib.MusicBrainzArtistID),
 		MusicBrainzAlbumID:        firstTag(raw, taglib.MusicBrainzAlbumID),
 		MusicBrainzReleaseGroupID: firstTag(raw, taglib.MusicBrainzReleaseGroupID),

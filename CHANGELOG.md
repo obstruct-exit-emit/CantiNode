@@ -430,6 +430,24 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A second real `dhowden/tag` MP4 bug, found bug-hunting the new tag
+  code above before anyone hit it live**: `metadataMP4.fileType` is
+  initialized to `UnknownFileType` (`""`) in `ReadAtoms` (mp4.go) and
+  never assigned anywhere afterward, so `FileType()` — and therefore
+  every M4A/M4B/M4P file's reported format — was silently `""`, not
+  `"m4a"`. Confirmed both directly against the pinned dependency source
+  and empirically against a real fixture. That empty string flowed
+  straight into the `track_files.format` database column and from there
+  into the album page's own "write tags" button gate, which hid the
+  button for exactly the file format this whole feature was built to
+  support. `internal/tagreader` now falls back to the file's extension
+  only when content-detection comes back with nothing, preserving the
+  original resilience for every format `dhowden/tag` genuinely does
+  detect (a wrong extension on an MP3/FLAC/OGG/DSF file still reports its
+  true, sniffed format). The same pass also found the Ogg-family entries
+  in the frontend's format allowlist (`oga`/`opus`) were unreachable dead
+  code — `dhowden/tag` reports every Ogg-container file as `"ogg"`
+  regardless of its actual extension — and removed them.
 - **A real bug in the `dhowden/tag` dependency's MP4 parser, found while
   testing the new M4A tag-writing support above**: `readCustomAtom` (its
   freeform/`----` iTunes-atom reader — exactly how a custom tag like

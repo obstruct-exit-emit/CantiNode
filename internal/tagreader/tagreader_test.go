@@ -266,6 +266,27 @@ func TestExtractMusicBrainzIDsTrimsMP4FreeformPadding(t *testing.T) {
 	}
 }
 
+// TestReadM4AFallsBackToExtensionForFormat is the regression test for a
+// severe real bug found in review: dhowden/tag's metadataMP4.fileType is
+// initialized to UnknownFileType ("") in ReadAtoms (mp4.go) and never
+// assigned anywhere afterward, so FileType() — and therefore Read's own
+// Format field — was "" for every M4A/M4B/M4P file, confirmed both
+// directly against the pinned dependency source and empirically against
+// this exact fixture before the fix. That empty string flowed straight
+// into track_files.format in the database and from there into the album
+// page's write-tags button gate (tagWritableFormats.has(f.format...)),
+// silently hiding the button for exactly the file format this whole
+// feature was built to support.
+func TestReadM4AFallsBackToExtensionForFormat(t *testing.T) {
+	tags, err := Read(filepath.Join("testdata", "sample.m4a"))
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if tags.Format != "m4a" {
+		t.Errorf("Format = %q, want %q (dhowden/tag's own MP4 FileType() detection is always empty)", tags.Format, "m4a")
+	}
+}
+
 func TestReadUnsupportedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-audio.mp3")
 	if err := os.WriteFile(path, []byte("plain text, not a tag format"), 0o644); err != nil {

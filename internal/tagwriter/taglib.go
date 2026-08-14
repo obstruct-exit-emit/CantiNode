@@ -23,16 +23,8 @@ func writeTagLib(path string, tags Tags) error {
 	setField(set, taglib.Artist, tags.Artist)
 	setField(set, taglib.AlbumArtist, tags.AlbumArtist)
 	setField(set, taglib.Album, tags.Album)
-	if tags.TrackNumber > 0 {
-		set[taglib.TrackNumber] = []string{strconv.Itoa(tags.TrackNumber)}
-	} else {
-		set[taglib.TrackNumber] = []string{}
-	}
-	if tags.DiscNumber > 0 {
-		set[taglib.DiscNumber] = []string{strconv.Itoa(tags.DiscNumber)}
-	} else {
-		set[taglib.DiscNumber] = []string{}
-	}
+	setIntField(set, taglib.TrackNumber, tags.TrackNumber)
+	setIntField(set, taglib.DiscNumber, tags.DiscNumber)
 	setField(set, taglib.Date, tags.Year)
 	setField(set, taglib.MusicBrainzArtistID, tags.MusicBrainzArtistID)
 	setField(set, taglib.MusicBrainzAlbumID, tags.MusicBrainzAlbumID)
@@ -61,5 +53,16 @@ func setField(set map[string][]string, key, value string) {
 		set[key] = []string{}
 	} else {
 		set[key] = []string{value}
+	}
+}
+
+// setIntField is setField for a track/disc number — a value of 0 clears
+// the field the same way an empty string does, rather than writing the
+// literal "0".
+func setIntField(set map[string][]string, key string, value int) {
+	if value > 0 {
+		setField(set, key, strconv.Itoa(value))
+	} else {
+		setField(set, key, "")
 	}
 }
