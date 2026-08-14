@@ -214,6 +214,57 @@ func TestMoveArtistRefusesDestinationCollisionAndContinuesPastIt(t *testing.T) {
 	}
 }
 
+// TestMoveTrackFileRestoresOriginalOnDBFailure is the regression test for
+// a real bug found in review: if the copy+rename to the new location
+// succeeded but the database update (SetTrackFileLocation) then failed,
+// the file used to be left stranded at the new path with the database
+// still pointing at the old one — every retry would then hit this
+// function's own very first check ("destination already exists") forever,
+// since nothing about the stored state ever changed: a permanently stuck
+// file. moveTrackFile now moves the file back to its original location
+// when the database update fails, so a retry starts clean.
+//
+// The DB failure is triggered realistically rather than mocked: a second
+// track_files row is seeded directly at the exact path this move will try
+// to claim (no real file there, so moveTrackFile's own disk-collision
+// check passes) — the eventual SetTrackFileLocation UPDATE then hits
+// track_files.path's UNIQUE constraint and fails, exactly like any other
+// DB-level failure at that step would.
+func TestMoveTrackFileRestoresOriginalOnDBFailure(t *testing.T) {
+	s, db, srcRoot, destRoot := setupMoveScanner(t)
+
+	collisionPath := filepath.Join(destRoot.Path, "Artist Y/Album/01 - Track.flac")
+	if _, err := db.UpsertTrackFileByPath(destRoot.ID, collisionPath, 1, "flac", 0, 0, "{}"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, trackFileID := seedMoveFile(t, db, 0, srcRoot, "Artist Y/Album/01 - Track.flac", "y1", []byte("real audio data"))
+	tfBefore, err := db.GetTrackFile(trackFileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origPath := tfBefore.Path
+
+	if err := s.moveTrackFile(trackFileID, destRoot.ID, collisionPath); err == nil {
+		t.Fatal("want an error from the path collision in the database, got nil")
+	}
+
+	if _, statErr := os.Stat(origPath); statErr != nil {
+		t.Errorf("original file %s missing after rollback: %v", origPath, statErr)
+	}
+	if _, statErr := os.Stat(collisionPath); statErr == nil {
+		t.Errorf("destination %s still has the file after rollback — should have been moved back", collisionPath)
+	}
+
+	tfAfter, err := db.GetTrackFile(trackFileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tfAfter.Path != origPath || tfAfter.RootFolderID != srcRoot.ID {
+		t.Errorf("track file after failed move = %+v, want unchanged (path=%s, root=%d)", tfAfter, origPath, srcRoot.ID)
+	}
+}
+
 func TestRemoveEmptyParentsStopsAtBoundaryAndNonEmptyDir(t *testing.T) {
 	base := t.TempDir()
 	nested := filepath.Join(base, "a", "b", "c")

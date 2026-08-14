@@ -28,6 +28,16 @@ type ArtistMove struct {
 // also wants the naming template reapplied. A file already on the
 // destination root is left out entirely, the same way an
 // already-correctly-named file is left out of PlanOrganizeArtist.
+//
+// Only covers files ListTrackFilesByArtist can see — matched files linked
+// through tracks/albums to this artist. A file still sitting unmatched in
+// the same folder tree (nothing has associated it with any artist yet —
+// see the unmatched-files review page) is not included and is left behind
+// on the old root folder; there is no artist-scoped query that could find
+// it, since being unmatched is exactly what "not yet linked to an artist"
+// means. Match or otherwise resolve those first if you want a folder to
+// relocate in full. PlanOrganizeArtist has the identical limitation and
+// says so for the same reason.
 func (s *Scanner) PlanMoveArtist(artistID, destRootFolderID int64) ([]ArtistMove, error) {
 	dest, err := s.db.GetRootFolder(destRootFolderID)
 	if err != nil {
@@ -140,12 +150,22 @@ func (s *Scanner) moveTrackFile(trackFileID, destRootFolderID int64, newPath str
 	}
 
 	if err := s.db.SetTrackFileLocation(trackFileID, destRootFolderID, newPath); err != nil {
-		// The copy already landed at newPath — deliberately NOT deleting
-		// tf.Path here, since the database still (correctly, if now
-		// staled) points at it; deleting it would destroy the only
-		// record-consistent copy of this file until someone notices and
-		// fixes the database by hand.
-		return fmt.Errorf("record new location (file already copied to %s, old copy left in place): %w", newPath, err)
+		// The copy already landed at newPath, but the database still
+		// (now incorrectly) points at tf.Path. Left there, every retry
+		// would hit this same function's very first check above
+		// ("destination already exists") forever, since nothing about the
+		// stored state ever changed — a permanently stuck file with no
+		// path forward except manual disk cleanup. Moving it back restores
+		// the exact pre-move state instead, so a retry starts clean. Only
+		// if that ALSO fails (rare — e.g. the source directory disappeared
+		// out from under this call) does the file end up stuck at newPath
+		// with a stale database row, which the error message below spells
+		// out precisely so it can be fixed by hand.
+		if rerr := os.Rename(newPath, tf.Path); rerr != nil {
+			return fmt.Errorf("record new location failed (%v), and restoring the original also failed (%v) — "+
+				"the file is now at %s but the database still says %s", err, rerr, newPath, tf.Path)
+		}
+		return fmt.Errorf("record new location, rolled back to original location: %w", err)
 	}
 
 	if err := os.Remove(tf.Path); err != nil {

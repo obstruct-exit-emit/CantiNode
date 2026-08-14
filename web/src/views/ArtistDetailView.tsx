@@ -90,11 +90,13 @@ function WantedPoster({ releaseGroupMbid, title }: { releaseGroupMbid: string; t
 // aren't wanted yet.
 export default function ArtistDetailView({
   id,
+  isAdmin,
   onError,
   onBack,
   onOpenAlbum,
 }: {
   id: number;
+  isAdmin: boolean;
   onError: (message: string) => void;
   onBack: () => void;
   onOpenAlbum: (albumId: number) => void;
@@ -116,7 +118,7 @@ export default function ArtistDetailView({
   const [moveTargetId, setMoveTargetId] = useState<number | "">("");
   const [movePlan, setMovePlan] = useState<{ moves: ArtistMove[]; totalBytes: number } | null>(null);
   const [moving, setMoving] = useState(false);
-  const [moveResult, setMoveResult] = useState<{ moved: number; errors: string[] } | null>(null);
+  const [moveResult, setMoveResult] = useState<{ moved: number; errors: string[]; error?: string } | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [albumsSort, setAlbumsSort] = useState("date");
   const [albumsDir, setAlbumsDir] = useState<SortDir>(defaultDirFor("date"));
@@ -139,13 +141,47 @@ export default function ArtistDetailView({
   useEffect(reload, [reload]);
 
   // Root folders load once — used only to populate the "Move to…"
-  // dropdown, no need to refresh on every reload tick.
+  // dropdown, no need to refresh on every reload tick. GET /rootfolder is
+  // admin-only (root-folder management is an admin concern everywhere
+  // else in this app too — Settings' own Root Folders card is admin-
+  // gated the same way), so a member account would otherwise 403 on this
+  // call, every single time it visits any artist page, for a dropdown it
+  // could never use anyway.
   useEffect(() => {
+    if (!isAdmin) return;
     api
       .listRootFolders()
       .then(setRootFolders)
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
-  }, [onError]);
+  }, [isAdmin, onError]);
+
+  // Polls move status while a move is running — an interval owned by
+  // React (cleared on unmount or once `moving` flips back to false)
+  // rather than a free-standing recursive setTimeout, so navigating away
+  // from this page mid-move doesn't leave a detached poll loop calling
+  // setState on an unmounted component every second until the move
+  // finishes. Mirrors the useEffect+setInterval shape ActivityView and
+  // App.tsx already use for their own polling.
+  useEffect(() => {
+    if (!moving) return;
+    const timer = setInterval(() => {
+      api
+        .musicMoveStatus()
+        .then((state) => {
+          if (state.running) return;
+          setMoving(false);
+          setMoveTargetId("");
+          setMovePlan(null);
+          setMoveResult({ moved: state.moved?.length ?? 0, errors: state.errors ?? [], error: state.error });
+          reload();
+        })
+        .catch((err: unknown) => {
+          setMoving(false);
+          onError(String(err instanceof Error ? err.message : err));
+        });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [moving, onError, reload]);
 
   // Shared by the Missing and Wanted cards below: wanting, un-wanting, or
   // monitoring an album moves it between the two lists, so either side
@@ -242,36 +278,14 @@ export default function ArtistDetailView({
   };
 
   // applyMove starts the move in the background (a large or cross-drive
-  // move can take a while — see internal/musicscanner.MoveArtist) and
-  // polls status until it finishes, same shape as the Scan status poll
-  // elsewhere in this app.
+  // move can take a while — see internal/musicscanner.MoveArtist); the
+  // effect below (gated on `moving`) polls status until it finishes,
+  // same shape as the Scan status poll elsewhere in this app.
   const applyMove = () => {
     if (moveTargetId === "") return;
     setMoving(true);
     api
       .moveMusicArtist(artist.id, moveTargetId)
-      .then(() => {
-        const poll = () => {
-          api
-            .musicMoveStatus()
-            .then((state) => {
-              if (state.running) {
-                setTimeout(poll, 1000);
-                return;
-              }
-              setMoving(false);
-              setMoveTargetId("");
-              setMovePlan(null);
-              setMoveResult({ moved: state.moved?.length ?? 0, errors: state.errors ?? [] });
-              reload();
-            })
-            .catch((err: unknown) => {
-              setMoving(false);
-              onError(String(err instanceof Error ? err.message : err));
-            });
-        };
-        poll();
-      })
       .catch((err: unknown) => {
         setMoving(false);
         onError(String(err instanceof Error ? err.message : err));
@@ -434,7 +448,10 @@ export default function ArtistDetailView({
               </div>
             </div>
           )}
-          {moveResult && (
+          {moveResult && moveResult.error && (
+            <p className="notice bad">Move failed: {moveResult.error}</p>
+          )}
+          {moveResult && !moveResult.error && (
             <p className={moveResult.errors.length ? "notice bad" : "notice ok"}>
               Moved {moveResult.moved} file(s)
               {moveResult.errors.length > 0 && ` — ${moveResult.errors.length} failed: ${moveResult.errors.join("; ")}`}

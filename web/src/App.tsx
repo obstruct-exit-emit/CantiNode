@@ -299,6 +299,7 @@ function AppInner() {
         {connected && page.name === "artist" && (
           <ArtistDetailView
             id={page.id}
+            isAdmin={isAdmin}
             onError={onError}
             onBack={() => go({ name: "library" })}
             onOpenAlbum={(albumId) => go({ name: "album", id: albumId, artistId: page.id })}

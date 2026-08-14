@@ -21,13 +21,16 @@ in progress. Highlights from the hardening period, newest first:
   outside the app and hoping the database noticed. Now: each root folder
   has its own editable name (`PUT /rootfolder/{id}/name`), one is marked
   **default** (`PUT /rootfolder/{id}/default`) as the fallback destination
-  for a brand-new artist's first grab — an artist that already owns files
-  always has new grabs join them there instead, so an existing discography
-  never splits across folders on its own (`internal/importer`'s new
-  `targetRootFolder`). An artist page's **Move to…** dropdown previews
-  (file count, total size) then relocates their entire discography to a
-  different root folder in the background, the same shape as a library
-  scan — a pure relocation preserving each file's existing relative path,
+  for a brand-new artist's first grab — an artist that already owns
+  matched files always has new grabs join them there instead, so an
+  existing discography never splits across folders on its own
+  (`internal/importer`'s new `targetRootFolder`; an artist whose files are
+  *all* still unmatched is the one case this can't recognize, since an
+  unmatched file isn't linked to any artist at all yet). An artist page's
+  **Move to…** dropdown previews (file count, total size) then relocates
+  their owned, matched files to a different root folder in the
+  background, the same shape as a library scan — a pure relocation
+  preserving each file's existing relative path,
   not a re-organize, since it can mean copying many GB across physical
   drives rather than a fast same-drive rename. Copy → size-verify → record
   the new location → delete the original, in that order, per file, so an

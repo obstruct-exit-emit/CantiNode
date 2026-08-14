@@ -1235,6 +1235,14 @@ func (s *server) handlePreviewMoveMusicArtist(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "rootFolderId is required")
 		return
 	}
+	// PlanMoveArtist itself never checks artist existence — ListTrackFilesByArtist
+	// just returns an empty slice for a nonexistent id, which without this
+	// check would look identical to "this artist owns nothing to move" (a
+	// perfectly valid 200) rather than the 404 a bad id should actually get.
+	if _, err := s.musicStore.GetArtist(id); err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
 	moves, err := s.musicScanner.PlanMoveArtist(id, destID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -1290,6 +1298,16 @@ func (s *server) handleMoveMusicArtist(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := s.musicStore.GetRootFolder(req.RootFolderID); err != nil {
 		writeMusicStoreError(w, err)
+		return
+	}
+
+	// See handleTriggerMusicScan's own doc comment for why a scan and a
+	// move can't be allowed to run at the same time.
+	s.musicScanMu.Lock()
+	scanRunning := s.musicScanState.Running
+	s.musicScanMu.Unlock()
+	if scanRunning {
+		writeError(w, http.StatusConflict, "a music scan is in progress — try again once it finishes")
 		return
 	}
 
@@ -1382,8 +1400,23 @@ type musicScanState struct {
 // in the background and returns immediately — MusicBrainz is rate-limited
 // to about 1 request/sec, so a library with hundreds of unmatched files
 // takes minutes, not seconds. Poll GET /api/v1/music/scan/status for
-// progress. Refuses to start a second scan while one is already running.
+// progress. Refuses to start a second scan while one is already running,
+// or while an artist move is running: both touch the same track_files
+// rows (path, root_folder_id) for files potentially in flight between
+// root folders, and a scan's DeleteTrackFilesMissing racing a move's
+// SetTrackFileLocation can lose or duplicate a row. Checking the move
+// state right before starting narrows that window rather than closing it
+// outright — the same "collapse, don't eliminate" mitigation
+// internal/importer's stillGrabbed already uses for its own analogous race.
 func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) {
+	s.musicMoveMu.Lock()
+	moveRunning := s.musicMoveState.Running
+	s.musicMoveMu.Unlock()
+	if moveRunning {
+		writeError(w, http.StatusConflict, "an artist move is in progress — try again once it finishes")
+		return
+	}
+
 	s.musicScanMu.Lock()
 	if s.musicScanState.Running {
 		s.musicScanMu.Unlock()

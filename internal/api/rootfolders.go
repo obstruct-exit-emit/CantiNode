@@ -26,26 +26,17 @@ type rootFolder struct {
 }
 
 func (s *server) handleListRootFolders(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`SELECT id, name, media_type, path, is_default, created_at FROM root_folders ORDER BY media_type, name`)
+	rfs, err := s.musicStore.ListRootFolders()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer rows.Close()
-
-	folders := []rootFolder{}
-	for rows.Next() {
-		var f rootFolder
-		if err := rows.Scan(&f.ID, &f.Name, &f.MediaType, &f.Path, &f.IsDefault, &f.CreatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+	folders := make([]rootFolder, len(rfs))
+	for i, rf := range rfs {
+		folders[i] = rootFolder{
+			ID: rf.ID, Name: rf.Name, MediaType: "music", Path: rf.Path,
+			IsDefault: rf.IsDefault, Accessible: dirExists(rf.Path), CreatedAt: rf.CreatedAt,
 		}
-		f.Accessible = dirExists(f.Path)
-		folders = append(folders, f)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
 	}
 	writeJSON(w, http.StatusOK, folders)
 }
@@ -81,48 +72,35 @@ func (s *server) handleAddRootFolder(w http.ResponseWriter, r *http.Request) {
 		name = filepath.Base(req.Path)
 	}
 
-	res, err := s.db.Exec(`INSERT INTO root_folders (media_type, path, name) VALUES (?, ?, ?)`,
-		req.MediaType, req.Path, name)
+	// CreateRootFolder handles becoming the default (if no other music
+	// root folder currently is one) atomically in its own transaction —
+	// see its own doc comment for why that matters for two concurrent adds.
+	rf, err := s.musicStore.CreateRootFolder(req.Path, name)
 	if err != nil {
 		writeError(w, http.StatusConflict, "folder already added or could not be saved: "+err.Error())
 		return
 	}
-	id, _ := res.LastInsertId()
 
-	// The very first root folder for a media type becomes its default
-	// automatically — otherwise DefaultRootFolder would have nothing to
-	// return until the user thought to set one by hand, breaking the
-	// "new grab falls back to the default" path for a brand-new install.
-	var count int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM root_folders WHERE media_type = ?`, req.MediaType).Scan(&count); err == nil && count == 1 {
-		s.db.Exec(`UPDATE root_folders SET is_default = 1 WHERE id = ?`, id)
-	}
-
-	var f rootFolder
-	err = s.db.QueryRow(`SELECT id, name, media_type, path, is_default, created_at FROM root_folders WHERE id = ?`, id).
-		Scan(&f.ID, &f.Name, &f.MediaType, &f.Path, &f.IsDefault, &f.CreatedAt)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	f.Accessible = true
+	f := rootFolder{ID: rf.ID, Name: rf.Name, MediaType: req.MediaType, Path: rf.Path, IsDefault: rf.IsDefault, Accessible: true, CreatedAt: rf.CreatedAt}
 	s.refreshHealth()
 	writeJSON(w, http.StatusCreated, f)
 }
 
+// handleDeleteRootFolder removes a root folder. If it was the current
+// default, Store.DeleteRootFolder promotes another remaining one instead
+// of silently leaving none marked — see its own doc comment.
 func (s *server) handleDeleteRootFolder(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	res, err := s.db.Exec(`DELETE FROM root_folders WHERE id = ?`, id)
-	if err != nil {
+	if err := s.musicStore.DeleteRootFolder(id); err != nil {
+		if errors.Is(err, musiclibrary.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "root folder not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		writeError(w, http.StatusNotFound, "root folder not found")
 		return
 	}
 	s.refreshHealth()

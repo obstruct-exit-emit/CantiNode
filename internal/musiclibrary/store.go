@@ -85,10 +85,20 @@ func (s *Store) GetRootFolder(id int64) (*RootFolder, error) {
 
 // CreateRootFolder inserts a new music root folder — a low-level
 // primitive with no path/existence validation of its own (the API layer
-// already does that before calling this; see handleAddRootFolder). Used
-// directly by tests that need more than one root folder to set up.
+// already does that before calling this; see handleAddRootFolder). If no
+// music root folder currently has one marked default, this one becomes
+// default — insert and that check happen in the same transaction, so two
+// concurrent adds to an empty table can't each see "no default yet" and
+// both skip setting one (the gap a separate, non-transactional
+// COUNT(*)-then-UPDATE would have).
 func (s *Store) CreateRootFolder(path, name string) (*RootFolder, error) {
-	res, err := s.db.Exec(`INSERT INTO root_folders (media_type, path, name) VALUES ('music', ?, ?)`, path, name)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`INSERT INTO root_folders (media_type, path, name) VALUES ('music', ?, ?)`, path, name)
 	if err != nil {
 		return nil, fmt.Errorf("create root folder: %w", err)
 	}
@@ -96,7 +106,60 @@ func (s *Store) CreateRootFolder(path, name string) (*RootFolder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create root folder: %w", err)
 	}
+	if _, err := tx.Exec(`
+		UPDATE root_folders SET is_default = 1
+		WHERE id = ? AND NOT EXISTS (SELECT 1 FROM root_folders WHERE media_type = 'music' AND is_default = 1)`,
+		id); err != nil {
+		return nil, fmt.Errorf("set default if none: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
 	return s.GetRootFolder(id)
+}
+
+// DeleteRootFolder removes a music root folder — its track_files cascade-
+// delete via the FK (ON DELETE CASCADE). If the deleted folder was the
+// default, promotes another remaining music root folder (the lowest id)
+// to default instead of silently leaving none marked — the invariant
+// DefaultRootFolder's own doc comment promises ("SetDefaultRootFolder...
+// keep exactly one marked whenever at least one exists"), which this used
+// to be the one path that could break.
+func (s *Store) DeleteRootFolder(id int64) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var wasDefault bool
+	err = tx.QueryRow(`SELECT is_default FROM root_folders WHERE id = ? AND media_type = 'music'`, id).Scan(&wasDefault)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("check default before delete: %w", err)
+	}
+
+	res, err := tx.Exec(`DELETE FROM root_folders WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete root folder: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+
+	if wasDefault {
+		// A no-op if this was the last music root folder — MIN(id) is
+		// NULL, matching nothing.
+		if _, err := tx.Exec(`
+			UPDATE root_folders SET is_default = 1
+			WHERE media_type = 'music' AND id = (SELECT MIN(id) FROM root_folders WHERE media_type = 'music')`); err != nil {
+			return fmt.Errorf("promote new default after delete: %w", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // DefaultRootFolder returns the one music root folder currently marked
@@ -116,10 +179,16 @@ func (s *Store) DefaultRootFolder() (*RootFolder, error) {
 }
 
 // ArtistRootFolder returns the root folder holding the most of artistID's
-// existing track files (ties broken toward the lowest root_folder_id, for
-// determinism) — used to send a new automatic grab to join an artist's
-// existing discography instead of wherever the instance-wide default
-// happens to be. ErrNotFound means the artist owns no files anywhere yet.
+// existing MATCHED track files (ties broken toward the lowest
+// root_folder_id, for determinism) — used to send a new automatic grab to
+// join an artist's existing discography instead of wherever the instance-
+// wide default happens to be. ErrNotFound means the artist owns no
+// matched files anywhere yet — including when every file scanned in under
+// their name so far is still unmatched, since an unmatched file isn't
+// linked to any artist at all (that link is exactly what "matched" means)
+// and so can't be found by an artist-scoped query no matter how it's
+// written. A rare, narrow edge case in practice: it only changes anything
+// for an artist whose files are ALL still unmatched.
 func (s *Store) ArtistRootFolder(artistID int64) (*RootFolder, error) {
 	var rootFolderID int64
 	err := s.db.QueryRow(`

@@ -10,12 +10,15 @@ ALTER TABLE root_folders ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
 
 UPDATE root_folders SET name = path WHERE name = '';
 
--- Whichever music root folder was added first (if any) becomes the
--- default — matches importer's own pre-existing "folders[0]" behavior
--- (ListRootFolders orders by path today; the id ordering used here is
--- equivalent for "first ever added" once ids are assigned in insertion
--- order, which they always are), so upgrading through this migration
--- doesn't change where a fresh install's very first configured folder
--- sends new grabs.
+-- Whichever music root folder was added first (lowest id, i.e. insertion
+-- order) becomes the default. Note this is NOT necessarily the same
+-- folder the old hardcoded "folders[0]" import destination picked pre-
+-- migration — that read from ListRootFolders, which ordered by path
+-- (alphabetical), not insertion order — so an instance upgrading with two
+-- or more pre-existing root folders could see new grabs start landing in
+-- a different one than before. A one-time, unannounced redirect for that
+-- specific (rare) case, not a correctness bug: every root folder still
+-- serves the same library either way, and the new default is always
+-- visible and changeable in Settings from the moment this migration runs.
 UPDATE root_folders SET is_default = 1
 WHERE media_type = 'music' AND id = (SELECT MIN(id) FROM root_folders WHERE media_type = 'music');

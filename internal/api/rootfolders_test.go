@@ -152,6 +152,18 @@ func TestPreviewMoveMusicArtist(t *testing.T) {
 	}
 }
 
+// TestPreviewMoveMusicArtistNonexistentArtist404s is the regression test
+// for a real gap found in review: PlanMoveArtist itself never checks
+// artist existence — ListTrackFilesByArtist just returns an empty slice
+// for a nonexistent id, which without an explicit check here would look
+// identical to "this artist owns nothing to move" (a valid 200) rather
+// than the 404 a bad id should actually get.
+func TestPreviewMoveMusicArtistNonexistentArtist404s(t *testing.T) {
+	a := newTestAPI(t)
+	dest := addRootFolder(t, a, t.TempDir(), "Destination")
+	a.want(a.call("GET", "/api/v1/music/artist/999999/move/preview?rootFolderId="+itoa(dest.ID), nil, nil), http.StatusNotFound)
+}
+
 func TestMoveMusicArtistRunsInBackgroundAndUpdatesFiles(t *testing.T) {
 	a := newTestAPI(t)
 	srcDir, destDir := t.TempDir(), t.TempDir()

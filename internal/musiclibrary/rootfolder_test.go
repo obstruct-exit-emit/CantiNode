@@ -140,3 +140,108 @@ func TestArtistRootFolderNotFoundWhenArtistOwnsNothing(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestCreateRootFolderFirstBecomesDefaultOnlyOnce is the regression test
+// for a real bug found in review: handleAddRootFolder used to decide
+// "become default" with a separate, non-transactional COUNT(*)-then-UPDATE
+// against s.db directly — two concurrent adds to an empty table could both
+// see count==2 after both inserts landed and neither would ever set a
+// default. CreateRootFolder now does the insert and the "no default yet"
+// check in one transaction.
+func TestCreateRootFolderFirstBecomesDefaultOnlyOnce(t *testing.T) {
+	s := newTestStore(t)
+
+	first, err := s.CreateRootFolder(t.TempDir(), "First")
+	if err != nil {
+		t.Fatalf("CreateRootFolder(first): %v", err)
+	}
+	if !first.IsDefault {
+		t.Errorf("first root folder created = %+v, want IsDefault true", first)
+	}
+
+	second, err := s.CreateRootFolder(t.TempDir(), "Second")
+	if err != nil {
+		t.Fatalf("CreateRootFolder(second): %v", err)
+	}
+	if second.IsDefault {
+		t.Errorf("second root folder created = %+v, want IsDefault false (first already holds it)", second)
+	}
+
+	def, err := s.DefaultRootFolder()
+	if err != nil || def.ID != first.ID {
+		t.Fatalf("DefaultRootFolder = %+v, %v, want first (%d)", def, err, first.ID)
+	}
+}
+
+// TestDeleteRootFolderPromotesNewDefault is the regression test for a real
+// bug found in review, confirmed independently by multiple review angles:
+// handleDeleteRootFolder used to be a bare DELETE with no check for
+// is_default at all — deleting the current default while another folder
+// remained left NO folder marked default, silently breaking
+// targetRootFolder's documented fallback (internal/importer) until an
+// admin noticed and fixed it by hand.
+func TestDeleteRootFolderPromotesNewDefault(t *testing.T) {
+	s := newTestStore(t)
+	a, err := s.CreateRootFolder(t.TempDir(), "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateRootFolder(t.TempDir(), "B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.IsDefault {
+		t.Fatalf("setup: expected A to be the default, got %+v", a)
+	}
+
+	if err := s.DeleteRootFolder(a.ID); err != nil {
+		t.Fatalf("DeleteRootFolder: %v", err)
+	}
+
+	def, err := s.DefaultRootFolder()
+	if err != nil {
+		t.Fatalf("DefaultRootFolder after deleting the old default: %v", err)
+	}
+	if def.ID != b.ID {
+		t.Errorf("new default = %+v, want B (%d) promoted after A (the old default) was deleted", def, b.ID)
+	}
+}
+
+// TestDeleteRootFolderLastOneLeavesNoneWithoutError confirms deleting the
+// only remaining root folder is a clean no-op for the promotion step
+// (nothing left to promote), not an error.
+func TestDeleteRootFolderLastOneLeavesNoneWithoutError(t *testing.T) {
+	s := newTestStore(t)
+	only, err := s.CreateRootFolder(t.TempDir(), "Only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteRootFolder(only.ID); err != nil {
+		t.Fatalf("DeleteRootFolder: %v", err)
+	}
+	if _, err := s.DefaultRootFolder(); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DefaultRootFolder after deleting the last folder = %v, want ErrNotFound", err)
+	}
+}
+
+// TestDeleteRootFolderNonDefaultLeavesDefaultAlone confirms deleting a
+// folder that ISN'T the default never disturbs whichever one is.
+func TestDeleteRootFolderNonDefaultLeavesDefaultAlone(t *testing.T) {
+	s := newTestStore(t)
+	a, err := s.CreateRootFolder(t.TempDir(), "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateRootFolder(t.TempDir(), "B")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteRootFolder(b.ID); err != nil {
+		t.Fatalf("DeleteRootFolder: %v", err)
+	}
+	def, err := s.DefaultRootFolder()
+	if err != nil || def.ID != a.ID {
+		t.Errorf("default after deleting the non-default folder = %+v, %v, want unchanged A (%d)", def, err, a.ID)
+	}
+}
