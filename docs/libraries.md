@@ -2,8 +2,9 @@
 
 Music only appears in the sidebar once you add a root folder for it
 (Settings → Media Management) — content alone never surfaces it, Plex-style.
-The library page is a poster grid of artists with owned/total album counts.
-Grids over 10 cards get a filter box and render incrementally.
+The library page is a poster grid of artists with owned/total album counts,
+sortable by name, recently-added, album count, or missing count. Grids over
+10 cards get a filter box too, and render incrementally.
 
 ## Artists (artist-first, two levels deep)
 

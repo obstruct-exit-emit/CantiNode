@@ -67,9 +67,10 @@ With **upgrades allowed** (per quality profile) and a **cutoff** format set
 format hasn't reached the cutoff gets a **Search upgrade** button on its
 own page — manually triggered, not swept automatically. Every candidate is
 scored against the owned format itself, so only a release that's a genuine
-step up ever approves; a rejected one still shows why. A grabbed upgrade
-lands alongside the existing file once imported, not in place of it —
-removing the old one afterward is a manual per-file action.
+step up ever approves; a rejected one still shows why. Once a grabbed
+upgrade is imported and matched, the old file it replaces is deleted
+automatically — track-by-track, so a release that only partially matches
+never leaves a track with nothing.
 
 ## Download clients
 
@@ -123,3 +124,6 @@ linking working regardless of what name the bridge shows.
   already gone from the client), **Activity → History** shows a **cancel**
   button on that entry: it clears CantiNode's own record directly, unblocking
   a new search or grab for that album.
+- A **failed** entry in **Activity → History** also shows **Search again** —
+  opens the same scored release list the album page itself uses, right there
+  in Activity, without navigating off to find the album by hand.

@@ -33,7 +33,7 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 - **A Prowlarr connection** — one indexer that searches everything a self-hosted Prowlarr instance already has configured, no per-indexer duplication and no pretending to be a Readarr app; manual Newznab/Torznab entry works too
 - A background sweep searches and grabs monitored artists' wanted albums on its own (default daily, tunable); a finished download is copied into the library and scanned in automatically too — search-to-organized-file with no manual steps unless you want them
 - Release parsing and scoring that understands formats and retail editions
-- Quality profiles with upgrade handling (search for — and grab — a better release than what you already own), a failed-release blocklist, and per-indexer failure backoff
+- Quality profiles with upgrade handling (search for — and grab — a better release than what you already own, auto-swapping the old file out once the better one is matched in), a failed-release blocklist, and per-indexer failure backoff
 
 **⬇️ Three download protocols**
 - **qBittorrent** (torrents) and **SABnzbd** (usenet) — category-scoped, seed-goal aware, debrid-bridge compatible (Real-Debrid/TorBox)
@@ -46,7 +46,7 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 - Artist bio/photo (TheAudioDB), genres/tags/rating (MusicBrainz), and album art (Cover Art Archive, including for wanted/missing albums) are cached automatically the first time an artist is added — never re-fetched just from browsing
 
 **🖥️ A modern web UI**
-- A poster-grid artist library with per-artist detail pages — one **Albums** grid (sortable, with Grid/Compact/List views) holding owned and wanted albums together, badged accordingly, plus a **Missing** section grouped by release type (Album/EP/Single/Live/Compilation/…) for the rest of the discography
+- A poster-grid artist library (sortable by name/recently-added/album count/missing count) with per-artist detail pages — one **Albums** grid (sortable, with Grid/Compact/List views) holding owned and wanted albums together, badged accordingly, plus a **Missing** section grouped by release type (Album/EP/Single/Live/Compilation/…) for the rest of the discography
 - Multi-user login with **admin/member roles**, enforced by the backend; first-run setup wizard
 - Health checks with self-explaining banners, on-demand backups with staged restore, a built-in log viewer
 
