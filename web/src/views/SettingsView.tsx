@@ -2118,9 +2118,12 @@ function RootFoldersCard({
   const { confirmDlg } = useUi();
   const [folders, setFolders] = useState<RootFolder[]>([]);
   const [path, setPath] = useState("");
+  const [name, setName] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const reload = useCallback(() => {
     api
@@ -2138,9 +2141,10 @@ function RootFoldersCard({
     setBusy(true);
     setNotice("");
     api
-      .addRootFolder("music", trimmed)
+      .addRootFolder("music", trimmed, name.trim() || undefined)
       .then(() => {
         setPath("");
+        setName("");
         reload();
         onChanged?.();
       })
@@ -2153,7 +2157,7 @@ function RootFoldersCard({
   const remove = async (f: RootFolder) => {
     const ok = await confirmDlg({
       title: "Remove root folder",
-      message: `Remove root folder ${f.path}? Files on disk are not touched.`,
+      message: `Remove root folder "${f.name}" (${f.path})? Files on disk are not touched.`,
       confirmLabel: "Remove folder",
       danger: true,
     });
@@ -2167,13 +2171,46 @@ function RootFoldersCard({
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   };
 
+  const startRename = (f: RootFolder) => {
+    setRenamingId(f.id);
+    setRenameValue(f.name);
+  };
+
+  const saveRename = (f: RootFolder) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed || trimmed === f.name) {
+      setRenamingId(null);
+      return;
+    }
+    api
+      .renameRootFolder(f.id, trimmed)
+      .then(() => {
+        setRenamingId(null);
+        reload();
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  };
+
+  const makeDefault = (f: RootFolder) => {
+    api
+      .setDefaultRootFolder(f.id)
+      .then(reload)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  };
+
   return (
     <section className="card">
       <h2>Root Folders</h2>
       <p className="muted">
-        Where your libraries live on disk. The scanner walks these to match
-        files you already own; note the path must exist on the machine running
+        Where your libraries live on disk — more than one is fine, all
+        serving the same music library; name each one however you like and
+        move an artist's whole discography between them from their own
+        page. The scanner walks every one of these to match files you
+        already own; note the path must exist on the machine running
         CantiNode (in WSL, Windows drives are under <code>/mnt/c/…</code>).
+        A new automatic grab joins an artist's existing folder when they
+        have one, otherwise it lands in whichever folder is marked{" "}
+        <strong>default</strong> below.
       </p>
 
       {folders.length > 0 && (
@@ -2181,16 +2218,50 @@ function RootFoldersCard({
           {folders.map((f) => (
             <li key={f.id}>
               <div className="row">
-                <span className="file-path">
-                  {f.path}
-                  {!f.accessible && <span className="notice bad"> (not accessible)</span>}
-                </span>
-                <span className="row-actions">
-                  <span className="muted">{f.mediaType}</span>
-                  <button className="danger" onClick={() => remove(f)}>
-                    remove
-                  </button>
-                </span>
+                {renamingId === f.id ? (
+                  <span className="row-actions" style={{ flex: 1 }}>
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveRename(f);
+                        if (e.key === "Escape") setRenamingId(null);
+                      }}
+                    />
+                    <button onClick={() => saveRename(f)}>Save</button>
+                    <button className="toggle" onClick={() => setRenamingId(null)}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <span>
+                    <strong>{f.name}</strong>
+                    {f.isDefault && (
+                      <span className="pill" title="New automatic grabs with no artist folder of their own to join land here">
+                        {" "}default
+                      </span>
+                    )}
+                    <span className="file-path muted"> — {f.path}</span>
+                    {!f.accessible && <span className="notice bad"> (not accessible)</span>}
+                  </span>
+                )}
+                {renamingId !== f.id && (
+                  <span className="row-actions">
+                    <span className="muted">{f.mediaType}</span>
+                    <button className="toggle" onClick={() => startRename(f)}>
+                      rename
+                    </button>
+                    {!f.isDefault && (
+                      <button className="toggle" onClick={() => makeDefault(f)}>
+                        make default
+                      </button>
+                    )}
+                    <button className="danger" onClick={() => remove(f)}>
+                      remove
+                    </button>
+                  </span>
+                )}
               </div>
             </li>
           ))}
@@ -2199,6 +2270,11 @@ function RootFoldersCard({
 
       <h3 className="settings-subhead">Add a root folder</h3>
       <form onSubmit={add} className="search-form">
+        <input
+          placeholder="Name (optional, e.g. Archive Drive)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
         <input
           placeholder="/data/music or /mnt/c/Users/…/Music"
           value={path}

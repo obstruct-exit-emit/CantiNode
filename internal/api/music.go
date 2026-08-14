@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1216,6 +1217,125 @@ func (s *server) handleOrganizeMusicArtist(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"moves": moves, "errors": errs})
+}
+
+// handlePreviewMoveMusicArtist previews the artist page's "Move to
+// root folder…" action — every file that would relocate to the given
+// root folder, and their total size, so the confirm dialog can warn
+// concretely ("14 files, 2.1 GB will move to Archive Drive") before the
+// user approves anything.
+func (s *server) handlePreviewMoveMusicArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	destID, err := strconv.ParseInt(r.URL.Query().Get("rootFolderId"), 10, 64)
+	if err != nil || destID <= 0 {
+		writeError(w, http.StatusBadRequest, "rootFolderId is required")
+		return
+	}
+	moves, err := s.musicScanner.PlanMoveArtist(id, destID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var totalBytes int64
+	for _, m := range moves {
+		totalBytes += m.SizeBytes
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"moves": moves, "totalBytes": totalBytes})
+}
+
+// musicMoveState is the last (or currently running) artist move's status,
+// reported by GET /api/v1/music/move/status — mirrors musicScanState's
+// own shape and locking convention (see handleTriggerMusicScan).
+type musicMoveState struct {
+	Running          bool                      `json:"running"`
+	ArtistID         int64                     `json:"artistId,omitempty"`
+	ArtistName       string                    `json:"artistName,omitempty"`
+	DestRootFolderID int64                     `json:"destRootFolderId,omitempty"`
+	StartedAt        *time.Time                `json:"startedAt,omitempty"`
+	FinishedAt       *time.Time                `json:"finishedAt,omitempty"`
+	Moved            []musicscanner.ArtistMove `json:"moved,omitempty"`
+	Errors           []string                  `json:"errors,omitempty"`
+	Error            string                    `json:"error,omitempty"`
+}
+
+// handleMoveMusicArtist starts moving an artist's whole discography to a
+// different root folder in the background and returns immediately — a
+// large library can mean copying many GB, sometimes across physical
+// drives (a real copy, not a fast same-drive rename — see
+// musicscanner.MoveArtist). Poll GET /api/v1/music/move/status for
+// progress. Refuses to start a second move while one is already running,
+// the same one-at-a-time rule handleTriggerMusicScan already applies to
+// scans.
+func (s *server) handleMoveMusicArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req struct {
+		RootFolderID int64 `json:"rootFolderId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RootFolderID <= 0 {
+		writeError(w, http.StatusBadRequest, "rootFolderId is required")
+		return
+	}
+	artist, err := s.musicStore.GetArtist(id)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	if _, err := s.musicStore.GetRootFolder(req.RootFolderID); err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+
+	s.musicMoveMu.Lock()
+	if s.musicMoveState.Running {
+		s.musicMoveMu.Unlock()
+		writeError(w, http.StatusConflict, "a move is already running")
+		return
+	}
+	now := time.Now().UTC()
+	s.musicMoveState = musicMoveState{
+		Running: true, ArtistID: id, ArtistName: artist.Name,
+		DestRootFolderID: req.RootFolderID, StartedAt: &now,
+	}
+	s.musicMoveMu.Unlock()
+
+	go func() {
+		// The request's own context is canceled the moment the handler
+		// returns — long before a real, potentially large cross-drive
+		// copy could finish.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		moved, errs, err := s.musicScanner.MoveArtist(ctx, id, req.RootFolderID)
+
+		s.musicMoveMu.Lock()
+		finished := time.Now().UTC()
+		s.musicMoveState.Running = false
+		s.musicMoveState.FinishedAt = &finished
+		s.musicMoveState.Moved = moved
+		s.musicMoveState.Errors = errs
+		if err != nil {
+			s.musicMoveState.Error = err.Error()
+		}
+		s.musicMoveMu.Unlock()
+	}()
+
+	w.WriteHeader(http.StatusAccepted)
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
+}
+
+func (s *server) handleMusicMoveStatus(w http.ResponseWriter, r *http.Request) {
+	s.musicMoveMu.Lock()
+	state := s.musicMoveState
+	s.musicMoveMu.Unlock()
+	writeJSON(w, http.StatusOK, state)
 }
 
 func (s *server) handlePreviewOrganizeMusicAlbum(w http.ResponseWriter, r *http.Request) {

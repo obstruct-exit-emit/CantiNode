@@ -15,8 +15,10 @@ export interface SystemStatus {
 
 export interface RootFolder {
   id: number;
+  name: string;
   mediaType: string;
   path: string;
+  isDefault: boolean;
   accessible: boolean;
 }
 
@@ -191,6 +193,25 @@ export interface RenameMove {
   fileId: number;
   from: string;
   to: string;
+}
+
+export interface ArtistMove {
+  fileId: number;
+  from: string;
+  to: string;
+  sizeBytes: number;
+}
+
+export interface MusicMoveState {
+  running: boolean;
+  artistId?: number;
+  artistName?: string;
+  destRootFolderId?: number;
+  startedAt?: string;
+  finishedAt?: string;
+  moved?: ArtistMove[];
+  errors?: string[];
+  error?: string;
 }
 
 // PathMapping translates a download client's reported path prefix into the
@@ -624,10 +645,14 @@ export const api = {
     request<FolderListing>(
       `/api/v1/filesystem${path ? `?path=${encodeURIComponent(path)}` : ""}`,
     ),
-  addRootFolder: (mediaType: string, path: string) =>
-    request<RootFolder>("/api/v1/rootfolder", json({ mediaType, path })),
+  addRootFolder: (mediaType: string, path: string, name?: string) =>
+    request<RootFolder>("/api/v1/rootfolder", json({ mediaType, path, name })),
   deleteRootFolder: (id: number) =>
     request<void>(`/api/v1/rootfolder/${id}`, { method: "DELETE" }),
+  renameRootFolder: (id: number, name: string) =>
+    request<void>(`/api/v1/rootfolder/${id}/name`, { ...json({ name }), method: "PUT" }),
+  setDefaultRootFolder: (id: number) =>
+    request<void>(`/api/v1/rootfolder/${id}/default`, { method: "PUT" }),
 
   clearAllCache: () =>
     request<{ removed: number; freedBytes: number }>(
@@ -730,6 +755,13 @@ export const api = {
       `/api/v1/music/artist/${id}/organize`,
       { method: "POST" },
     ),
+  previewMoveMusicArtist: (id: number, rootFolderId: number) =>
+    request<{ moves: ArtistMove[]; totalBytes: number }>(
+      `/api/v1/music/artist/${id}/move/preview?rootFolderId=${rootFolderId}`,
+    ),
+  moveMusicArtist: (id: number, rootFolderId: number) =>
+    request<{ status: string }>(`/api/v1/music/artist/${id}/move`, json({ rootFolderId })),
+  musicMoveStatus: () => request<MusicMoveState>("/api/v1/music/move/status"),
   triggerMusicScan: () =>
     request<{ status: string }>("/api/v1/music/scan", { method: "POST" }),
   musicScanStatus: () => request<MusicScanState>("/api/v1/music/scan/status"),

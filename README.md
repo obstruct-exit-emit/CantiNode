@@ -23,7 +23,7 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 
 ## Features
 
-**🎵 One library, done well** — a Plex-style library that appears once you point a root folder at your music.
+**🎵 One library, done well** — a Plex-style library that appears once you point a root folder at your music. More than one root folder is fine (all serving the same library, each freely named) — move an artist's whole discography between them from their own page, previewed and backgrounded like a scan.
 
 | Library | Metadata | Formats |
 |---|---|---|

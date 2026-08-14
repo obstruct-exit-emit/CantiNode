@@ -134,6 +134,36 @@ files out of a finished download (see [Acquisition](acquisition.md)), and
 a manual scan only ever looks at audio files too — so there's nothing for
 Organize to clean up after the fact.
 
+## Root folders
+
+**Settings → Media Management → Root Folders** supports more than one —
+all serving the same music library, not separate libraries — each with its
+own freely-editable **name** (auto-suggested from the path when you don't
+give one) independent of where it actually points on disk. Exactly one is
+marked **default**: the folder a new automatic grab lands in when the
+artist it's for doesn't already have files anywhere. An artist that
+already owns files always has new grabs join them there instead, so an
+existing discography never splits across folders on its own — the default
+only matters the first time an artist is grabbed.
+
+An artist page's **Move to…** dropdown relocates their *entire* owned
+discography to a different root folder — the button only appears once
+you have more than one configured. Picking a destination shows a preview
+(file count, total size) before anything happens; nothing moves until you
+click **Move**. The move itself runs in the background, same as a library
+scan, since it can mean copying many GB across physical drives rather than
+a fast same-drive rename — the page shows progress and you're free to
+navigate away. It's a pure relocation, not a re-organize: each file keeps
+the exact same path *relative to its own root folder*, whatever that
+already is, just under the new root; run **Organize…** afterward if you
+also want the naming template reapplied. A file is only copied to its new
+location — verified, size-checked — before the original is deleted, so an
+interrupted move never leaves the database and disk disagreeing about
+where a file lives; a destination collision (something already at the
+planned path) is skipped and reported rather than overwritten, the same
+"never silently clobber" rule Organize follows, and doesn't stop the rest
+of the move.
+
 ## Activity
 
 **Activity** shows the live download queue (with per-item progress) and

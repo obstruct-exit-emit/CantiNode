@@ -158,6 +158,45 @@ func (s *Service) failGrab(g download.GrabRecord, message string) {
 	}
 }
 
+// targetRootFolder picks which music root folder a completed grab's files
+// should land in: the artist's own existing root folder when it already
+// has one, so an artist's discography never splits across folders purely
+// because of where a later grab happened to import to. A brand-new artist
+// (no existing files anywhere) falls back to whichever root folder is
+// currently marked default. ok is false only when no music root folder is
+// configured at all.
+func (s *Service) targetRootFolder(g download.GrabRecord) (rf musiclibrary.RootFolder, ok bool) {
+	var artistID int64
+	switch {
+	case g.WantedAlbumID > 0:
+		if w, err := s.music.GetWantedAlbum(g.WantedAlbumID); err == nil {
+			artistID = w.ArtistID
+		}
+	case g.UpgradeAlbumID > 0:
+		if a, err := s.music.GetAlbum(g.UpgradeAlbumID); err == nil {
+			artistID = a.ArtistID
+		}
+	}
+	if artistID > 0 {
+		if existing, err := s.music.ArtistRootFolder(artistID); err == nil {
+			return *existing, true
+		}
+	}
+	if def, err := s.music.DefaultRootFolder(); err == nil {
+		return *def, true
+	}
+	// No root folder is marked default — shouldn't happen once any music
+	// root folder exists (the API always marks the first one added as
+	// default), but falling back to whichever sorts first rather than
+	// failing the import outright means a stray data inconsistency here
+	// can't silently strand every future grab with nowhere to go.
+	folders, err := s.music.ListRootFolders()
+	if err != nil || len(folders) == 0 {
+		return musiclibrary.RootFolder{}, false
+	}
+	return folders[0], true
+}
+
 // stillGrabbed reports whether id is still in GrabStatusGrabbed right now
 // — a fresh DB read, not the possibly-stale GrabRecord importGrab was
 // called with. Fails open (true) on a read error: a transient DB hiccup
@@ -175,9 +214,9 @@ func (s *Service) stillGrabbed(id int64) bool {
 // everything else the download brought along is left behind, not copied
 // in) from item.Path (the download client's own local disk, translated
 // through the configured remote path mappings — see config.TranslatePath)
-// into the first configured root folder, then scans that root so the
-// copied files are matched/organized the normal way, same as any other
-// file dropped there. A copy, not a move, until the copy itself is
+// into a root folder chosen by targetRootFolder, then scans that root so
+// the copied files are matched/organized the normal way, same as any
+// other file dropped there. A copy, not a move, until the copy itself is
 // confirmed good — only once it succeeds is the source removed from the
 // download client (with its data, junk included), so a failed or partial
 // copy never loses the only remaining copy of the download. Reports
@@ -188,12 +227,11 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 			"grab_id", g.ID, "title", g.Title)
 		return false
 	}
-	folders, err := s.music.ListRootFolders()
-	if err != nil || len(folders) == 0 {
+	root, ok := s.targetRootFolder(g)
+	if !ok {
 		s.logger.Error("importer: no music root folder configured, leaving grab for manual import", "grab_id", g.ID)
 		return false
 	}
-	root := folders[0]
 
 	// Re-check this grab's live status right before doing anything slow: a
 	// concurrent artist/album removal (internal/api's cancelInFlightGrabs)

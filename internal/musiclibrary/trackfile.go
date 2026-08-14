@@ -182,6 +182,20 @@ func (s *Store) SetTrackFileOrganized(id int64, newPath string, organizedAt time
 	return nil
 }
 
+// SetTrackFileLocation records that id now lives at newPath under a
+// different root folder — the cross-root-folder counterpart to
+// SetTrackFileOrganized (which only ever changes path within the same
+// root). Used by musicscanner's artist-move feature once a file's copy to
+// its new root has been verified and the old copy deleted.
+func (s *Store) SetTrackFileLocation(id, rootFolderID int64, newPath string) error {
+	_, err := s.db.Exec(
+		`UPDATE track_files SET root_folder_id = ?, path = ? WHERE id = ?`, rootFolderID, newPath, id)
+	if err != nil {
+		return fmt.Errorf("set track file location: %w", err)
+	}
+	return nil
+}
+
 // ListTrackFilesByStatus returns every track file with the given match
 // status, most recently scanned first.
 func (s *Store) ListTrackFilesByStatus(status MatchStatus) ([]TrackFile, error) {

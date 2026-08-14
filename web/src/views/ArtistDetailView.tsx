@@ -4,9 +4,11 @@ import {
   musicAlbumCoverUrl,
   musicReleaseGroupCoverUrl,
   proxiedImage,
+  type ArtistMove,
   type MusicAlbum,
   type MusicArtist,
   type MusicReleaseGroup,
+  type RootFolder,
   type ReleaseGroupTracklist,
   type RenameMove,
   type WantedAlbum,
@@ -23,7 +25,7 @@ import {
   defaultDirFor,
   type SortDir,
 } from "../components/SortControl";
-import { formatDuration } from "../format";
+import { formatBytes, formatDuration } from "../format";
 
 // Albums section display: "grid" (current default, large covers), "compact"
 // (same grid, smaller covers), or "list" (a plain title + status row).
@@ -110,6 +112,11 @@ export default function ArtistDetailView({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notice, setNotice] = useState("");
   const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null);
+  const [rootFolders, setRootFolders] = useState<RootFolder[]>([]);
+  const [moveTargetId, setMoveTargetId] = useState<number | "">("");
+  const [movePlan, setMovePlan] = useState<{ moves: ArtistMove[]; totalBytes: number } | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [moveResult, setMoveResult] = useState<{ moved: number; errors: string[] } | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [albumsSort, setAlbumsSort] = useState("date");
   const [albumsDir, setAlbumsDir] = useState<SortDir>(defaultDirFor("date"));
@@ -130,6 +137,15 @@ export default function ArtistDetailView({
   }, [id, onError]);
 
   useEffect(reload, [reload]);
+
+  // Root folders load once — used only to populate the "Move to…"
+  // dropdown, no need to refresh on every reload tick.
+  useEffect(() => {
+    api
+      .listRootFolders()
+      .then(setRootFolders)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  }, [onError]);
 
   // Shared by the Missing and Wanted cards below: wanting, un-wanting, or
   // monitoring an album moves it between the two lists, so either side
@@ -203,6 +219,63 @@ export default function ArtistDetailView({
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setBusy(false));
+  };
+
+  // previewMove loads what a move to the just-picked root folder would do
+  // (which files, total size) — the "warning" step: nothing moves until
+  // the user reviews this and explicitly approves via applyMove.
+  const previewMove = (rootFolderId: number | "") => {
+    setMoveTargetId(rootFolderId);
+    setMovePlan(null);
+    setMoveResult(null);
+    if (rootFolderId === "") return;
+    setBusy(true);
+    setNotice("");
+    api
+      .previewMoveMusicArtist(artist.id, rootFolderId)
+      .then((r) => {
+        setMovePlan(r);
+        if (r.moves.length === 0) setNotice("This artist has no files outside the chosen root folder already.");
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setBusy(false));
+  };
+
+  // applyMove starts the move in the background (a large or cross-drive
+  // move can take a while — see internal/musicscanner.MoveArtist) and
+  // polls status until it finishes, same shape as the Scan status poll
+  // elsewhere in this app.
+  const applyMove = () => {
+    if (moveTargetId === "") return;
+    setMoving(true);
+    api
+      .moveMusicArtist(artist.id, moveTargetId)
+      .then(() => {
+        const poll = () => {
+          api
+            .musicMoveStatus()
+            .then((state) => {
+              if (state.running) {
+                setTimeout(poll, 1000);
+                return;
+              }
+              setMoving(false);
+              setMoveTargetId("");
+              setMovePlan(null);
+              setMoveResult({ moved: state.moved?.length ?? 0, errors: state.errors ?? [] });
+              reload();
+            })
+            .catch((err: unknown) => {
+              setMoving(false);
+              onError(String(err instanceof Error ? err.message : err));
+            });
+        };
+        poll();
+      })
+      .catch((err: unknown) => {
+        setMoving(false);
+        onError(String(err instanceof Error ? err.message : err));
+      });
   };
 
   const remove = (deleteFiles: boolean) => {
@@ -294,6 +367,21 @@ export default function ArtistDetailView({
             <button disabled={busy} onClick={previewOrganize} title="Preview naming-template moves for this artist's files only">
               Organize…
             </button>
+            {rootFolders.length > 1 && (
+              <select
+                value={moveTargetId}
+                disabled={busy || moving}
+                title="Move this artist's whole discography to a different root folder"
+                onChange={(e) => previewMove(e.target.value === "" ? "" : Number(e.target.value))}
+              >
+                <option value="">Move to…</option>
+                {rootFolders.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button className="danger" disabled={busy} onClick={() => setConfirmRemove(!confirmRemove)}>
               Remove artist
             </button>
@@ -317,6 +405,40 @@ export default function ArtistDetailView({
                 <button className="toggle" onClick={() => setRenamePlan(null)}>Cancel</button>
               </div>
             </div>
+          )}
+          {movePlan && movePlan.moves.length > 0 && (
+            <div className="rename-plan">
+              <p>
+                <strong>{movePlan.moves.length}</strong> file(s),{" "}
+                <strong>{formatBytes(movePlan.totalBytes)}</strong> will move to{" "}
+                {rootFolders.find((f) => f.id === moveTargetId)?.name ?? "the chosen root folder"}. Files stay
+                at the same relative path, just under the new root — this does not reorganize them.
+              </p>
+              <ul className="rows">
+                {movePlan.moves.map((m) => (
+                  <li key={m.fileId}>
+                    <div className="move">
+                      <span className="file-path muted">{m.from}</span>
+                      <span className="file-path">→ {m.to}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="settings-actions">
+                <button disabled={moving} onClick={applyMove}>
+                  {moving ? "Moving…" : "Move"}
+                </button>
+                <button className="toggle" disabled={moving} onClick={() => previewMove("")}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {moveResult && (
+            <p className={moveResult.errors.length ? "notice bad" : "notice ok"}>
+              Moved {moveResult.moved} file(s)
+              {moveResult.errors.length > 0 && ` — ${moveResult.errors.length} failed: ${moveResult.errors.join("; ")}`}
+            </p>
           )}
           {confirmRemove && (
             <RemovePanel

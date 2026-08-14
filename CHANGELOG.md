@@ -11,6 +11,30 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Multiple, freely-named root folders, with a "Move to…" action to
+  relocate an artist's whole discography between them.** Settings → Media
+  Management already allowed adding more than one music root folder, but
+  they were path-only (no name) and every new automatic grab landed in
+  whichever one happened to be first — with several folders configured,
+  there was no way to control where new music went, and no way to move an
+  artist's existing files to a different folder short of doing it by hand
+  outside the app and hoping the database noticed. Now: each root folder
+  has its own editable name (`PUT /rootfolder/{id}/name`), one is marked
+  **default** (`PUT /rootfolder/{id}/default`) as the fallback destination
+  for a brand-new artist's first grab — an artist that already owns files
+  always has new grabs join them there instead, so an existing discography
+  never splits across folders on its own (`internal/importer`'s new
+  `targetRootFolder`). An artist page's **Move to…** dropdown previews
+  (file count, total size) then relocates their entire discography to a
+  different root folder in the background, the same shape as a library
+  scan — a pure relocation preserving each file's existing relative path,
+  not a re-organize, since it can mean copying many GB across physical
+  drives rather than a fast same-drive rename. Copy → size-verify → record
+  the new location → delete the original, in that order, per file, so an
+  interruption partway through never leaves the database and disk
+  disagreeing about where a file lives; a destination collision is skipped
+  and reported rather than overwritten, and doesn't stop the rest of the
+  move. See [Libraries](docs/libraries.md#root-folders).
 - **"Write tags" (and scanning generally) now covers every popular audio
   format**: MP3/FLAC as before, plus the MP4/M4A family (M4A/M4B/M4P),
   OGG/OGA (Vorbis comments), Opus-in-Ogg, DSF, and WAV. Writing routes

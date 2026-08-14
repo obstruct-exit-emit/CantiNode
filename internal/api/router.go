@@ -52,6 +52,9 @@ type server struct {
 
 	musicScanMu    sync.Mutex
 	musicScanState musicScanState
+
+	musicMoveMu    sync.Mutex
+	musicMoveState musicMoveState
 }
 
 // Background bundles the services main runs on periodic loops.
@@ -137,6 +140,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("GET /api/v1/rootfolder", s.requireAdmin(s.handleListRootFolders))
 	mux.HandleFunc("POST /api/v1/rootfolder", s.requireAdmin(s.handleAddRootFolder))
 	mux.HandleFunc("DELETE /api/v1/rootfolder/{id}", s.requireAdmin(s.handleDeleteRootFolder))
+	mux.HandleFunc("PUT /api/v1/rootfolder/{id}/name", s.requireAdmin(s.handleRenameRootFolder))
+	mux.HandleFunc("PUT /api/v1/rootfolder/{id}/default", s.requireAdmin(s.handleSetDefaultRootFolder))
 
 	// Music: the only media-type domain left — see internal/musiclibrary's
 	// package doc comment.
@@ -150,6 +155,9 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/albums", s.auth(s.handleListMusicAlbumsByArtist))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicArtist))
 	mux.HandleFunc("POST /api/v1/music/artist/{id}/organize", s.auth(s.handleOrganizeMusicArtist))
+	mux.HandleFunc("GET /api/v1/music/artist/{id}/move/preview", s.auth(s.handlePreviewMoveMusicArtist))
+	mux.HandleFunc("POST /api/v1/music/artist/{id}/move", s.auth(s.handleMoveMusicArtist))
+	mux.HandleFunc("GET /api/v1/music/move/status", s.auth(s.handleMusicMoveStatus))
 	mux.HandleFunc("POST /api/v1/music/artist/{id}/wanted", s.auth(s.handleWantMusicAlbum))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/wanted", s.auth(s.handleListWantedMusicAlbums))
 	mux.HandleFunc("DELETE /api/v1/music/artist/{id}", s.auth(s.handleRemoveMusicArtist))
