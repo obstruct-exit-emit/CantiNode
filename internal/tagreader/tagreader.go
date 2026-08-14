@@ -122,7 +122,7 @@ func extractMusicBrainzIDs(raw map[string]interface{}) map[string]string {
 	for k, v := range raw {
 		switch val := v.(type) {
 		case string:
-			out[normalizeKey(k)] = val
+			out[normalizeKey(k)] = trimMP4FreeformPadding(val)
 		case *tag.Comm:
 			out[normalizeKey(val.Description)] = val.Text
 		case *tag.UFID:
@@ -132,6 +132,23 @@ func extractMusicBrainzIDs(raw map[string]interface{}) map[string]string {
 		}
 	}
 	return out
+}
+
+// trimMP4FreeformPadding works around a real bug in dhowden/tag's MP4
+// atom parser (readCustomAtom in mp4.go): an iTunes freeform ("----")
+// atom's "data" sub-atom has an 8-byte header (4-byte type indicator +
+// 4-byte locale, both typically zero) before its actual text content, but
+// readCustomAtom only skips 4 of those 8 bytes — so every freeform value
+// (which is exactly how a custom tag like "MusicBrainz Album Id" is
+// stored on MP4/M4A) comes back with 4 leading NUL bytes still attached,
+// confirmed against a real file written by go.senan.xyz/taglib (see
+// internal/tagwriter). Harmless no-op for every other format this
+// function also handles (Vorbis comments are plain UTF-8 text with no
+// legitimate reason to ever start with a NUL byte), so trimming
+// unconditionally here — rather than only for MP4 specifically — needs no
+// format check.
+func trimMP4FreeformPadding(s string) string {
+	return strings.TrimLeft(s, "\x00")
 }
 
 func normalizeKey(s string) string {

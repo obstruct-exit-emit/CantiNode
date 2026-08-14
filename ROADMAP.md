@@ -296,6 +296,11 @@ Under consideration, in no particular order:
 - [ ] **Accessibility, the systematic pass**: focus trapping, full keyboard
   paths, a screen-reader walk of the main flows
 - [ ] **Localization** — and with it, language/date preferences
+- [ ] **WAV and Opus-in-Ogg scanning** — `internal/tagwriter` could already
+  write tags for both today (same `go.senan.xyz/taglib` backing M4A/OGG/DSF
+  support), but neither is in `internal/tagreader`'s own supported-
+  extensions list, so a file in either format never gets scanned in at
+  all. The gap is entirely on the read side now.
 
 ---
 

@@ -13,6 +13,16 @@ import { DetailSkeleton } from "../components/Skeleton";
 import { formatBytes } from "../format";
 import { useUi } from "../ui";
 
+// tagWritableFormats mirrors internal/tagwriter.IsSupported's own format
+// list — kept here rather than round-tripping to the API just to ask,
+// since it's small and rarely changes. Gates the "write tags" button so
+// clicking it on an unsupported format (WAV, WMA, Opus, ...) isn't the
+// only way to discover that; keep this in sync if IsSupported's list ever
+// changes.
+const tagWritableFormats = new Set([
+  "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "dsf",
+]);
+
 // Full-page album detail: header with cover art, release info, and
 // album-scoped Scan/Organize/Remove actions (unlike the artist page's
 // versions, these never touch a sibling album's files), then its tracks —
@@ -279,14 +289,16 @@ export default function AlbumDetailView({
                         >
                           organize
                         </button>
-                        <button
-                          className="toggle"
-                          disabled={busyId !== null}
-                          title="Write this track's metadata back into the file's own tags"
-                          onClick={() => writeTags(f)}
-                        >
-                          write tags
-                        </button>
+                        {tagWritableFormats.has(f.format.toLowerCase()) && (
+                          <button
+                            className="toggle"
+                            disabled={busyId !== null}
+                            title="Write this track's metadata back into the file's own tags"
+                            onClick={() => writeTags(f)}
+                          >
+                            write tags
+                          </button>
+                        )}
                         <button
                           className="danger"
                           disabled={busyId !== null}

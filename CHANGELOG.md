@@ -11,6 +11,24 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **"Write tags" now covers every format the scanner can actually read tags
+  from**, not just MP3/FLAC: the MP4/M4A family (M4A/M4B/M4P), OGG/OGA
+  (Vorbis comments), and DSF now write too, via `go.senan.xyz/taglib`
+  (upstream TagLib compiled to WASM, run through wazero — no cgo, no new
+  runtime dependency) rather than hand-rolling each container's own
+  binary format the way the existing MP3/FLAC writers do. MP4 in
+  particular was deliberately left unsupported before now: its metadata
+  atom sits before the audio data, so resizing it means correctly
+  rewriting every track's chunk-offset table (`stco`/`co64`) or the file's
+  audio silently points at the wrong bytes — exactly the kind of mistake a
+  mature, extensively-used library is worth depending on to get right
+  rather than re-deriving under time pressure. WAV and Opus-in-Ogg are
+  still not covered, but only because neither is in `tagreader`'s own
+  supported-extensions list to begin with — a file in either format never
+  reaches the scanner at all, so writing tags to it wouldn't do anything
+  yet. The album page's "write tags" button is now hidden for a file
+  format it doesn't cover, instead of only failing after the click. See
+  [Fixed](#fixed) below for a real bug this surfaced in a dependency.
 - **Four quality-of-life items from a code-review-driven pass, all live
   2026-08-13:**
   - **Upgrades allowed" grabs now auto-swap the old file** instead of
@@ -408,6 +426,18 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A real bug in the `dhowden/tag` dependency's MP4 parser, found while
+  testing the new M4A tag-writing support above**: `readCustomAtom` (its
+  freeform/`----` iTunes-atom reader — exactly how a custom tag like
+  "MusicBrainz Album Id" is stored on MP4/M4A) under-skips the atom's
+  8-byte type+locale header by 4 bytes, so every custom atom's value came
+  back with 4 leading NUL bytes still attached. Confirmed byte-for-byte
+  against a file `go.senan.xyz/taglib` wrote with the correct, standard
+  8-byte header — this was purely a read-side mis-parse, not a writer bug.
+  Can't patch a vendored dependency in place, so `internal/tagreader`
+  trims leading NUL bytes off every extracted MusicBrainz ID as a targeted
+  workaround (harmless everywhere else this code path runs — a legitimate
+  Vorbis comment value has no reason to ever start with a NUL byte).
 - **An artist's release-group list, and now also a release group's own list
   of editions/pressings, were silently capped at MusicBrainz's default page
   size (25/page).** The artist-discography cap was fixed first

@@ -243,6 +243,29 @@ func TestReadID3v2WithoutMusicBrainzIDs(t *testing.T) {
 	}
 }
 
+// TestExtractMusicBrainzIDsTrimsMP4FreeformPadding is the regression test
+// for a real bug found live: dhowden/tag's own MP4 atom parser
+// (readCustomAtom in mp4.go) under-skips a freeform "data" sub-atom's
+// 8-byte type+locale header by 4 bytes, so every custom MP4 tag —
+// including exactly the "MusicBrainz Album/Artist/Release Group Id" atoms
+// internal/tagwriter's new M4A support writes — comes back from Raw()
+// with 4 leading NUL bytes still attached. Confirmed against a real file
+// written by go.senan.xyz/taglib (which itself writes the standard,
+// correct 8-byte header) before this fix landed. Vorbis comments hit the
+// same code path in extractMusicBrainzIDs but are never affected (plain
+// UTF-8 text has no legitimate reason to start with a NUL byte), so this
+// only needs a synthetic map mimicking dhowden/tag's specific MP4
+// mis-parse, not a full binary fixture.
+func TestExtractMusicBrainzIDsTrimsMP4FreeformPadding(t *testing.T) {
+	got := extractMusicBrainzIDs(map[string]interface{}{
+		"MusicBrainz Album Id": "\x00\x00\x00\x00a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+	})
+	want := "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"
+	if got["musicbrainzalbumid"] != want {
+		t.Errorf("musicbrainzalbumid = %q, want %q", got["musicbrainzalbumid"], want)
+	}
+}
+
 func TestReadUnsupportedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "not-audio.mp3")
 	if err := os.WriteFile(path, []byte("plain text, not a tag format"), 0o644); err != nil {

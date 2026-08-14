@@ -451,20 +451,36 @@ function AutoMatchPanel({
   // since it's just a helpful default, always freely changeable before
   // "Suggest matches" is ever clicked, let alone before any individual
   // suggestion is approved.
+  //
+  // An artist already picked by hand always wins over a fresh fuzzy guess
+  // here — a real gap found live: an early-release alias tag ("Tobias
+  // Sammet's Avantasia" vs the library's "Avantasia") legitimately scores
+  // too low to clear the confidence bar, so the artist fuzzy-match is
+  // right to refuse it. But re-deriving the artist from tag consensus on
+  // every Auto-match click meant clicking it again *after* manually fixing
+  // the artist dropdown just re-failed the exact same fuzzy match and bailed
+  // before ever attempting the album step — even though the album tag
+  // ("Lost in Space Part 1") matches its real candidate
+  // ("Lost in Space, Part 1") exactly once there's a correct artist to look
+  // it up under. The album step no longer depends on the artist fuzzy-match
+  // succeeding at all when the user has already supplied the artist.
   const autoMatch = async () => {
     const { artist: tagArtist, album: tagAlbum } = tagConsensus(files);
-    if (!tagArtist) return;
 
-    let bestArtist: MusicArtist | null = null;
-    let bestArtistScore = 0;
-    for (const a of artists) {
-      const score = diceSimilarity(tagArtist, a.name);
-      if (score > bestArtistScore) {
-        bestArtistScore = score;
-        bestArtist = a;
+    let bestArtist: MusicArtist | null =
+      artistId !== "" ? (artists.find((a) => a.id === artistId) ?? null) : null;
+    if (!bestArtist) {
+      if (!tagArtist) return;
+      let bestArtistScore = 0;
+      for (const a of artists) {
+        const score = diceSimilarity(tagArtist, a.name);
+        if (score > bestArtistScore) {
+          bestArtistScore = score;
+          bestArtist = a;
+        }
       }
+      if (!bestArtist || bestArtistScore < autoMatchConfidence) return;
     }
-    if (!bestArtist || bestArtistScore < autoMatchConfidence) return;
 
     requestToken.current++;
     const token = requestToken.current;
