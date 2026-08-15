@@ -113,6 +113,67 @@ func sampleRecording(id string, score int) mbRecording {
 	return rec
 }
 
+// sampleCompilationTrackRecording is sampleRecording's Various-Artists
+// counterpart: id's own recording is credited to performerName (the real
+// per-track performer), but its best release is flagged as a compilation
+// (SecondaryTypes: ["Compilation"]) — the shape correctArtistCreditForCompilation
+// looks for to trigger its release-level artist-credit correction.
+func sampleCompilationTrackRecording(id, performerName string) mbRecording {
+	rec := mbRecording{ID: id, Title: "In the Air Tonight", Length: 202000}
+	rec.ArtistCredit = []struct {
+		Name   string `json:"name"`
+		Artist struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			SortName string `json:"sort-name"`
+		} `json:"artist"`
+	}{{Name: performerName, Artist: struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		SortName string `json:"sort-name"`
+	}{ID: "performer-mbid-" + performerName, Name: performerName, SortName: performerName}}}
+	rec.Releases = []struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Date         string `json:"date"`
+		ReleaseGroup struct {
+			ID             string   `json:"id"`
+			Title          string   `json:"title"`
+			PrimaryType    string   `json:"primary-type"`
+			SecondaryTypes []string `json:"secondary-types,omitempty"`
+		} `json:"release-group"`
+	}{{ID: "va-release-mbid", Title: "Now That's What I Call Music", Date: "1998", ReleaseGroup: struct {
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		PrimaryType    string   `json:"primary-type"`
+		SecondaryTypes []string `json:"secondary-types,omitempty"`
+	}{ID: "va-rg-mbid", Title: "Now That's What I Call Music", PrimaryType: "Album", SecondaryTypes: []string{"Compilation"}}}}
+	return rec
+}
+
+// sampleReleaseArtistCredit is a lookupResponses fixture for the
+// LookupReleaseWithTracklist call correctArtistCreditForCompilation makes
+// — only ArtistCredit is populated since that's the only field the fix
+// reads; the shared test server encodes it via the same mbRecording JSON
+// shape as any other lookup, which is fine here since ReleaseWithTracklist
+// decodes only the fields it recognizes (see newTestScanner's own comment).
+func sampleReleaseArtistCredit(releaseMBID, artistName string) mbRecording {
+	rec := mbRecording{ID: releaseMBID, Title: "Now That's What I Call Music"}
+	rec.ArtistCredit = []struct {
+		Name   string `json:"name"`
+		Artist struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			SortName string `json:"sort-name"`
+		} `json:"artist"`
+	}{{Name: artistName, Artist: struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		SortName string `json:"sort-name"`
+	}{ID: "va-artist-mbid", Name: artistName, SortName: artistName}}}
+	return rec
+}
+
 // newTestScanner wires up a Scanner against an in-memory database and a
 // MusicBrainz client pointed at a local httptest server that serves
 // lookupResponses (keyed by recording MBID, for LookupRecording) and
@@ -207,6 +268,66 @@ func TestScanRootFolderMatchesDirectMBID(t *testing.T) {
 	}
 }
 
+// TestMatchFileDirectFilesCompilationTrackUnderReleaseArtist is the
+// regression test for a real bug found live: a Various Artists
+// compilation ripped with each file's own correct MusicBrainz recording ID
+// already embedded (the well-tagged, common case — matchFileDirect's own
+// fast path) filed every track under its own real per-track performer
+// instead of the one shared compilation artist/album, because applyMatch's
+// artist assignment used the recording's own ArtistCredit rather than the
+// release's. correctArtistCreditForCompilation must substitute the
+// release's own credit for filing while still preserving the track's real
+// performer as its own display credit.
+func TestMatchFileDirectFilesCompilationTrackUnderReleaseArtist(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-va-1":        sampleCompilationTrackRecording("rec-va-1", "Phil Collins"),
+		"va-release-mbid": sampleReleaseArtistCredit("va-release-mbid", "Various Artists"),
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":               "In the Air Tonight",
+		"ARTIST":              "Phil Collins",
+		"MUSICBRAINZ_TRACKID": "rec-va-1",
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("result = %+v, want 1 matched", result)
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 {
+		t.Fatalf("len(matched) = %d, want 1", len(matched))
+	}
+
+	track, err := s.db.GetTrack(*matched[0].TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetAlbum(track.AlbumID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist, err := s.db.GetArtist(album.ArtistID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artist.Name != "Various Artists" {
+		t.Errorf("filed under artist %q, want the release's own Various Artists credit, not the track's real performer", artist.Name)
+	}
+	if track.ArtistCredit != "Phil Collins" {
+		t.Errorf("Track.ArtistCredit = %q, want the real performer Phil Collins preserved for display", track.ArtistCredit)
+	}
+}
+
 // TestMatchClearsStaleWantedAlbum is the regression test for a real bug
 // found live: an album added to Wanted before its files happened to
 // already be sitting unmatched on disk (or matched through any path other
@@ -266,6 +387,60 @@ func TestScanRootFolderFuzzyMatchAboveThreshold(t *testing.T) {
 	}
 	if result.FilesMatched != 1 {
 		t.Errorf("FilesMatched = %d, want 1 (score 90 >= default threshold 0.75)", result.FilesMatched)
+	}
+}
+
+// TestScanRootFolderFuzzyMatchFilesCompilationTrackUnderReleaseArtist is
+// TestMatchFileDirectFilesCompilationTrackUnderReleaseArtist's companion
+// for matchFileFuzzy — the standalone-file fallback path has the exact
+// same bug independently (correctArtistCreditForCompilation must run
+// there too, not just on the embedded-MBID fast path).
+func TestScanRootFolderFuzzyMatchFilesCompilationTrackUnderReleaseArtist(t *testing.T) {
+	found := sampleCompilationTrackRecording("rec-va-2", "Duran Duran")
+	found.Score = 90
+	lookupResponses := map[string]mbRecording{
+		"va-release-mbid": sampleReleaseArtistCredit("va-release-mbid", "Various Artists"),
+	}
+	s, rf := newTestScanner(t, lookupResponses, []mbRecording{found})
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":  "Rio",
+		"ARTIST": "Duran Duran",
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("result = %+v, want 1 matched", result)
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 {
+		t.Fatalf("len(matched) = %d, want 1", len(matched))
+	}
+	track, err := s.db.GetTrack(*matched[0].TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetAlbum(track.AlbumID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist, err := s.db.GetArtist(album.ArtistID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artist.Name != "Various Artists" {
+		t.Errorf("filed under artist %q, want the release's own Various Artists credit, not the track's real performer", artist.Name)
+	}
+	if track.ArtistCredit != "Duran Duran" {
+		t.Errorf("Track.ArtistCredit = %q, want the real performer Duran Duran preserved for display", track.ArtistCredit)
 	}
 }
 

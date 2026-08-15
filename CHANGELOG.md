@@ -515,6 +515,23 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A Various Artists compilation organized into a folder per track's own
+  performer instead of one shared "Various Artists" folder.** Reported
+  live: `{Artist}/{Album}/...` was resolving `{Artist}` to each track's
+  real performer (Phil Collins, Duran Duran, …) rather than the release's
+  own "Various Artists" credit. Root cause: `applyMatch`'s artist
+  assignment used the matched recording's own artist-credit — the real
+  per-track performer — for filing, which is identical to the release's
+  own credit on an ordinary album but diverges exactly on a compilation.
+  Whole-folder matching (`matchEntriesToRelease`) already substituted the
+  release's own credit before assignment; the three per-file paths
+  (`matchFileDirect`'s embedded-MBID fast path, `matchFileFuzzy`'s
+  standalone fallback, and `ManualMatch`) didn't, so a well-tagged
+  compilation rip — each file already carrying its own correct recording
+  ID, which bypasses whole-folder reasoning entirely — hit this on every
+  track. `correctArtistCreditForCompilation` now applies the same
+  substitution there too, while still preserving each track's own real
+  performer as its display credit.
 - **A release for a completely different artist could get auto-grabbed as
   long as it shared a word with the wanted album.** `release.Score` never
   compared a candidate's own title against who was actually being

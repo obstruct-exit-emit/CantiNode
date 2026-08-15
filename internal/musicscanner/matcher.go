@@ -29,6 +29,54 @@ func joinArtistCredit(credits []musicbrainz.ArtistCredit) string {
 	return strings.Join(names, ", ")
 }
 
+// isCompilationRelease reports whether rg is flagged as anything other
+// than a plain single-artist studio album — MusicBrainz's own
+// SecondaryTypes signal, which covers both an ordinary artist's own "Best
+// Of" and a genuine Various Artists release. correctArtistCreditForCompilation
+// triggering on the broader signal is still correct either way: an
+// ordinary compilation's release-level credit is just that same one
+// artist, so substituting it is a harmless no-op.
+func isCompilationRelease(rg musicbrainz.ReleaseGroup) bool {
+	for _, t := range rg.SecondaryTypes {
+		if strings.EqualFold(t, "Compilation") {
+			return true
+		}
+	}
+	return false
+}
+
+// correctArtistCreditForCompilation mutates rec's own ArtistCredit to its
+// resolved release's ArtistCredit, when that release is a compilation —
+// the fix for a real bug reported live: a per-file match (matchFileDirect's
+// embedded-MBID fast path, or matchFileFuzzy's standalone fallback) filed
+// every track under its own recording-level artist-credit — the real
+// per-track PERFORMER, not necessarily who the RELEASE itself is credited
+// to. The two are identical for an ordinary single-artist album (harmless
+// no-op here) but diverge exactly on a Various Artists compilation, where
+// every recording still credits its own real performer — filing each
+// track under that instead of the release's shared "Various Artists"
+// credit is how one compilation folder ended up scattered across a dozen
+// different artist folders instead of one. matchEntriesToRelease
+// (folder_match.go) already does the equivalent substitution for its own
+// whole-folder path (see recordingForReleaseTrack); this is the same fix
+// for the per-file paths, which bypass that entirely (matchFileDirect's
+// own doc comment on skipping folder-level reasoning). Best-effort: a
+// failed lookup just leaves rec as-is, same as before this existed —
+// never worth failing an otherwise-successful match over a filing nicety.
+// Callers must capture the track's own real credit (for display) before
+// calling this — it mutates rec.ArtistCredit in place.
+func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *musicbrainz.Recording, preferredReleaseMBID string) {
+	release := rec.BestRelease(preferredReleaseMBID)
+	if release.ID == "" || !isCompilationRelease(release.ReleaseGroup) {
+		return
+	}
+	full, err := s.mb.LookupReleaseWithTracklist(ctx, release.ID)
+	if err != nil || len(full.ArtistCredit) == 0 {
+		return
+	}
+	rec.ArtistCredit = full.ArtistCredit
+}
+
 // matchFileDirect looks tf up directly by the MusicBrainz recording ID
 // already embedded in its own tags — confidence 1.0. Bypasses all
 // folder-level reasoning (see folder_match.go): the file's own tags are
@@ -39,7 +87,9 @@ func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFil
 	if err != nil {
 		return false, fmt.Errorf("lookup recording %s: %w", tags.MusicBrainzRecordingID, err)
 	}
-	if err := s.applyMatch(tf, *rec, 1.0, tags.MusicBrainzAlbumID, tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, joinArtistCredit(rec.ArtistCredit)); err != nil {
+	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
+	s.correctArtistCreditForCompilation(ctx, rec, tags.MusicBrainzAlbumID)
+	if err := s.applyMatch(tf, *rec, 1.0, tags.MusicBrainzAlbumID, tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, trackArtistCredit); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -73,7 +123,9 @@ func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile
 		return false, nil
 	}
 
-	if err := s.applyMatch(tf, best, confidence, "", tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, joinArtistCredit(best.ArtistCredit)); err != nil {
+	trackArtistCredit := joinArtistCredit(best.ArtistCredit)
+	s.correctArtistCreditForCompilation(ctx, &best, "")
+	if err := s.applyMatch(tf, best, confidence, "", tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, trackArtistCredit); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -183,7 +235,9 @@ func (s *Scanner) ManualMatch(ctx context.Context, trackFileID int64, recordingM
 		trackNumber, discNumber = tags.TrackNumber, tags.DiscNumber
 	}
 
-	return s.applyMatch(tf, *rec, 1.0, preferredReleaseMBID, trackNumber, discNumber, musiclibrary.StatusManual, joinArtistCredit(rec.ArtistCredit))
+	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
+	s.correctArtistCreditForCompilation(ctx, rec, preferredReleaseMBID)
+	return s.applyMatch(tf, *rec, 1.0, preferredReleaseMBID, trackNumber, discNumber, musiclibrary.StatusManual, trackArtistCredit)
 }
 
 // ClearMatch unlinks trackFileID from whatever track it was matched to,

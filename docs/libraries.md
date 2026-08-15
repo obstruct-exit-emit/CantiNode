@@ -86,7 +86,12 @@ actually is, rather than being force-matched to the wrong thing. A
 compilation ("Various Artists") is recognized even without a consistent
 `AlbumArtist` tag — if a folder's files agree on the album but genuinely
 disagree on artist, with nothing else to go on, that's treated as a
-compilation signal rather than a failure. Each track keeps its own real
+compilation signal rather than a failure. Every track of a compilation
+files under the one shared compilation artist/album — including a file
+matched individually (its own embedded recording ID, or the standalone
+fuzzy fallback) rather than as part of a whole-folder match, which still
+resolves its real per-track performer separately and correctly re-files it
+under the release's own credit instead. Each track keeps its own real
 performing-artist credit from MusicBrainz too (shown on the album page
 whenever it differs from the album's own artist), not just the
 compilation's shared one — **write tags** on a compilation track embeds
