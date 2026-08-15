@@ -172,6 +172,48 @@ func TestSeedExpectedReleaseGroupUpdatesExistingRow(t *testing.T) {
 	}
 }
 
+// TestSetTrackFileMatchClearsExpectedReleaseGroupOnUnmatch is the
+// regression test for the stale-stamp bug: clearing a match (status set
+// back to StatusUnmatched, e.g. via the "clear match" API) must also reset
+// expected_release_group_mbid, or the very next scan's grab-provenance
+// shortcut sees the same stamp still there and silently reapplies the
+// exact match the user just cleared.
+func TestSetTrackFileMatchClearsExpectedReleaseGroupOnUnmatch(t *testing.T) {
+	db := newTestStore(t)
+	rfID := testMusicRoot(t, db)
+
+	if err := db.SeedExpectedReleaseGroup(rfID, "/music/song.flac", "rg-expected"); err != nil {
+		t.Fatalf("SeedExpectedReleaseGroup: %v", err)
+	}
+	tf, err := db.getTrackFileByPath("/music/song.flac")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "")
+	if err := db.SetTrackFileMatch(tf.ID, &track.ID, StatusMatched, 0.9); err != nil {
+		t.Fatalf("SetTrackFileMatch (match): %v", err)
+	}
+	if got, err := db.GetTrackFile(tf.ID); err != nil {
+		t.Fatal(err)
+	} else if got.ExpectedReleaseGroupMBID != "rg-expected" {
+		t.Errorf("ExpectedReleaseGroupMBID after a successful match = %q, want unchanged rg-expected (it's a permanent provenance record)", got.ExpectedReleaseGroupMBID)
+	}
+
+	if err := db.SetTrackFileMatch(tf.ID, nil, StatusUnmatched, 0); err != nil {
+		t.Fatalf("SetTrackFileMatch (clear): %v", err)
+	}
+	got, err := db.GetTrackFile(tf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ExpectedReleaseGroupMBID != "" {
+		t.Errorf("ExpectedReleaseGroupMBID after clearing the match = %q, want empty — a cleared match must not silently come back on the next scan", got.ExpectedReleaseGroupMBID)
+	}
+}
+
 func TestListTrackFilesByStatus(t *testing.T) {
 	db := newTestStore(t)
 	rfID := testMusicRoot(t, db)

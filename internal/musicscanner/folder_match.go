@@ -151,6 +151,18 @@ func (s *Scanner) resolveExpectedRelease(ctx context.Context, remaining []folder
 		return nil, 0, false
 	}
 
+	// folderTagConsensus's ok=false conflates two very different cases: no
+	// album tag present anywhere (nothing to check — fine to proceed, see
+	// this function's own doc comment) and album tags that actively
+	// DISAGREE with each other (a real red flag — a folder whose own files
+	// can't even agree what album they are is exactly the kind of
+	// internally-inconsistent "this grab might not be what was expected"
+	// signal the safety gate exists for, and must never be silently
+	// treated the same as "nothing to check"). albumTagsDisagree checks
+	// that specific case on its own, ahead of the normal consensus check.
+	if albumTagsDisagree(remaining) {
+		return nil, 0, false
+	}
 	const albumTitleMatchThreshold = 0.5 // more lenient than slotTrack's own 0.6 — album titles carry more legitimate edition-to-edition variance ("(Remastered)", "(Deluxe)") than a single track title does
 	if _, album, ok := folderTagConsensus(remaining); ok {
 		matchesAny := false
@@ -198,6 +210,28 @@ func embeddedReleaseMBID(entries []folderEntry) string {
 		found = mbid
 	}
 	return found
+}
+
+// albumTagsDisagree reports whether two or more entries' own non-empty
+// Album tags name different albums. Distinct from folderTagConsensus's
+// ok=false, which also fires when there's simply nothing to check (no
+// Album tag anywhere) — this only fires on an actual internal
+// contradiction, the specific red flag resolveExpectedRelease's safety
+// gate needs to catch ahead of the normal consensus check.
+func albumTagsDisagree(entries []folderEntry) bool {
+	album := ""
+	for _, e := range entries {
+		a := strings.TrimSpace(e.tags.Album)
+		if a == "" {
+			continue
+		}
+		if album == "" {
+			album = a
+		} else if !strings.EqualFold(album, a) {
+			return true
+		}
+	}
+	return false
 }
 
 // folderTagConsensus derives the one Artist+Album a folder's files agree
@@ -252,14 +286,17 @@ func folderTagConsensus(entries []folderEntry) (artist, album string, ok bool) {
 		return artist, album, true
 	}
 	// Artists disagree. A genuine compilation signal only when nothing
-	// ever supplied an explicit AlbumArtist override and at least two
+	// ever supplied an explicit AlbumArtist override and at least three
 	// really-different per-track artists are involved — that's a folder
 	// that agrees on the album but was simply never given a shared
 	// AlbumArtist tag, the common case for a less carefully tagged
-	// compilation. An AlbumArtist that itself disagrees across files, or
-	// a single stray mismatch, stays a hard failure: more likely broken
-	// tagging than a real compilation, not worth guessing at.
-	if !albumArtistSeen && len(distinctArtists) >= 2 {
+	// compilation. Requiring three (not two) guards against a single
+	// mistagged or "feat."-credited track turning an ordinary single-artist
+	// album into a false compilation match. An AlbumArtist that itself
+	// disagrees across files, or a lone stray mismatch, stays a hard
+	// failure: more likely broken tagging than a real compilation, not
+	// worth guessing at.
+	if !albumArtistSeen && len(distinctArtists) >= 3 {
 		return "Various Artists", album, true
 	}
 	return "", "", false

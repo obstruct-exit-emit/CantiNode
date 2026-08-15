@@ -83,20 +83,14 @@ func scanTrackFile(row interface{ Scan(...any) error }) (*TrackFile, error) {
 // for the same path only ever updates size/format/bitrate/duration/tags —
 // never this column — so the stamp set here survives that pass intact.
 func (s *Store) SeedExpectedReleaseGroup(rootFolderID int64, path, releaseGroupMBID string) error {
-	existing, err := s.getTrackFileByPath(path)
-	if err == nil {
-		if _, err := s.db.Exec(`UPDATE track_files SET expected_release_group_mbid = ? WHERE id = ?`,
-			releaseGroupMBID, existing.ID); err != nil {
-			return fmt.Errorf("update expected release group: %w", err)
-		}
-		return nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return err
-	}
+	// A single atomic upsert on path's UNIQUE constraint, rather than a
+	// separate get-then-insert-or-update: two concurrent seeds for the
+	// same path (e.g. overlapping imports) can't race a get that both see
+	// as "not found" into a duplicate-path insert error.
 	if _, err := s.db.Exec(
 		`INSERT INTO track_files (root_folder_id, path, match_status, match_confidence, expected_release_group_mbid)
-		 VALUES (?, ?, ?, 0, ?)`,
+		 VALUES (?, ?, ?, 0, ?)
+		 ON CONFLICT(path) DO UPDATE SET expected_release_group_mbid = excluded.expected_release_group_mbid`,
 		rootFolderID, path, StatusUnmatched, releaseGroupMBID); err != nil {
 		return fmt.Errorf("seed expected release group: %w", err)
 	}
@@ -202,9 +196,16 @@ func (s *Store) ListTrackFilesByIDs(ids []int64) (map[int64]*TrackFile, error) {
 // trackID nil moves the file back to unmatched (used when a manual link is
 // removed).
 func (s *Store) SetTrackFileMatch(id int64, trackID *int64, status MatchStatus, confidence float64) error {
-	_, err := s.db.Exec(
-		`UPDATE track_files SET track_id = ?, match_status = ?, match_confidence = ? WHERE id = ?`,
-		trackID, status, confidence, id)
+	query := `UPDATE track_files SET track_id = ?, match_status = ?, match_confidence = ? WHERE id = ?`
+	if status == StatusUnmatched {
+		// Clearing a match must also clear any grab-provenance stamp: left
+		// in place, the next scan's resolveExpectedRelease would see the
+		// same expected_release_group_mbid and silently reapply the exact
+		// match that was just cleared, making ClearMatch a no-op after one
+		// rescan.
+		query = `UPDATE track_files SET track_id = ?, match_status = ?, match_confidence = ?, expected_release_group_mbid = '' WHERE id = ?`
+	}
+	_, err := s.db.Exec(query, trackID, status, confidence, id)
 	if err != nil {
 		return fmt.Errorf("set track file match: %w", err)
 	}

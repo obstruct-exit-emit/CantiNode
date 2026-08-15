@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -218,28 +217,22 @@ func (s *Service) expectedReleaseGroupMBID(g download.GrabRecord) string {
 	return ""
 }
 
-// seedExpectedReleaseGroup walks dest (a completed grab's freshly-copied
-// audio files) and stamps releaseGroupMBID onto each one via
+// seedExpectedReleaseGroup stamps releaseGroupMBID onto every one of
+// copiedPaths (copyTree's own return value — the exact files it just
+// wrote, already known without a second walk of dest) via
 // SeedExpectedReleaseGroup, before the scan that actually discovers and
 // matches them runs — see that method's own doc comment for why this
 // ordering matters. A no-op (not an error) when releaseGroupMBID is
 // empty: nothing to stamp for a grab whose own wanted/upgrade target
 // couldn't be resolved, same as a manually-added file.
-func (s *Service) seedExpectedReleaseGroup(rootFolderID int64, dest, releaseGroupMBID string) {
+func (s *Service) seedExpectedReleaseGroup(rootFolderID int64, copiedPaths []string, releaseGroupMBID string) {
 	if releaseGroupMBID == "" {
 		return
 	}
-	err := filepath.WalkDir(dest, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !tagreader.IsAudioFile(path) {
-			return nil
+	for _, path := range copiedPaths {
+		if err := s.music.SeedExpectedReleaseGroup(rootFolderID, path, releaseGroupMBID); err != nil {
+			s.logger.Warn("importer: seed expected release group", "path", path, "error", err)
 		}
-		if seedErr := s.music.SeedExpectedReleaseGroup(rootFolderID, path, releaseGroupMBID); seedErr != nil {
-			s.logger.Warn("importer: seed expected release group", "path", path, "error", seedErr)
-		}
-		return nil
-	})
-	if err != nil {
-		s.logger.Warn("importer: walk copied files to seed expected release group", "dest", dest, "error", err)
 	}
 }
 
@@ -297,13 +290,13 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 
 	src := config.TranslatePath(s.cfg.PathMappings(), item.Path)
 	dest := filepath.Join(root.Path, filepath.Base(src))
-	copied, err := copyTree(src, dest)
+	copiedPaths, err := copyTree(src, dest)
 	if err != nil {
 		s.logger.Error("importer: copy failed", "grab_id", g.ID, "src", src, "dest", dest, "error", err)
 		s.failGrab(g, fmt.Sprintf("copy from download client failed: %v", err))
 		return false
 	}
-	if copied == 0 {
+	if len(copiedPaths) == 0 {
 		s.logger.Warn("importer: no audio files found in completed download, nothing imported",
 			"grab_id", g.ID, "src", src)
 	}
@@ -313,7 +306,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	// of re-deriving it blind from tags, the same way a manually-added
 	// file still has to. See expectedReleaseGroupMBID/
 	// seedExpectedReleaseGroup's own doc comments.
-	s.seedExpectedReleaseGroup(root.ID, dest, s.expectedReleaseGroupMBID(g))
+	s.seedExpectedReleaseGroup(root.ID, copiedPaths, s.expectedReleaseGroupMBID(g))
 
 	if !s.stillGrabbed(g.ID) {
 		// The files are already safely copied to dest — left in place
@@ -464,26 +457,32 @@ func deleteDownloadData(path string, logger *slog.Logger) {
 // non-audio src passed directly (shouldn't normally happen — a grab's own
 // path is always a directory) is skipped rather than erroring, consistent
 // with a directory that turns out to hold no audio at all: copied comes
-// back 0, not an error, so the caller decides whether that's worth
+// back empty, not an error, so the caller decides whether that's worth
 // treating as a failure. A subdirectory with no audio files anywhere
 // under it is never created at the destination.
-func copyTree(src, dstDir string) (copied int, err error) {
+//
+// Returns every destination path it actually wrote, not just a count —
+// this is the one walk of the copied tree the whole import does; a caller
+// needing to know which files landed where (seedExpectedReleaseGroup)
+// uses this instead of re-walking dstDir itself afterward.
+func copyTree(src, dstDir string) (copiedPaths []string, err error) {
 	info, err := os.Stat(src)
 	if err != nil {
-		return 0, fmt.Errorf("stat source %s: %w", src, err)
+		return nil, fmt.Errorf("stat source %s: %w", src, err)
 	}
 	if !info.IsDir() {
 		if !tagreader.IsAudioFile(src) {
-			return 0, nil
+			return nil, nil
 		}
-		if err := copyFile(src, filepath.Join(dstDir, filepath.Base(src))); err != nil {
-			return 0, err
+		dst := filepath.Join(dstDir, filepath.Base(src))
+		if err := copyFile(src, dst); err != nil {
+			return nil, err
 		}
-		return 1, nil
+		return []string{dst}, nil
 	}
 	entries, err := os.ReadDir(src)
 	if err != nil {
-		return 0, fmt.Errorf("read source dir %s: %w", src, err)
+		return nil, fmt.Errorf("read source dir %s: %w", src, err)
 	}
 	for _, e := range entries {
 		s := filepath.Join(src, e.Name())
@@ -491,20 +490,20 @@ func copyTree(src, dstDir string) (copied int, err error) {
 		if e.IsDir() {
 			n, err := copyTree(s, d)
 			if err != nil {
-				return copied, err
+				return copiedPaths, err
 			}
-			copied += n
+			copiedPaths = append(copiedPaths, n...)
 			continue
 		}
 		if !tagreader.IsAudioFile(s) {
 			continue
 		}
 		if err := copyFile(s, d); err != nil {
-			return copied, err
+			return copiedPaths, err
 		}
-		copied++
+		copiedPaths = append(copiedPaths, d)
 	}
-	return copied, nil
+	return copiedPaths, nil
 }
 
 func copyFile(src, dst string) error {

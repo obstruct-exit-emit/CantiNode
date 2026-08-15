@@ -673,6 +673,68 @@ func TestResolveExpectedReleaseSafetyGateRefusesMismatchedTags(t *testing.T) {
 	}
 }
 
+// TestResolveExpectedReleaseSafetyGateRefusesInternallyDisagreeingTags
+// covers the case TestResolveExpectedReleaseSafetyGateRefusesMismatchedTags
+// doesn't: a folder whose own files disagree with EACH OTHER about what
+// album they are (not just with the expectation). folderTagConsensus alone
+// treats "tags disagree with each other" and "no album tag present at
+// all" identically (ok=false either way) — without albumTagsDisagree
+// telling these two cases apart, this internally-inconsistent folder would
+// have been treated as "nothing to contradict the expectation" and the
+// grab-provenance shortcut would have proceeded uncontested, force-binding
+// both files to the (wrong) expected release group.
+//
+// Once the shortcut is refused here, folderTagConsensus's own pre-existing
+// album-disagreement check also fails the whole-folder search path (see
+// TestScanRootFolderInconsistentTagsFallsBackToPerFileMatching), so
+// resolution degrades all the way to independent per-file fuzzy matching —
+// proven by
+// asserting release-search was never called but recording-search (the
+// per-file fallback) was, and that neither file ends up bound to the
+// expected release group's MBID.
+func TestResolveExpectedReleaseSafetyGateRefusesInternallyDisagreeingTags(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.recordingSearch = []mbRecording{sampleRecording("fallback-rec", 100)}
+
+	s, rf := newFolderTestScanner(t, fs)
+	if err := s.db.ReplaceReleaseGroupVersions("rg-expected", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-expected", ReleaseMBID: "rel-expected", Title: "The Expected Album", TrackCount: 2, IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+
+	// The two files' own Album tags disagree with EACH OTHER, not just
+	// with the expectation — a red flag on its own regardless of what was
+	// expected.
+	p1 := buildFLACFile(t, rf.Path, "01.flac", map[string]string{"ARTIST": "Test Artist", "ALBUM": "Album A", "TITLE": "Track One", "TRACKNUMBER": "1"})
+	p2 := buildFLACFile(t, rf.Path, "02.flac", map[string]string{"ARTIST": "Test Artist", "ALBUM": "Album B", "TITLE": "Track Two", "TRACKNUMBER": "2"})
+	for _, p := range []string{p1, p2} {
+		if err := s.db.SeedExpectedReleaseGroup(rf.ID, p, "rg-expected"); err != nil {
+			t.Fatalf("SeedExpectedReleaseGroup(%s): %v", p, err)
+		}
+	}
+
+	if _, err := s.ScanRootFolder(t.Context(), rf); err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if fs.countOf("release-search") != 0 {
+		t.Errorf("release-search count = %d, want 0 — a folder that can't even agree on its own album isn't a whole-folder search candidate either", fs.countOf("release-search"))
+	}
+	if fs.countOf("recording-search") == 0 {
+		t.Error("recording-search count = 0, want at least 1 — should have degraded to independent per-file fuzzy matching")
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range albums {
+		if a.MBID == "rel-expected" {
+			t.Errorf("albums = %+v, must not include the expected release group's MBID — internally-disagreeing tags should never force-bind to the expectation", albums)
+		}
+	}
+}
+
 func TestPickBestVersionByFileCount(t *testing.T) {
 	versions := []musiclibrary.ReleaseGroupVersion{
 		{ReleaseMBID: "rel-10", TrackCount: 10},
@@ -683,7 +745,7 @@ func TestPickBestVersionByFileCount(t *testing.T) {
 	if got := pickBestVersionByFileCount(versions, 12); got == nil || got.ReleaseMBID != "rel-12" {
 		t.Errorf("exact match: got %+v, want rel-12", got)
 	}
-	if got := pickBestVersionByFileCount(versions, 11); got == nil || got.ReleaseMBID != "rel-10" && got.ReleaseMBID != "rel-12" {
+	if got := pickBestVersionByFileCount(versions, 11); got == nil || got.ReleaseMBID != "rel-12" {
 		t.Errorf("closest match (tie 10 vs 12, both diff 1): got %+v, want the tie broken toward representative rel-12", got)
 	}
 	if got := pickBestVersionByFileCount(nil, 5); got != nil {

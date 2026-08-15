@@ -433,8 +433,8 @@ func TestCopyTreeCopiesNestedDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("copyTree: %v", err)
 	}
-	if copied != 2 {
-		t.Errorf("copied = %d, want 2", copied)
+	if len(copied) != 2 {
+		t.Errorf("copied = %d, want 2", len(copied))
 	}
 
 	for _, rel := range []string{"a.flac", filepath.Join("sub", "b.mp3")} {
@@ -474,8 +474,8 @@ func TestCopyTreeSkipsNonAudioFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("copyTree: %v", err)
 	}
-	if copied != 2 {
-		t.Errorf("copied = %d, want 2 (the two audio files)", copied)
+	if len(copied) != 2 {
+		t.Errorf("copied = %d, want 2 (the two audio files)", len(copied))
 	}
 
 	for _, rel := range []string{"01 - Track.flac", filepath.Join("Sample", "01 - Sample.mp3")} {

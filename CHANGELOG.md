@@ -515,6 +515,32 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Six real bugs in the same night's grab-provenance/Various-Artists/
+  per-track-credit feature, found bug-hunting it before anyone hit them
+  live**: the safety gate meant to refuse a mislabeled grab
+  (`resolveExpectedRelease`) only checked for a folder's tags disagreeing
+  with the *expectation* — files whose own Album tags disagreed with
+  *each other* (a folder that can't even agree what album it is) fell
+  through the same "nothing to contradict" path as an untagged file and
+  would have been force-bound to the wrong release group anyway; a new
+  `albumTagsDisagree` pre-check catches that case specifically. Clearing a
+  match (`SetTrackFileMatch`/`ClearMatch`) never reset
+  `expected_release_group_mbid`, so the very next scan silently reapplied
+  the exact match a user had just cleared — clearing now also resets the
+  stamp. `SeedExpectedReleaseGroup` did a separate get-then-insert-or-
+  update with no transaction, letting two concurrent imports for the same
+  path race into a duplicate-path insert error; it's now one atomic
+  `INSERT ... ON CONFLICT(path) DO UPDATE`. The Various Artists inference
+  triggered off just two distinct per-track artists with no `AlbumArtist`
+  override, letting a single mistagged or "feat."-credited track turn an
+  ordinary single-artist album into a false compilation match; raised to
+  three. The importer's `seedExpectedReleaseGroup` re-walked the
+  destination directory a second time after `copyTree` had already walked
+  it once to do the actual copy; `copyTree` now returns the paths it
+  copied directly, so the second walk is gone. A weak test assertion
+  (`&&`/`||` operator-precedence) in `TestPickBestVersionByFileCount`
+  accepted either candidate on a file-count tie instead of actually
+  proving the tie breaks toward the representative version.
 - **Nine real bugs in the same night's root-folders/Move feature, found
   bug-hunting it before anyone hit them live**: a concurrent library scan
   and artist move shared no lock at all — both touch the same
