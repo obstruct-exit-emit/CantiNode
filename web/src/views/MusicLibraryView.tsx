@@ -243,30 +243,30 @@ function AddArtistPanel({
         <p className="muted">No matches on MusicBrainz.</p>
       )}
       {results.length > 0 && (
-        <div className="poster-grid compact">
+        <ul className="rows">
           {results.map((a) => {
             // No image available at all for a not-yet-added search result
-            // (MusicBrainz's artist search doesn't return one) — the
-            // lettered fallback tile every poster-card falls back to
-            // elsewhere when there's genuinely no cover art.
+            // (MusicBrainz's artist search doesn't return one), so a list
+            // row — full-width, no wasted card space on a placeholder tile —
+            // shows this metadata more usefully than a poster grid did.
             const meta = [a.type, a.country, a.disambiguation].filter(Boolean).join(" · ");
             return (
-              <button
-                key={a.id}
-                className="poster-card"
-                disabled={addingMbid !== null}
-                onClick={() => monitor(a.id)}
-                title={a.disambiguation ? `Disambiguation: ${a.disambiguation}` : undefined}
-              >
-                <div className="poster fallback">{a.name.charAt(0)}</div>
-                <span className="poster-title">{a.name}</span>
-                <span className="poster-sub">
-                  {addingMbid === a.id ? "Adding…" : meta || "Add & monitor"}
-                </span>
-              </button>
+              <li key={a.id}>
+                <div className="row">
+                  <span>
+                    {a.name}
+                    {meta && <span className="muted"> — {meta}</span>}
+                  </span>
+                  <span className="row-actions">
+                    <button disabled={addingMbid !== null} onClick={() => monitor(a.id)}>
+                      {addingMbid === a.id ? "Adding…" : "+ Add & Monitor"}
+                    </button>
+                  </span>
+                </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
     </div>
   );
