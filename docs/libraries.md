@@ -89,7 +89,9 @@ disagree on artist, with nothing else to go on, that's treated as a
 compilation signal rather than a failure. Each track keeps its own real
 performing-artist credit from MusicBrainz too (shown on the album page
 whenever it differs from the album's own artist), not just the
-compilation's shared one.
+compilation's shared one — **write tags** on a compilation track embeds
+that same per-track credit as its file's `ARTIST` tag, leaving
+`ALBUMARTIST` as the compilation identity.
 
 **Unmatched Files** (sidebar, under Libraries) is the review queue for
 whatever a scan couldn't place, grouped by folder — a merged CD1/CD2 pair

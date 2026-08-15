@@ -39,9 +39,19 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 		year = year[:4]
 	}
 
+	// track.ArtistCredit is only ever non-empty when it differs from the
+	// album's own artist (see applyMatch) — the real per-recording
+	// performer on a Various Artists compilation. Writing artist.Name
+	// there would stamp every track's ARTIST tag with "Various Artists",
+	// discarding exactly the distinction this field exists to preserve.
+	trackArtist := artist.Name
+	if track.ArtistCredit != "" {
+		trackArtist = track.ArtistCredit
+	}
+
 	tags := tagwriter.Tags{
 		Title:                     track.Title,
-		Artist:                    artist.Name,
+		Artist:                    trackArtist,
 		AlbumArtist:               artist.Name,
 		Album:                     album.Title,
 		TrackNumber:               track.TrackNumber,

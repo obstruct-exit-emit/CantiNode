@@ -515,6 +515,15 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Write tags dropped the real per-track artist credit on a Various
+  Artists compilation.** `WriteTags` always embedded the album's own
+  artist row (e.g. "Various Artists") as both `ARTIST` and `ALBUMARTIST`
+  for every track, ignoring the real per-recording performer
+  (`track.ArtistCredit`) already stored and already shown correctly on
+  the album page. Now falls back to `track.ArtistCredit` for `ARTIST`
+  when it's set, leaving `ALBUMARTIST` as the compilation identity — an
+  ordinary single-artist album is unaffected (`ArtistCredit` is empty
+  there). See [Libraries](docs/libraries.md#existing-file-import-unmatched-files).
 - **Six real bugs in the same night's grab-provenance/Various-Artists/
   per-track-credit feature, found bug-hunting it before anyone hit them
   live**: the safety gate meant to refuse a mislabeled grab
