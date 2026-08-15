@@ -120,11 +120,15 @@ The same page has a **Clear image cache** button — see
 
 ## Naming template
 
-Tokens: `{Artist}`, `{Album}`, `{TrackNumber}`, `{Title}`, `{Ext}`. One
-template renders the whole path (folder separators included) in a single
-pass, so `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}` produces both the
-folder structure and the filename together. Tokens without a value drop out
-cleanly; an emptied template reverts to the default.
+Tokens: `{Artist}`, `{Album}`, `{Year}`, `{TrackNumber}`, `{DiscNumber}`,
+`{Title}`, `{Ext}`. One template renders the whole path (folder separators
+included) in a single pass, so `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}`
+produces both the folder structure and the filename together — add
+`{DiscNumber}` for a multi-disc album (e.g.
+`{Artist}/{Album}/Disc {DiscNumber}/{TrackNumber} - {Title}.{Ext}`) or
+`{Year}` to fold the release year into a folder or filename (e.g.
+`{Artist}/{Album} ({Year})/...`). Tokens without a value drop out cleanly;
+an emptied template reverts to the default.
 
 ## Authentication
 

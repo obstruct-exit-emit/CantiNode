@@ -49,6 +49,8 @@ internal/indexer/      Newznab/Torznab clients, search fan-out, backoff;
   prowlarr/            native source: searches a Prowlarr instance's own
                        API directly instead of per-indexer duplication
 internal/release/      release parsing + scoring
+internal/candidatesearch/ shared search->score->rank pipeline used by both
+                       manual search/upgrade-search and the autosearch sweep
 internal/download/     qBittorrent/SABnzbd/direct clients, grabs, blocklist
 internal/relname/      generic release-name text utilities (used by
                        release scoring and download-queue enrichment)
