@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type MusicArtist,
+  type MusicBrainzArtistResult,
   type MusicBrainzRecordingResult,
   type MusicReleaseGroup,
   type MusicTrackFile,
@@ -179,6 +180,16 @@ export default function UnmatchedFilesView({ onError }: { onError: (message: str
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   }, [onError]);
 
+  // Appends a newly-monitored artist (added via AutoMatchPanel's own
+  // MusicBrainz search fallback, for one not already in the library) into
+  // this list in place, rather than a full re-fetch — so it's immediately
+  // selectable in every other still-open/future auto-match panel too,
+  // without an extra round trip. Deduped in case the same artist somehow
+  // gets added twice from two different panels before either refetches.
+  const addLocalArtist = useCallback((artist: MusicArtist) => {
+    setArtists((prev) => (prev.some((a) => a.id === artist.id) ? prev : [...prev, artist]));
+  }, []);
+
   useEffect(reload, [reload]);
   useEffect(() => {
     api.listMusicArtists().then(setArtists).catch(() => {}); // the auto-match dropdown just starts empty on failure
@@ -278,6 +289,7 @@ export default function UnmatchedFilesView({ onError }: { onError: (message: str
                     onApplied={reload}
                     onError={onError}
                     onPendingChange={setPendingMatchIds}
+                    onArtistAdded={addLocalArtist}
                   />
                 )}
                 <ul className="rows">
@@ -334,6 +346,7 @@ function AutoMatchPanel({
   onApplied,
   onError,
   onPendingChange,
+  onArtistAdded,
 }: {
   files: UnmatchedTrackFile[];
   artists: MusicArtist[];
@@ -341,6 +354,7 @@ function AutoMatchPanel({
   onApplied: () => void;
   onError: (message: string) => void;
   onPendingChange: (ids: Set<number>) => void;
+  onArtistAdded: (artist: MusicArtist) => void;
 }) {
   const [artistId, setArtistId] = useState<number | "">("");
   const [albums, setAlbums] = useState<AlbumOption[] | null>(null);
@@ -353,6 +367,23 @@ function AutoMatchPanel({
   const [autoMatching, setAutoMatching] = useState(false);
   const [applyingIds, setApplyingIds] = useState<Set<number>>(new Set());
   const [approvedIds, setApprovedIds] = useState<Set<number>>(new Set());
+
+  // Artist-not-in-your-library-yet fallback: a live MusicBrainz search,
+  // shown only on demand (never run automatically — adding a whole new
+  // artist is a bigger, more consequential action than approving a track
+  // match, so it always needs its own explicit pick, same as the Library
+  // page's own "+ Add" panel this mirrors). Picking a result monitors it
+  // exactly like "+ Add & Monitor" does (full discography + versions +
+  // tracklists + genres/tags/rating + bio/photo, all via the same
+  // refreshMusicArtistMetadata this session's earlier work confirmed is
+  // the one place that already does everything the matching UI needs).
+  const [showArtistSearch, setShowArtistSearch] = useState(false);
+  const [artistSearchTerm, setArtistSearchTerm] = useState("");
+  const [artistSearchResults, setArtistSearchResults] = useState<MusicBrainzArtistResult[]>([]);
+  const [artistSearching, setArtistSearching] = useState(false);
+  const [artistSearched, setArtistSearched] = useState(false);
+  const [addingArtistMbid, setAddingArtistMbid] = useState<string | null>(null);
+  const [artistSearchNotice, setArtistSearchNotice] = useState("");
 
   // requestToken guards against an out-of-order async response clobbering
   // a newer selection — e.g. a user picking a different album before its
@@ -420,6 +451,46 @@ function AutoMatchPanel({
     fetchAlbumsForArtist(id).catch((err: unknown) => {
       if (requestToken.current === token) onError(String(err instanceof Error ? err.message : err));
     });
+  };
+
+  const searchArtist = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!artistSearchTerm.trim()) return;
+    setArtistSearching(true);
+    setArtistSearchNotice("");
+    api
+      .searchMusicArtists(artistSearchTerm)
+      .then((r) => {
+        setArtistSearchResults(r);
+        setArtistSearched(true);
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setArtistSearching(false));
+  };
+
+  // addArtist monitors a MusicBrainz result the same way the Library
+  // page's "+ Add & Monitor" does, then immediately selects it here —
+  // pickArtist's own fetchAlbumsForArtist call finds a populated Missing
+  // list right away, since ReplaceArtistReleaseGroups (inside monitor)
+  // runs before that request even returns; no need to wait for the
+  // slower backgrounded version/tracklist caching first.
+  const addArtist = (mbid: string) => {
+    setAddingArtistMbid(mbid);
+    api
+      .monitorMusicArtist(mbid)
+      .then((artist) => {
+        onArtistAdded(artist);
+        setShowArtistSearch(false);
+        setArtistSearchTerm("");
+        setArtistSearchResults([]);
+        setArtistSearched(false);
+        setArtistSearchNotice("");
+        pickArtist(artist.id);
+      })
+      .catch((err: unknown) =>
+        setArtistSearchNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
+      )
+      .finally(() => setAddingArtistMbid(null));
   };
 
   const pickAlbum = (mbid: string) => {
@@ -662,6 +733,55 @@ function AutoMatchPanel({
           {suggesting ? "Matching…" : "Suggest matches"}
         </button>
       </form>
+      <div className="row">
+        <button
+          type="button"
+          className="toggle"
+          onClick={() => setShowArtistSearch(!showArtistSearch)}
+          title="Search MusicBrainz directly for an artist that isn't in your library yet"
+        >
+          {showArtistSearch ? "Close artist search" : "Artist not in your library?"}
+        </button>
+      </div>
+      {showArtistSearch && (
+        <div className="add-panel">
+          <form className="search-form" onSubmit={searchArtist}>
+            <input
+              placeholder="Search MusicBrainz for an artist…"
+              value={artistSearchTerm}
+              onChange={(e) => setArtistSearchTerm(e.target.value)}
+              autoFocus
+            />
+            <button type="submit" disabled={artistSearching || !artistSearchTerm.trim()}>
+              {artistSearching ? "Searching…" : "Search"}
+            </button>
+          </form>
+          {artistSearchNotice && <p className="notice bad">{artistSearchNotice}</p>}
+          {artistSearched && artistSearchResults.length === 0 && !artistSearching && (
+            <p className="muted">No matches on MusicBrainz.</p>
+          )}
+          {artistSearchResults.length > 0 && (
+            <ul className="rows">
+              {artistSearchResults.map((a) => (
+                <li key={a.id}>
+                  <div className="row">
+                    <span>{a.name}</span>
+                    <span className="row-actions">
+                      <button
+                        disabled={addingArtistMbid !== null}
+                        onClick={() => addArtist(a.id)}
+                        title="Add & monitor this artist, then match this folder's files against them"
+                      >
+                        {addingArtistMbid === a.id ? "Adding…" : "+ Add & Monitor"}
+                      </button>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       {albums && albums.length === 0 && (
         <p className="muted">This artist has no wanted or missing albums to match against.</p>
       )}

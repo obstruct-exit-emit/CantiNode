@@ -94,7 +94,14 @@ can be matched two ways:
   Nothing is proposed until **Suggest matches** is clicked, and nothing is
   applied until each suggestion is individually **Approve**d (or
   **Approve all**) — every field stays yours to review and change first,
-  whether it was auto-filled or picked by hand.
+  whether it was auto-filled or picked by hand. The Artist dropdown only
+  lists artists already in your library; if a folder's own artist isn't
+  one of them yet, **Artist not in your library?** opens a live
+  MusicBrainz search right there — picking a result adds & monitors it
+  (same as the Library page's own **+ Add**) and selects it immediately,
+  no need to leave the page first. Auto-match itself never does this
+  search on its own — adding a whole new artist always needs its own
+  explicit pick.
 
 ## Release versions
 

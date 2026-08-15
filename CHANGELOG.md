@@ -11,6 +11,24 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **The Unmatched Files auto-match panel can now discover an artist that
+  isn't in your library at all yet.** Its Artist dropdown was always
+  scoped to `GET /music/artist` (already-added artists only) — a folder
+  on disk for an artist you'd simply never added had no path forward
+  there: not in the dropdown, no cached discography to match against. A
+  new **"Artist not in your library?"** toggle opens a live MusicBrainz
+  search right in the panel; picking a result monitors it exactly like
+  the Library page's own **+ Add & Monitor** (full discography, versions
+  and tracklists, genres/tags/rating, bio/photo) and selects it
+  immediately so album matching can continue in the same flow. Never
+  triggered automatically by Auto-match itself — adding a whole new
+  artist always needs its own explicit human pick, same as "+ Add"
+  always has. The automatic background scanner already handled this case
+  on its own (folder-level MusicBrainz release search creates a
+  never-seen artist on the fly when confident enough); this closes the
+  matching-UI-specific gap for when that automatic match wasn't
+  confident enough and the file fell through to manual review. See
+  [Libraries](docs/libraries.md#existing-file-import-unmatched-files).
 - **Multiple, freely-named root folders, with a "Move to…" action to
   relocate an artist's owned, matched files between them.** Settings → Media
   Management already allowed adding more than one music root folder, but
