@@ -154,7 +154,64 @@ func (s *server) handleMonitorMusicArtist(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := s.refreshMusicArtistMetadata(ctx, a.ID, req.MBID); err != nil {
+	// Passes the mbArtist already looked up above straight through, rather
+	// than going via refreshMusicArtistMetadata (which only has an mbid to
+	// work with, from callers — handleRefreshMusicArtist — that never
+	// looked one up themselves) and repeating an identical MusicBrainz
+	// request for data already in hand.
+	if err := s.cacheFullArtistMetadata(ctx, a.ID, mbArtist); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	a, err = s.musicStore.GetArtist(a.ID)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, a)
+}
+
+// handleQuickAddMusicArtist is handleMonitorMusicArtist's lighter sibling
+// for the Unmatched Files auto-match panel's "artist not in your library"
+// search: creates and monitors the artist with just the discography
+// cached (what the panel's own Album dropdown needs right away to keep
+// matching moving), skipping the backgrounded per-release-group
+// version/tracklist pre-fetch and the TheAudioDB bio/photo lookup that
+// handleMonitorMusicArtist also does — neither is needed to finish
+// matching a file, and the bio/photo lookup in particular is a real,
+// synchronous extra network round trip mid-workflow. MetadataFetchedAt is
+// deliberately left unset, so the artist looks exactly like one added
+// before this feature existed: the very next scan's own
+// cacheNewArtistsMetadata sweep finds it and finishes the job (bio/photo,
+// and — via cacheDiscographyVersions — every release group's versions and
+// tracklists) automatically, no separate "catch up later" mechanism
+// needed here.
+func (s *server) handleQuickAddMusicArtist(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MBID string `json:"mbid"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.MBID == "" {
+		writeError(w, http.StatusBadRequest, "mbid is required")
+		return
+	}
+	ctx, cancel := s.artistRefreshCtx(r)
+	defer cancel()
+
+	mbArtist, err := s.mb.LookupArtist(ctx, req.MBID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "look up artist: "+err.Error())
+		return
+	}
+	a, err := s.musicStore.GetOrCreateArtist(req.MBID, mbArtist.Name, mbArtist.SortName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.musicStore.SetArtistMonitored(a.ID, true); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if _, err := s.cacheArtistDiscography(ctx, a.ID, mbArtist); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -202,48 +259,34 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// refreshMusicArtistMetadata caches mbid's entire release-group list (any
-// primary/secondary type — the Missing section lets the user pick, fully
-// paginated via BrowseArtistReleaseGroups rather than the truncated-at-25
-// list a plain artist lookup returns), its genres/tags/rating, and
-// best-effort fetches bio/image from TheAudioDB. A TheAudioDB failure is
-// never fatal — the MusicBrainz side alone is enough to succeed.
+// refreshMusicArtistMetadata caches an already-known artistID's entire
+// metadata set — discography, genres/tags/rating, versions/tracklists,
+// bio/image — given only its mbid (handleRefreshMusicArtist's own only
+// starting point). Looks the artist up once, then hands off to
+// cacheFullArtistMetadata for the rest; a caller that already looked the
+// artist up itself (handleMonitorMusicArtist) should call
+// cacheFullArtistMetadata directly instead, to skip repeating that lookup.
 func (s *server) refreshMusicArtistMetadata(ctx context.Context, artistID int64, mbid string) error {
 	mbArtist, err := s.mb.LookupArtist(ctx, mbid)
 	if err != nil {
 		return err
 	}
-	releaseGroups, err := s.mb.BrowseArtistReleaseGroups(ctx, mbid)
-	if err != nil {
-		return err
-	}
-	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(releaseGroups))
-	for _, rg := range releaseGroups {
-		groups = append(groups, musiclibrary.ReleaseGroupCache{
-			ReleaseGroupMBID: rg.ID,
-			Title:            rg.Title,
-			PrimaryType:      rg.PrimaryType,
-			SecondaryTypes:   rg.SecondaryTypes,
-			FirstReleaseDate: rg.FirstReleaseDate,
-		})
-	}
-	if err := s.musicStore.ReplaceArtistReleaseGroups(artistID, groups); err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	if err := s.musicStore.SetArtistSynced(artistID, now); err != nil {
-		return err
-	}
+	return s.cacheFullArtistMetadata(ctx, artistID, mbArtist)
+}
 
-	genres := make([]string, 0, len(mbArtist.Genres))
-	for _, g := range mbArtist.Genres {
-		genres = append(genres, g.Name)
-	}
-	tags := make([]string, 0, len(mbArtist.Tags))
-	for _, t := range mbArtist.Tags {
-		tags = append(tags, t.Name)
-	}
-	if err := s.musicStore.SetArtistMusicBrainzMetadata(artistID, genres, tags, mbArtist.Rating.Value, mbArtist.Rating.VotesCount); err != nil {
+// cacheFullArtistMetadata is the complete "add or refresh an artist" job
+// given an already-looked-up mbArtist: cacheArtistDiscography's baseline,
+// plus backgrounded per-release-group version/tracklist caching and a
+// best-effort TheAudioDB bio/image fetch. A TheAudioDB failure is never
+// fatal — the MusicBrainz side alone is enough to succeed.
+//
+// handleQuickAddMusicArtist deliberately uses cacheArtistDiscography
+// alone instead of this — see its own doc comment for why the heavier
+// half here isn't needed to unblock a match in progress, and is left for
+// the next scan's cacheNewArtistsMetadata sweep to pick up instead.
+func (s *server) cacheFullArtistMetadata(ctx context.Context, artistID int64, mbArtist *musicbrainz.Artist) error {
+	groups, err := s.cacheArtistDiscography(ctx, artistID, mbArtist)
+	if err != nil {
 		return err
 	}
 
@@ -262,7 +305,7 @@ func (s *server) refreshMusicArtistMetadata(ctx context.Context, artistID int64,
 	// background goroutine is.
 	go s.cacheDiscographyVersions(context.Background(), groups)
 
-	meta, err := s.audiodb.LookupArtistByMBID(ctx, mbid)
+	meta, err := s.audiodb.LookupArtistByMBID(ctx, mbArtist.ID)
 	if err != nil {
 		// Transient failure (network, TheAudioDB down) — cosmetic, not fatal,
 		// and leaves MetadataFetchedAt unset so a later scan or explicit
@@ -276,7 +319,50 @@ func (s *server) refreshMusicArtistMetadata(ctx context.Context, artistID int64,
 	// Stamped even when TheAudioDB simply has nothing for this artist (a
 	// definitive answer, not a failure) so cacheNewArtistsMetadata doesn't
 	// re-query it on every subsequent scan.
-	return s.musicStore.SetArtistMetadata(artistID, bio, imageURL, now)
+	return s.musicStore.SetArtistMetadata(artistID, bio, imageURL, time.Now().UTC())
+}
+
+// cacheArtistDiscography stores mbArtist's full release-group discography
+// (any primary/secondary type — the Missing section lets the user pick,
+// fully paginated via BrowseArtistReleaseGroups rather than the
+// truncated-at-25 list a plain artist lookup returns) plus the
+// genres/tags/rating that came back with the same lookup for free — the
+// baseline every "add or refresh an artist" path needs, and the one
+// handleQuickAddMusicArtist stops at.
+func (s *server) cacheArtistDiscography(ctx context.Context, artistID int64, mbArtist *musicbrainz.Artist) ([]musiclibrary.ReleaseGroupCache, error) {
+	releaseGroups, err := s.mb.BrowseArtistReleaseGroups(ctx, mbArtist.ID)
+	if err != nil {
+		return nil, err
+	}
+	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(releaseGroups))
+	for _, rg := range releaseGroups {
+		groups = append(groups, musiclibrary.ReleaseGroupCache{
+			ReleaseGroupMBID: rg.ID,
+			Title:            rg.Title,
+			PrimaryType:      rg.PrimaryType,
+			SecondaryTypes:   rg.SecondaryTypes,
+			FirstReleaseDate: rg.FirstReleaseDate,
+		})
+	}
+	if err := s.musicStore.ReplaceArtistReleaseGroups(artistID, groups); err != nil {
+		return nil, err
+	}
+	if err := s.musicStore.SetArtistSynced(artistID, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
+	genres := make([]string, 0, len(mbArtist.Genres))
+	for _, g := range mbArtist.Genres {
+		genres = append(genres, g.Name)
+	}
+	tags := make([]string, 0, len(mbArtist.Tags))
+	for _, t := range mbArtist.Tags {
+		tags = append(tags, t.Name)
+	}
+	if err := s.musicStore.SetArtistMusicBrainzMetadata(artistID, genres, tags, mbArtist.Rating.Value, mbArtist.Rating.VotesCount); err != nil {
+		return nil, err
+	}
+	return groups, nil
 }
 
 func (s *server) handleListMissingMusicReleaseGroups(w http.ResponseWriter, r *http.Request) {

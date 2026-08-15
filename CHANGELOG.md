@@ -17,11 +17,16 @@ in progress. Highlights from the hardening period, newest first:
   on disk for an artist you'd simply never added had no path forward
   there: not in the dropdown, no cached discography to match against. A
   new **"Artist not in your library?"** toggle opens a live MusicBrainz
-  search right in the panel; picking a result monitors it exactly like
-  the Library page's own **+ Add & Monitor** (full discography, versions
-  and tracklists, genres/tags/rating, bio/photo) and selects it
-  immediately so album matching can continue in the same flow. Never
-  triggered automatically by Auto-match itself — adding a whole new
+  search right in the panel; picking a result adds and monitors it via a
+  new, lighter `POST /music/artist/quick` (discography only — what the
+  panel's own Album dropdown needs right away) rather than the Library
+  page's full **+ Add & Monitor** (which also pre-fetches every release's
+  versions/tracklists and TheAudioDB bio/photo, none of which matter to
+  finish matching a file). `MetadataFetchedAt` is left unset, so the very
+  next scan's existing backfill sweep catches the rest up automatically —
+  no separate follow-up mechanism needed. Selects the new artist
+  immediately either way, so album matching continues in the same flow.
+  Never triggered automatically by Auto-match itself — adding a whole new
   artist always needs its own explicit human pick, same as "+ Add"
   always has. The automatic background scanner already handled this case
   on its own (folder-level MusicBrainz release search creates a

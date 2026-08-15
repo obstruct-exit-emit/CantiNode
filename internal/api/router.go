@@ -148,6 +148,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("GET /api/v1/music/artist", s.auth(s.handleListMusicArtists))
 	mux.HandleFunc("GET /api/v1/music/artist/search", s.auth(s.handleSearchMusicArtists))
 	mux.HandleFunc("POST /api/v1/music/artist", s.auth(s.handleMonitorMusicArtist))
+	mux.HandleFunc("POST /api/v1/music/artist/quick", s.auth(s.handleQuickAddMusicArtist))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}", s.auth(s.handleGetMusicArtist))
 	mux.HandleFunc("POST /api/v1/music/artist/{id}/unmonitor", s.auth(s.handleUnmonitorMusicArtist))
 	mux.HandleFunc("POST /api/v1/music/artist/{id}/refresh", s.auth(s.handleRefreshMusicArtist))

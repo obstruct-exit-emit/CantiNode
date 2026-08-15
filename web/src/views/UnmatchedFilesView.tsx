@@ -468,16 +468,18 @@ function AutoMatchPanel({
       .finally(() => setArtistSearching(false));
   };
 
-  // addArtist monitors a MusicBrainz result the same way the Library
-  // page's "+ Add & Monitor" does, then immediately selects it here —
+  // addArtist quick-adds a MusicBrainz result — discography only, not the
+  // full "+ Add & Monitor" job (versions/tracklists/bio/photo), since
+  // none of that is needed to keep matching this file moving right now;
+  // the next scan backfills the rest automatically (see
+  // api.quickAddMusicArtist). Selects the new artist immediately —
   // pickArtist's own fetchAlbumsForArtist call finds a populated Missing
-  // list right away, since ReplaceArtistReleaseGroups (inside monitor)
-  // runs before that request even returns; no need to wait for the
-  // slower backgrounded version/tracklist caching first.
+  // list right away, since the discography is cached synchronously,
+  // before this request even returns.
   const addArtist = (mbid: string) => {
     setAddingArtistMbid(mbid);
     api
-      .monitorMusicArtist(mbid)
+      .quickAddMusicArtist(mbid)
       .then((artist) => {
         onArtistAdded(artist);
         setShowArtistSearch(false);

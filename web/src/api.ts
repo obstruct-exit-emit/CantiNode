@@ -668,6 +668,14 @@ export const api = {
     ),
   monitorMusicArtist: (mbid: string) =>
     request<MusicArtist>("/api/v1/music/artist", json({ mbid })),
+  // Lighter sibling of monitorMusicArtist for the auto-match panel's
+  // "artist not in your library" search: caches just the discography (all
+  // the album-matching step needs right away), skipping the version/
+  // tracklist pre-fetch and bio/photo lookup — the next scan's own
+  // backfill picks those up automatically. See internal/api's
+  // handleQuickAddMusicArtist.
+  quickAddMusicArtist: (mbid: string) =>
+    request<MusicArtist>("/api/v1/music/artist/quick", json({ mbid })),
   getMusicArtist: (id: number) => request<MusicArtist>(`/api/v1/music/artist/${id}`),
   unmonitorMusicArtist: (id: number) =>
     request<void>(`/api/v1/music/artist/${id}/unmonitor`, { method: "POST" }),

@@ -28,6 +28,16 @@ func TestSuggestTrackFileMatchesRequiresFields(t *testing.T) {
 		map[string]any{"releaseGroupMbid": "rg-mbid"}, nil), http.StatusBadRequest)
 }
 
+// TestQuickAddMusicArtistRequiresMbid covers request validation only —
+// same boundary as TestSuggestTrackFileMatchesRequiresFields above, for
+// the same reason (a real, network-reaching MusicBrainz client with no
+// local mock injection point at this layer).
+func TestQuickAddMusicArtistRequiresMbid(t *testing.T) {
+	a := newTestAPI(t)
+	a.want(a.call("POST", "/api/v1/music/artist/quick", map[string]any{}, nil), http.StatusBadRequest)
+	a.want(a.call("POST", "/api/v1/music/artist/quick", map[string]any{"mbid": ""}, nil), http.StatusBadRequest)
+}
+
 // TestHasRealVersionMetadata is the regression test for a real bug: a
 // migrated placeholder row (release_mbid/title only, from migration 022's
 // carryover of the old single-tracklist-cache scheme, marked fetched=0 by

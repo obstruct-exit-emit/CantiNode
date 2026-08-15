@@ -98,10 +98,12 @@ can be matched two ways:
   lists artists already in your library; if a folder's own artist isn't
   one of them yet, **Artist not in your library?** opens a live
   MusicBrainz search right there — picking a result adds & monitors it
-  (same as the Library page's own **+ Add**) and selects it immediately,
-  no need to leave the page first. Auto-match itself never does this
-  search on its own — adding a whole new artist always needs its own
-  explicit pick.
+  and selects it immediately, no need to leave the page first, though
+  more lightly than the Library page's own **+ Add**: just the
+  discography needed to keep matching moving, not the versions/tracklists
+  and bio/photo too — the next scan catches those up on its own. Auto-
+  match itself never does this search on its own — adding a whole new
+  artist always needs its own explicit pick.
 
 ## Release versions
 
