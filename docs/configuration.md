@@ -210,8 +210,9 @@ and applies them on the next restart, keeping the replaced ones as
 
 ## Image cache
 
-Provider art — artist photos (TheAudioDB) and album covers (Cover Art
-Archive) — is cached under `<data>/covers/remote/…`, downloaded on
+Provider art — artist photos (TheAudioDB) and album covers (TheAudioDB
+first, falling back to Cover Art Archive for whatever TheAudioDB doesn't
+have) — is cached under `<data>/covers/remote/…`, downloaded on
 add/refresh so the UI serves it locally and it survives provider link rot.
 It's disposable and rebuilds on demand: **Settings → Music → Clear image
 cache**, `DELETE /api/v1/cache` directly, or just delete the directory

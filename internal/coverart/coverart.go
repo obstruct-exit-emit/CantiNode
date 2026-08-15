@@ -1,7 +1,11 @@
-// Package coverart fetches an album's front cover from the Cover Art
-// Archive (https://coverartarchive.org), keyed by the release MBID
-// already stored on a matched database.Album, and caches it to disk so
-// the same release is never re-fetched.
+// Package coverart fetches an album's front cover, preferring TheAudioDB
+// (keyed by release-group MBID) and falling back to the Cover Art Archive
+// (https://coverartarchive.org, keyed by the specific release MBID
+// already stored on a matched database.Album) whenever TheAudioDB doesn't
+// have it — TheAudioDB's own catalog is far smaller than MusicBrainz's, so
+// this only ever adds coverage, never removes it. Every image is cached to
+// disk (under the release MBID's identity, regardless of which upstream
+// source actually provided it) so the same release is never re-fetched.
 package coverart
 
 import (
@@ -13,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/cantinode/cantinode/internal/audiodb"
 )
 
 // ErrNoCoverArt means the Cover Art Archive authoritatively has no front
@@ -34,15 +40,21 @@ type Client struct {
 	userAgent  string
 	cacheDir   string
 	baseURL    string
+	// audiodb is consulted first, by release-group MBID, before falling
+	// back to Cover Art Archive — nil-able (tests, and any future startup
+	// path that doesn't want it) skips straight to Cover Art Archive, the
+	// same as TheAudioDB simply not having an entry.
+	audiodb *audiodb.Client
 }
 
 // NewClient returns a Client caching images under cacheDir (created if
 // necessary on first use, not here) and identifying itself with
 // userAgent — Cover Art Archive is hosted alongside MusicBrainz's own
 // infrastructure, so the same courtesy of a descriptive User-Agent
-// applies (see internal/musicbrainz.NewClient).
-func NewClient(cacheDir, userAgent string) *Client {
-	return NewClientWithBaseURL(cacheDir, userAgent, defaultBaseURL)
+// applies (see internal/musicbrainz.NewClient). audiodbClient may be nil
+// to skip TheAudioDB entirely and only ever use Cover Art Archive.
+func NewClient(cacheDir, userAgent string, audiodbClient *audiodb.Client) *Client {
+	return NewClientWithBaseURL(cacheDir, userAgent, defaultBaseURL, audiodbClient)
 }
 
 // NewClientWithBaseURL is NewClient against a non-default Cover Art
@@ -50,21 +62,28 @@ func NewClient(cacheDir, userAgent string) *Client {
 // tests use it to stand up a fake server), but also there for the same
 // "self-hosted mirror" reasoning as
 // musicbrainz.NewClientWithBaseURL.
-func NewClientWithBaseURL(cacheDir, userAgent, baseURL string) *Client {
+func NewClientWithBaseURL(cacheDir, userAgent, baseURL string, audiodbClient *audiodb.Client) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 		userAgent:  userAgent,
 		cacheDir:   cacheDir,
 		baseURL:    baseURL,
+		audiodb:    audiodbClient,
 	}
 }
 
 // GetFrontCover returns the local filesystem path and content type of
-// releaseMBID's front cover, fetching and caching it from Cover Art
-// Archive on the first request for it. Returns ErrNoCoverArt if the
-// release has no cover art there (also cached, so this doesn't hit the
-// network again for the same release).
-func (c *Client) GetFrontCover(ctx context.Context, releaseMBID string) (path string, contentType string, err error) {
+// releaseMBID's front cover, preferring TheAudioDB's own cover art for
+// releaseGroupMBID (the release group as a whole — TheAudioDB doesn't
+// distinguish specific editions the way Cover Art Archive does) and
+// falling back to Cover Art Archive, by the specific releaseMBID, when
+// TheAudioDB doesn't have one. Cached to disk (under releaseMBID's
+// identity, whichever source it actually came from) on first request.
+// Returns ErrNoCoverArt if neither source has it (also cached, so this
+// doesn't hit the network again for the same release). releaseGroupMBID
+// may be empty to skip straight to Cover Art Archive (e.g. a caller that
+// only has the release MBID in hand).
+func (c *Client) GetFrontCover(ctx context.Context, releaseGroupMBID, releaseMBID string) (path string, contentType string, err error) {
 	if releaseMBID == "" {
 		return "", "", fmt.Errorf("coverart: releaseMBID must not be empty")
 	}
@@ -76,7 +95,20 @@ func (c *Client) GetFrontCover(ctx context.Context, releaseMBID string) (path st
 		return "", "", ErrNoCoverArt
 	}
 
-	return c.fetchAndCache(ctx, releaseMBID)
+	if c.audiodb != nil && releaseGroupMBID != "" {
+		meta, err := c.audiodb.LookupAlbumByReleaseGroupMBID(ctx, releaseGroupMBID)
+		// A TheAudioDB failure (network, rate limit, etc.) degrades to the
+		// Cover Art Archive fallback below rather than failing the whole
+		// request — the same "best-effort, never worse than before this
+		// existed" spirit as every other TheAudioDB call in this codebase.
+		if err == nil && meta != nil && meta.ThumbURL != "" {
+			if path, ct, err := c.downloadAndCache(ctx, meta.ThumbURL, releaseMBID); err == nil {
+				return path, ct, nil
+			}
+		}
+	}
+
+	return c.fetchFromCoverArtArchive(ctx, releaseMBID)
 }
 
 // DeleteCached removes releaseMBID's cached front cover (any of the known
@@ -128,7 +160,12 @@ var contentTypeToExt = map[string]string{
 	"image/webp": ".webp",
 }
 
-func (c *Client) fetchAndCache(ctx context.Context, releaseMBID string) (path, contentType string, err error) {
+// fetchFromCoverArtArchive is the original, sole source of cover art
+// before TheAudioDB support existed — Cover Art Archive's own release-
+// keyed endpoint, where a 404 is a definitive "no cover art" answer worth
+// caching as a sentinel (unlike a generic download failure, see
+// downloadAndCache).
+func (c *Client) fetchFromCoverArtArchive(ctx context.Context, releaseMBID string) (path, contentType string, err error) {
 	if err := os.MkdirAll(c.cacheDir, 0o755); err != nil {
 		return "", "", fmt.Errorf("create cover art cache dir: %w", err)
 	}
@@ -137,15 +174,9 @@ func (c *Client) fetchAndCache(ctx context.Context, releaseMBID string) (path, c
 	// displays this at library-grid thumbnail size, and a release's
 	// original scan can be tens of megabytes.
 	url := fmt.Sprintf("%s/release/%s/front-250", c.baseURL, releaseMBID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, err := c.fetch(ctx, url)
 	if err != nil {
-		return "", "", fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("User-Agent", c.userAgent)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", "", fmt.Errorf("fetch cover art: %w", err)
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
@@ -159,15 +190,58 @@ func (c *Client) fetchAndCache(ctx context.Context, releaseMBID string) (path, c
 	if resp.StatusCode != http.StatusOK {
 		return "", "", fmt.Errorf("coverart: unexpected status %d for %s", resp.StatusCode, url)
 	}
+	return c.writeToCache(resp, releaseMBID)
+}
 
+// downloadAndCache fetches an arbitrary already-known image URL (e.g.
+// TheAudioDB's own album thumb, which unlike Cover Art Archive doesn't
+// have a predictable per-release URL scheme to build) and caches it under
+// cacheKey. A non-200 here is just a generic failure — not cached as a
+// "no cover art" sentinel the way Cover Art Archive's 404 is, since it
+// doesn't carry the same definitive meaning; the caller falls back to
+// fetchFromCoverArtArchive instead.
+func (c *Client) downloadAndCache(ctx context.Context, url, cacheKey string) (path, contentType string, err error) {
+	if err := os.MkdirAll(c.cacheDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create cover art cache dir: %w", err)
+	}
+	resp, err := c.fetch(ctx, url)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("coverart: unexpected status %d for %s", resp.StatusCode, url)
+	}
+	return c.writeToCache(resp, cacheKey)
+}
+
+func (c *Client) fetch(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("User-Agent", c.userAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch cover art: %w", err)
+	}
+	return resp, nil
+}
+
+// writeToCache streams resp's body to cacheDir under cacheKey, the
+// extension chosen from its Content-Type (defaulting to .jpg for an
+// unrecognized one — both Cover Art Archive and TheAudioDB serve jpeg in
+// the overwhelming majority of cases). resp.Body is the caller's to close.
+func (c *Client) writeToCache(resp *http.Response, cacheKey string) (path, contentType string, err error) {
 	ct := resp.Header.Get("Content-Type")
 	ext, ok := contentTypeToExt[ct]
 	if !ok {
-		ext = ".jpg" // Cover Art Archive serves jpeg in the overwhelming majority of cases
+		ext = ".jpg"
 		ct = "image/jpeg"
 	}
 
-	dest := filepath.Join(c.cacheDir, releaseMBID+ext)
+	dest := filepath.Join(c.cacheDir, cacheKey+ext)
 	tmp, err := os.CreateTemp(c.cacheDir, ".cantinode-cover-*")
 	if err != nil {
 		return "", "", fmt.Errorf("create temp file: %w", err)

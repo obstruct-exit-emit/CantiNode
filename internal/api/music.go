@@ -1047,7 +1047,7 @@ func (s *server) handleMusicAlbumCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path, contentType, err := s.coverart.GetFrontCover(r.Context(), album.MBID)
+	path, contentType, err := s.coverart.GetFrontCover(r.Context(), album.ReleaseGroupMBID, album.MBID)
 	if err != nil {
 		if errors.Is(err, coverart.ErrNoCoverArt) {
 			w.WriteHeader(http.StatusNotFound)
@@ -1090,7 +1090,7 @@ func (s *server) handleReleaseGroupCover(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	path, contentType, err := s.coverart.GetFrontCover(r.Context(), v.ReleaseMBID)
+	path, contentType, err := s.coverart.GetFrontCover(r.Context(), mbid, v.ReleaseMBID)
 	if err != nil {
 		if errors.Is(err, coverart.ErrNoCoverArt) {
 			w.WriteHeader(http.StatusNotFound)

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/cantinode/cantinode/internal/audiodb"
 )
 
 func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -14,7 +16,7 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
-	c := NewClient(t.TempDir(), "cantinode-test/0.1")
+	c := NewClient(t.TempDir(), "cantinode-test/0.1", nil)
 	c.baseURL = srv.URL
 	return c
 }
@@ -30,7 +32,7 @@ func TestGetFrontCoverFetchesAndCaches(t *testing.T) {
 		w.Write([]byte("fake jpeg bytes"))
 	})
 
-	path, ct, err := c.GetFrontCover(t.Context(), "release-mbid")
+	path, ct, err := c.GetFrontCover(t.Context(), "", "release-mbid")
 	if err != nil {
 		t.Fatalf("GetFrontCover: %v", err)
 	}
@@ -46,7 +48,7 @@ func TestGetFrontCoverFetchesAndCaches(t *testing.T) {
 	}
 
 	// Second call must be served from cache, not hit the server again.
-	path2, ct2, err := c.GetFrontCover(t.Context(), "release-mbid")
+	path2, ct2, err := c.GetFrontCover(t.Context(), "", "release-mbid")
 	if err != nil {
 		t.Fatalf("GetFrontCover (cached): %v", err)
 	}
@@ -65,14 +67,14 @@ func TestGetFrontCoverCaches404AsNoCoverArt(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	})
 
-	_, _, err := c.GetFrontCover(t.Context(), "release-mbid")
+	_, _, err := c.GetFrontCover(t.Context(), "", "release-mbid")
 	if !errors.Is(err, ErrNoCoverArt) {
 		t.Fatalf("err = %v, want ErrNoCoverArt", err)
 	}
 
 	// Second call must be served from the cached sentinel, not hit the
 	// server again.
-	_, _, err = c.GetFrontCover(t.Context(), "release-mbid")
+	_, _, err = c.GetFrontCover(t.Context(), "", "release-mbid")
 	if !errors.Is(err, ErrNoCoverArt) {
 		t.Fatalf("second call err = %v, want ErrNoCoverArt", err)
 	}
@@ -88,10 +90,10 @@ func TestGetFrontCoverServerErrorIsNotCached(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	if _, _, err := c.GetFrontCover(t.Context(), "release-mbid"); err == nil {
+	if _, _, err := c.GetFrontCover(t.Context(), "", "release-mbid"); err == nil {
 		t.Fatal("expected an error on a 500 response")
 	}
-	if _, _, err := c.GetFrontCover(t.Context(), "release-mbid"); err == nil {
+	if _, _, err := c.GetFrontCover(t.Context(), "", "release-mbid"); err == nil {
 		t.Fatal("expected an error on the second attempt too")
 	}
 	if requests != 2 {
@@ -100,8 +102,8 @@ func TestGetFrontCoverServerErrorIsNotCached(t *testing.T) {
 }
 
 func TestGetFrontCoverRequiresReleaseMBID(t *testing.T) {
-	c := NewClient(t.TempDir(), "cantinode-test/0.1")
-	if _, _, err := c.GetFrontCover(t.Context(), ""); err == nil {
+	c := NewClient(t.TempDir(), "cantinode-test/0.1", nil)
+	if _, _, err := c.GetFrontCover(t.Context(), "", ""); err == nil {
 		t.Error("expected an error for an empty releaseMBID")
 	}
 }
@@ -114,10 +116,121 @@ func TestGetFrontCoverCacheDirIsCreatedOnDemand(t *testing.T) {
 	})
 	c.cacheDir = dir
 
-	if _, _, err := c.GetFrontCover(t.Context(), "release-mbid"); err != nil {
+	if _, _, err := c.GetFrontCover(t.Context(), "", "release-mbid"); err != nil {
 		t.Fatalf("GetFrontCover: %v", err)
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Errorf("cache dir was not created: %v", err)
+	}
+}
+
+// audioDBAlbumJSON builds a TheAudioDB /album-mb.php response whose thumb
+// URL points back at thumbURL (typically a path on the same test server).
+func audioDBAlbumJSON(thumbURL string) string {
+	if thumbURL == "" {
+		return `{"album": null}`
+	}
+	return `{"album": [{"idAlbum": "1", "strAlbum": "X", "strAlbumThumb": "` + thumbURL + `"}]}`
+}
+
+func TestGetFrontCoverPrefersAudioDBOverCoverArtArchive(t *testing.T) {
+	caaRequests := 0
+	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caaRequests++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(caa.Close)
+
+	var audiodbSrv *httptest.Server
+	audiodbSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/thumb.jpg" {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Write([]byte("audiodb thumb bytes"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(audioDBAlbumJSON(audiodbSrv.URL + "/thumb.jpg")))
+	}))
+	t.Cleanup(audiodbSrv.Close)
+
+	adb := audiodb.NewClientWithBaseURL("test-key", audiodbSrv.URL)
+	c := NewClient(t.TempDir(), "cantinode-test/0.1", adb)
+	c.baseURL = caa.URL
+
+	path, ct, err := c.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid")
+	if err != nil {
+		t.Fatalf("GetFrontCover: %v", err)
+	}
+	if ct != "image/jpeg" {
+		t.Errorf("contentType = %q", ct)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "audiodb thumb bytes" {
+		t.Errorf("cached content = %q, want TheAudioDB's own thumb", data)
+	}
+	if caaRequests != 0 {
+		t.Errorf("Cover Art Archive was queried %d times, want 0 — TheAudioDB already had the art", caaRequests)
+	}
+}
+
+func TestGetFrontCoverFallsBackToCoverArtArchiveWhenAudioDBHasNothing(t *testing.T) {
+	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("caa cover bytes"))
+	}))
+	t.Cleanup(caa.Close)
+
+	audiodbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(audioDBAlbumJSON(""))) // TheAudioDB has nothing for this release group
+	}))
+	t.Cleanup(audiodbSrv.Close)
+
+	adb := audiodb.NewClientWithBaseURL("test-key", audiodbSrv.URL)
+	c := NewClient(t.TempDir(), "cantinode-test/0.1", adb)
+	c.baseURL = caa.URL
+
+	path, _, err := c.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid")
+	if err != nil {
+		t.Fatalf("GetFrontCover: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "caa cover bytes" {
+		t.Errorf("cached content = %q, want the Cover Art Archive fallback", data)
+	}
+}
+
+// TestGetFrontCoverSkipsAudioDBWithoutReleaseGroupMBID covers a caller
+// that only has the release MBID in hand (releaseGroupMBID == "") — must
+// go straight to Cover Art Archive without ever querying TheAudioDB.
+func TestGetFrontCoverSkipsAudioDBWithoutReleaseGroupMBID(t *testing.T) {
+	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("caa cover bytes"))
+	}))
+	t.Cleanup(caa.Close)
+
+	audiodbRequests := 0
+	audiodbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		audiodbRequests++
+		w.Write([]byte(`{"album": null}`))
+	}))
+	t.Cleanup(audiodbSrv.Close)
+
+	adb := audiodb.NewClientWithBaseURL("test-key", audiodbSrv.URL)
+	c := NewClient(t.TempDir(), "cantinode-test/0.1", adb)
+	c.baseURL = caa.URL
+
+	if _, _, err := c.GetFrontCover(t.Context(), "", "release-mbid"); err != nil {
+		t.Fatalf("GetFrontCover: %v", err)
+	}
+	if audiodbRequests != 0 {
+		t.Errorf("TheAudioDB was queried %d times, want 0 without a release group mbid", audiodbRequests)
 	}
 }

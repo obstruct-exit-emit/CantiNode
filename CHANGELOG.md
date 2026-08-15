@@ -11,6 +11,16 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Album cover art now tries TheAudioDB first, falling back to Cover Art
+  Archive** for whatever TheAudioDB doesn't have — previously album covers
+  came from Cover Art Archive alone. TheAudioDB is keyed by release GROUP
+  (the album as a whole, its own granularity) rather than a specific
+  release/edition the way Cover Art Archive is; both still cache to disk
+  under the same per-release identity as before, so a release with art in
+  neither source still gets a proper "no cover" answer instead of a broken
+  image. `internal/audiodb` gained `LookupAlbumByReleaseGroupMBID`, and
+  `internal/coverart.Client` takes an `*audiodb.Client` (nil-able, skips
+  straight to Cover Art Archive).
 - **Matching now knows the difference between a file CantiNode grabbed
   itself and one that was already on disk or added by hand — and uses it.**
   A completed grab already has a known target (the `wanted_albums`/`albums`

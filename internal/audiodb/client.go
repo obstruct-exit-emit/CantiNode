@@ -125,6 +125,49 @@ func (c *Client) LookupArtistByMBID(ctx context.Context, mbid string) (*ArtistMe
 	return &ArtistMeta{Bio: a.Biography, ImageURL: imageURL}, nil
 }
 
+// AlbumMeta is the cover art CantiNode can source from TheAudioDB for a
+// release group — see internal/coverart, which tries this first and falls
+// back to Cover Art Archive when TheAudioDB doesn't have it.
+type AlbumMeta struct {
+	ThumbURL string
+}
+
+type albumLookupResponse struct {
+	// Album is null (not an empty array) when TheAudioDB has nothing for
+	// this id — encoding/json decodes a JSON null into a nil slice either
+	// way, so no special-casing needed beyond the existing len(...) == 0
+	// check LookupArtistByMBID already uses.
+	Album []audioDBAlbum `json:"album"`
+}
+
+type audioDBAlbum struct {
+	AlbumThumb string `json:"strAlbumThumb"`
+}
+
+// LookupAlbumByReleaseGroupMBID fetches releaseGroupMBID's cover art from
+// TheAudioDB — keyed by release GROUP (the "album" as a whole), not a
+// specific release/edition, which is the granularity TheAudioDB's own
+// schema uses (confirmed live: /album-mb.php?i= takes a release-group
+// MBID and returns strMusicBrainzID matching it back). Returns (nil, nil)
+// — not an error — when TheAudioDB has nothing for it, same convention as
+// LookupArtistByMBID, so internal/coverart can fall back to Cover Art
+// Archive without treating a miss as a failure.
+func (c *Client) LookupAlbumByReleaseGroupMBID(ctx context.Context, releaseGroupMBID string) (*AlbumMeta, error) {
+	body, err := c.get(ctx, "/album-mb.php", url.Values{"i": {releaseGroupMBID}})
+	if err != nil {
+		return nil, err
+	}
+
+	var resp albumLookupResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decode album %s: %w", releaseGroupMBID, err)
+	}
+	if len(resp.Album) == 0 || resp.Album[0].AlbumThumb == "" {
+		return nil, nil
+	}
+	return &AlbumMeta{ThumbURL: resp.Album[0].AlbumThumb}, nil
+}
+
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	if err := c.throttle(ctx); err != nil {
 		return nil, err

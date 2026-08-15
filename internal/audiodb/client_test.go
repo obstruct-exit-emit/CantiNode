@@ -97,6 +97,70 @@ func TestLookupArtistByMBIDNotFoundReturnsNilNotError(t *testing.T) {
 	}
 }
 
+const sampleAlbumJSON = `{
+	"album": [
+		{
+			"idAlbum": "2314525",
+			"strAlbum": "Moonglow",
+			"strMusicBrainzID": "a9dced89-49cb-4430-ac83-f4973cc71695",
+			"strAlbumThumb": "https://r2.theaudiodb.com/images/media/album/thumb/wuysyy1550959319.jpg"
+		}
+	]
+}`
+
+func TestLookupAlbumByReleaseGroupMBIDReturnsThumb(t *testing.T) {
+	var gotPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleAlbumJSON))
+	})
+
+	meta, err := c.LookupAlbumByReleaseGroupMBID(t.Context(), "a9dced89-49cb-4430-ac83-f4973cc71695")
+	if err != nil {
+		t.Fatalf("LookupAlbumByReleaseGroupMBID: %v", err)
+	}
+	if meta == nil {
+		t.Fatal("meta = nil, want a result")
+	}
+	if gotPath != "/test-key/album-mb.php" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if meta.ThumbURL != "https://r2.theaudiodb.com/images/media/album/thumb/wuysyy1550959319.jpg" {
+		t.Errorf("ThumbURL = %q", meta.ThumbURL)
+	}
+}
+
+func TestLookupAlbumByReleaseGroupMBIDNotFoundReturnsNilNotError(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"album": null}`))
+	})
+
+	meta, err := c.LookupAlbumByReleaseGroupMBID(t.Context(), "unknown-mbid")
+	if err != nil {
+		t.Fatalf("LookupAlbumByReleaseGroupMBID: %v", err)
+	}
+	if meta != nil {
+		t.Errorf("meta = %+v, want nil for an album TheAudioDB doesn't have", meta)
+	}
+}
+
+func TestLookupAlbumByReleaseGroupMBIDEmptyThumbReturnsNil(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"album": [{"idAlbum": "1", "strAlbum": "X", "strAlbumThumb": ""}]}`))
+	})
+
+	meta, err := c.LookupAlbumByReleaseGroupMBID(t.Context(), "mbid")
+	if err != nil {
+		t.Fatalf("LookupAlbumByReleaseGroupMBID: %v", err)
+	}
+	if meta != nil {
+		t.Errorf("meta = %+v, want nil when TheAudioDB has the album but no thumb", meta)
+	}
+}
+
 func TestNewClientFallsBackToPublicTestKey(t *testing.T) {
 	c := NewClient("")
 	if c.apiKey != publicTestKey {

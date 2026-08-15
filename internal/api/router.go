@@ -81,6 +81,10 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mb := musicbrainz.NewClient(version, musicSettings.MusicBrainzContactEmail)
 	musicScanner := musicscanner.New(musicStore, mb, slog.Default(),
 		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch)
+	// One shared client for both artist metadata and cover art — two
+	// independent clients would each keep their own throttle state,
+	// doubling the effective request rate against TheAudioDB.
+	audiodbClient := audiodb.NewClient(musicSettings.AudioDBAPIKey)
 
 	s := &server{
 		cfg:          cfg,
@@ -95,8 +99,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		musicStore:   musicStore,
 		musicScanner: musicScanner,
 		mb:           mb,
-		audiodb:      audiodb.NewClient(musicSettings.AudioDBAPIKey),
-		coverart:     coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version),
+		audiodb:      audiodbClient,
+		coverart:     coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient),
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist
