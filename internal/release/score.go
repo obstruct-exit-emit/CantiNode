@@ -10,6 +10,38 @@ import (
 	"github.com/cantinode/cantinode/internal/relname"
 )
 
+// artistRelevant reports whether releaseTitle plausibly names wantedArtist
+// — the check that used to be entirely missing from Score: nothing
+// compared a candidate's own title against who was actually being
+// searched for, so a release that merely shared a word with the wanted
+// album (e.g. Nat King Cole's own "Moonglow" surfacing for a search for
+// Avantasia's "Moonglow") could score and auto-grab purely on format/size/
+// health merits. "Various Artists" always passes — a compilation's own
+// file/torrent name essentially never states that phrase literally, so
+// requiring it would reject good VA results instead of catching bad ones.
+// An exact-phrase match handles the common case; a fallback to just the
+// artist name's longest word tolerates realistic naming variance
+// ("Tobias Sammets Avantasia" for artist "Avantasia") without needing a
+// full fuzzy-matching pass for what's ultimately a spam/wrong-item guard.
+func artistRelevant(releaseTitle, wantedArtist string) bool {
+	wantedArtist = strings.TrimSpace(wantedArtist)
+	if wantedArtist == "" || strings.EqualFold(wantedArtist, "Various Artists") {
+		return true
+	}
+	normTitle := relname.Normalize(releaseTitle)
+	normArtist := relname.Normalize(wantedArtist)
+	if normArtist == "" || strings.Contains(normTitle, normArtist) {
+		return true
+	}
+	longest := ""
+	for _, w := range strings.Fields(normArtist) {
+		if len(w) > len(longest) {
+			longest = w
+		}
+	}
+	return longest != "" && strings.Contains(normTitle, longest)
+}
+
 // Preferences drive scoring. The media type's default quality profile
 // produces these (PreferencesFor); DefaultMusicPreferences is the built-in
 // fallback when no profile exists.
@@ -97,8 +129,10 @@ type Candidate struct {
 	Rejections []string `json:"rejections,omitempty"`
 }
 
-// Score evaluates one release against generic checks: format, size, health.
-func Score(rel indexer.Release, prefs Preferences) Candidate {
+// Score evaluates one release against generic checks: format, size, health,
+// and — since wantedArtist is non-empty — whether the release is even
+// plausibly the right artist at all.
+func Score(rel indexer.Release, prefs Preferences, wantedArtist string) Candidate {
 	c := Candidate{Release: rel, Parsed: Parse(rel.Title)}
 
 	// Spam guard: a release whose name states an executable/installer extension
@@ -107,6 +141,10 @@ func Score(rel indexer.Release, prefs Preferences) Candidate {
 	// this catches the ones that name it outright.)
 	if relname.NamesExecutable(rel.Title) {
 		c.reject("release names an executable — likely spam")
+	}
+
+	if !artistRelevant(rel.Title, wantedArtist) {
+		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedArtist))
 	}
 
 	// Format: best recognized format wins; none recognized is fatal.

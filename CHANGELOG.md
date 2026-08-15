@@ -515,6 +515,20 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A release for a completely different artist could get auto-grabbed as
+  long as it shared a word with the wanted album.** `release.Score` never
+  compared a candidate's own title against who was actually being
+  searched for — only format/size/health. Found live: an automatic sweep
+  for Avantasia's wanted album "Moonglow" grabbed **Nat King Cole**'s own
+  unrelated album of the same name, purely because it was FLAC with
+  usenet availability. Score now rejects a release whose title doesn't
+  plausibly name the wanted artist at all (exact-phrase match, falling
+  back to the artist's most distinctive word — tolerates real naming
+  variance like "Tobias Sammets Avantasia" for "Avantasia" without a full
+  fuzzy pass); "Various Artists" always passes, since a compilation's own
+  file/torrent name essentially never states that phrase literally.
+  Applies everywhere scoring runs: manual search, upgrade search, and the
+  automatic wanted-list sweep alike.
 - **An album could vanish from the library entirely — not owned, not
   wanted, not missing — once its last file disappeared.** Matching
   creates the `albums` row up front and converts the matching

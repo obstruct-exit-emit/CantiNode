@@ -62,7 +62,11 @@ Search results are parsed (formats, size) and scored against the **default
 quality profile** (**Settings → Quality Profiles**): ordered format
 preferences, size bounds. Candidates that can't be a real release are
 rejected outright (an executable/installer named outright, no seeders on a
-torrent, no download link).
+torrent, no download link, or a title that doesn't plausibly name the
+wanted artist at all — catches an indexer surfacing a same-titled album by
+someone else entirely; a compilation wanted under "Various Artists" is
+exempt, since a real release's own file name essentially never states
+that phrase literally).
 
 With **upgrades allowed** (per quality profile) and a **cutoff** format set
 (blank = the profile's own best format), an already-owned album whose

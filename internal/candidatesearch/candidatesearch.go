@@ -21,13 +21,16 @@ import (
 // Search runs indexers.SearchAll, then ScoreAndRank — the one-shot shape a
 // manual search endpoint wants, where fetching the blocklist fresh on every
 // call is irrelevant cost. errs reports which indexers failed to answer;
-// non-nil (though possibly empty) whenever err is nil.
+// non-nil (though possibly empty) whenever err is nil. wantedArtist is who
+// this search is actually for — see release.Score's own doc comment for
+// why every candidate gets checked against it.
 func Search(
 	ctx context.Context,
 	indexers *indexer.Service,
 	downloads *download.Service,
 	query, nativeQuery, mediaType string,
 	prefs release.Preferences,
+	wantedArtist string,
 ) (candidates []release.Candidate, errs []string, err error) {
 	found, errs, err := indexers.SearchAll(ctx, query, nativeQuery, mediaType)
 	if err != nil {
@@ -37,21 +40,22 @@ func Search(
 	if err != nil {
 		return nil, errs, err
 	}
-	return ScoreAndRank(found, blocked, prefs), errs, nil
+	return ScoreAndRank(found, blocked, prefs, wantedArtist), errs, nil
 }
 
 // ScoreAndRank filters blocklisted releases out of found, scores the rest
-// against prefs, and ranks them (approved first, then by score). Exported
-// separately from Search so a caller sweeping many searches in one pass
-// (internal/autosearch) can fetch the blocklist and preferences once for
-// the whole sweep instead of paying for both fresh on every single search.
-func ScoreAndRank(found []indexer.Release, blocked map[string]bool, prefs release.Preferences) []release.Candidate {
+// against prefs and wantedArtist, and ranks them (approved first, then by
+// score). Exported separately from Search so a caller sweeping many
+// searches in one pass (internal/autosearch) can fetch the blocklist and
+// preferences once for the whole sweep instead of paying for both fresh on
+// every single search.
+func ScoreAndRank(found []indexer.Release, blocked map[string]bool, prefs release.Preferences, wantedArtist string) []release.Candidate {
 	candidates := make([]release.Candidate, 0, len(found))
 	for _, rel := range found {
 		if download.IsBlocked(blocked, rel.GUID, rel.Title) {
 			continue
 		}
-		candidates = append(candidates, release.Score(rel, prefs))
+		candidates = append(candidates, release.Score(rel, prefs, wantedArtist))
 	}
 	release.Rank(candidates)
 	return candidates

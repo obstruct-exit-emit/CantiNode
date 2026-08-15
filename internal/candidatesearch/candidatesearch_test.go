@@ -16,7 +16,7 @@ func TestScoreAndRankFiltersBlockedAndRanks(t *testing.T) {
 	blocked := map[string]bool{"blocked": true}
 	prefs := release.DefaultMusicPreferences()
 
-	got := ScoreAndRank(found, blocked, prefs)
+	got := ScoreAndRank(found, blocked, prefs, "Boards of Canada")
 
 	if len(got) != 2 {
 		t.Fatalf("len(got) = %d, want 2 (blocked release dropped): %+v", len(got), got)
@@ -33,7 +33,7 @@ func TestScoreAndRankFiltersBlockedAndRanks(t *testing.T) {
 }
 
 func TestScoreAndRankEmptyInput(t *testing.T) {
-	got := ScoreAndRank(nil, nil, release.DefaultMusicPreferences())
+	got := ScoreAndRank(nil, nil, release.DefaultMusicPreferences(), "")
 	if len(got) != 0 {
 		t.Errorf("got = %+v, want empty", got)
 	}

@@ -1721,7 +1721,7 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 	defer cancel()
 	query := artist.Name + " " + wanted.Title
 	prefs := release.PreferencesFor(s.store, "music")
-	candidates, errs, err := candidatesearch.Search(ctx, s.indexers, s.downloads, query, wanted.Title, "music", prefs)
+	candidates, errs, err := candidatesearch.Search(ctx, s.indexers, s.downloads, query, wanted.Title, "music", prefs, artist.Name)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -1834,7 +1834,7 @@ func (s *server) handleSearchAlbumUpgrade(w http.ResponseWriter, r *http.Request
 	ctx, cancel := s.metadataCtx(r)
 	defer cancel()
 	query := artist.Name + " " + album.Title
-	candidates, errs, err := candidatesearch.Search(ctx, s.indexers, s.downloads, query, album.Title, "music", upgradePrefs)
+	candidates, errs, err := candidatesearch.Search(ctx, s.indexers, s.downloads, query, album.Title, "music", upgradePrefs, artist.Name)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
