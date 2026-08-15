@@ -515,6 +515,19 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **An album could vanish from the library entirely — not owned, not
+  wanted, not missing — once its last file disappeared.** Matching
+  creates the `albums` row up front and converts the matching
+  `wanted_albums` row away immediately; if every one of that album's
+  files was later cleared, deleted, or went missing on disk (moved
+  outside the app, a bad download, etc.), the now-empty `albums` row
+  stuck around forever: excluded from Owned (needs a linked file),
+  excluded from Missing (an `albums` row already exists), and no longer
+  in Wanted either. `ReapOrphanedAlbum` now deletes that empty row
+  wherever a file can be an album's last one — `ClearMatch`,
+  `DeleteTrackFile`, a full scan's `DeleteTrackFilesMissing` reconciliation,
+  and an album-scoped `ScanAlbumFolder` prune — so the release group falls
+  straight back into Missing instead of going dark.
 - **Write tags dropped the real per-track artist credit on a Various
   Artists compilation.** `WriteTags` always embedded the album's own
   artist row (e.g. "Various Artists") as both `ARTIST` and `ALBUMARTIST`

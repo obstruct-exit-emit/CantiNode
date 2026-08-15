@@ -455,6 +455,128 @@ func TestDeleteTrackFileToleratesAlreadyMissingFile(t *testing.T) {
 	}
 }
 
+// TestClearMatchReapsAlbumLeftWithZeroFiles is the regression test for a
+// real dead end an album could otherwise land in: ListAlbumsByArtist
+// requires a linked file to count as owned, and
+// ListMissingArtistReleaseGroups excludes any release group that already
+// has an albums row — so an album whose only file gets its match cleared
+// used to keep its now-empty albums row forever, invisible in Owned,
+// Missing, and Wanted all at once. ClearMatch must now reap it back out.
+func TestClearMatchReapsAlbumLeftWithZeroFiles(t *testing.T) {
+	lookupResponses := map[string]mbRecording{"rec-mbid": sampleRecording("rec-mbid", 0)}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	path := buildFLACFile(t, rf.Path, "song.flac", map[string]string{"TITLE": "Untitled"})
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ManualMatch(ctx, tf.ID, "rec-mbid", ""); err != nil {
+		t.Fatalf("ManualMatch: %v", err)
+	}
+	matched, err := s.db.GetTrackFile(tf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetTrack(*matched.TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	albumID := track.AlbumID
+	if _, err := s.db.GetAlbum(albumID); err != nil {
+		t.Fatalf("album should exist right after matching: %v", err)
+	}
+
+	if err := s.ClearMatch(tf.ID); err != nil {
+		t.Fatalf("ClearMatch: %v", err)
+	}
+
+	if _, err := s.db.GetAlbum(albumID); err != musiclibrary.ErrNotFound {
+		t.Errorf("GetAlbum after clearing its only file: err = %v, want ErrNotFound (reaped)", err)
+	}
+}
+
+// TestClearMatchKeepsAlbumWithRemainingFiles proves the reap in
+// TestClearMatchReapsAlbumLeftWithZeroFiles is scoped correctly — an
+// album with other still-matched files must survive.
+func TestClearMatchKeepsAlbumWithRemainingFiles(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-1": sampleRecording("rec-1", 0),
+		"rec-2": sampleRecording("rec-2", 0),
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	path1 := buildFLACFile(t, rf.Path, "song1.flac", map[string]string{"TITLE": "Untitled"})
+	tf1, err := s.db.UpsertTrackFileByPath(rf.ID, path1, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path2 := buildFLACFile(t, rf.Path, "song2.flac", map[string]string{"TITLE": "Untitled"})
+	tf2, err := s.db.UpsertTrackFileByPath(rf.ID, path2, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ManualMatch(ctx, tf1.ID, "rec-1", ""); err != nil {
+		t.Fatalf("ManualMatch tf1: %v", err)
+	}
+	if err := s.ManualMatch(ctx, tf2.ID, "rec-2", ""); err != nil {
+		t.Fatalf("ManualMatch tf2: %v", err)
+	}
+	matched1, err := s.db.GetTrackFile(tf1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	track1, err := s.db.GetTrack(*matched1.TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	albumID := track1.AlbumID
+
+	if err := s.ClearMatch(tf1.ID); err != nil {
+		t.Fatalf("ClearMatch tf1: %v", err)
+	}
+	if _, err := s.db.GetAlbum(albumID); err != nil {
+		t.Errorf("album should still exist — tf2 still owns a file under it: %v", err)
+	}
+}
+
+// TestDeleteTrackFileReapsAlbumLeftWithZeroFiles mirrors
+// TestClearMatchReapsAlbumLeftWithZeroFiles for the other path that can
+// strip an album down to zero files: outright deleting its last file.
+func TestDeleteTrackFileReapsAlbumLeftWithZeroFiles(t *testing.T) {
+	lookupResponses := map[string]mbRecording{"rec-mbid": sampleRecording("rec-mbid", 0)}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	path := buildFLACFile(t, rf.Path, "song.flac", map[string]string{"TITLE": "Untitled"})
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ManualMatch(ctx, tf.ID, "rec-mbid", ""); err != nil {
+		t.Fatalf("ManualMatch: %v", err)
+	}
+	matched, err := s.db.GetTrackFile(tf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetTrack(*matched.TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	albumID := track.AlbumID
+
+	if err := s.DeleteTrackFile(tf.ID); err != nil {
+		t.Fatalf("DeleteTrackFile: %v", err)
+	}
+
+	if _, err := s.db.GetAlbum(albumID); err != musiclibrary.ErrNotFound {
+		t.Errorf("GetAlbum after deleting its only file: err = %v, want ErrNotFound (reaped)", err)
+	}
+}
+
 // TestScanResultErrorsEmptyIsNotNil guards against the same nil-slice-
 // marshals-to-null bug found in internal/musiclibrary's List* methods —
 // ScanResult.Errors goes straight into the GET /api/v1/scan/status JSON

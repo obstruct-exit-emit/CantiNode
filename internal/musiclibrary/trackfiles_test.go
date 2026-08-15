@@ -299,6 +299,38 @@ func TestDeleteTrackFilesMissing(t *testing.T) {
 	}
 }
 
+// TestDeleteTrackFilesMissingReapsOrphanedAlbum is the regression test for
+// a real dead end: files disappearing outside the app (moved off this
+// root, deleted by hand, whatever) used to leave the album's now-empty
+// albums row behind forever — invisible in Owned (needs a file), Missing
+// (an albums row still exists), and Wanted (already converted away when
+// first matched) all at once. A whole-root-folder scan pruning the last
+// file for an album must reap that album back to Missing.
+func TestDeleteTrackFilesMissingReapsOrphanedAlbum(t *testing.T) {
+	db := newTestStore(t)
+	rfID := testMusicRoot(t, db)
+
+	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "")
+
+	gone, err := db.UpsertTrackFileByPath(rfID, "/music/gone.mp3", 1, "mp3", 128, 1000, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTrackFileMatch(gone.ID, &track.ID, StatusMatched, 0.9); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.DeleteTrackFilesMissing(rfID, nil); err != nil {
+		t.Fatalf("DeleteTrackFilesMissing: %v", err)
+	}
+
+	if _, err := db.GetAlbum(album.ID); err != ErrNotFound {
+		t.Errorf("GetAlbum after its only file was pruned: err = %v, want ErrNotFound (reaped)", err)
+	}
+}
+
 func TestListTrackFilesByArtist(t *testing.T) {
 	db := newTestStore(t)
 	rfID := testMusicRoot(t, db)

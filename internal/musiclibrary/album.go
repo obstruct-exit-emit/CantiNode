@@ -114,6 +114,34 @@ func (s *Store) DeleteAlbum(id int64) error {
 	return nil
 }
 
+// ReapOrphanedAlbum deletes albumID if none of its tracks have a linked
+// track_file anymore — the fix for a real dead end an album could
+// otherwise land in: ListAlbumsByArtist requires a linked file to count as
+// owned, and ListMissingArtistReleaseGroups excludes any release group
+// that already has an albums row, matched or not. Without this, an album
+// whose last file gets cleared/deleted/pruned keeps its now-empty albums
+// row forever — invisible in Owned (no file), Missing (an albums row
+// exists), and Wanted (already converted away by the match that created
+// the row) all at once. Called after every path that can strip an album
+// down to zero files: ClearMatch, DeleteTrackFile, DeleteTrackFilesMissing,
+// and ScanAlbumFolder's own per-album prune.
+func (s *Store) ReapOrphanedAlbum(albumID int64) error {
+	var hasFiles bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM track_files tf
+			JOIN tracks t ON t.id = tf.track_id
+			WHERE t.album_id = ?
+		)`, albumID).Scan(&hasFiles)
+	if err != nil {
+		return fmt.Errorf("check album %d has files: %w", albumID, err)
+	}
+	if hasFiles {
+		return nil
+	}
+	return s.DeleteAlbum(albumID)
+}
+
 const albumSelect = `SELECT id, artist_id, mbid, release_group_mbid, title, release_date, primary_type, created_at, updated_at FROM albums`
 
 // GetAlbum returns a single album by ID, or ErrNotFound.

@@ -189,9 +189,20 @@ func (s *Scanner) ManualMatch(ctx context.Context, trackFileID int64, recordingM
 // ClearMatch unlinks trackFileID from whatever track it was matched to,
 // moving it back to unmatched — e.g. a manual match the user wants to
 // undo. Does not delete the artist/album/track rows themselves, since
-// other files may still reference them.
+// other files may still reference them — but if this was the album's
+// last remaining file, ReapOrphanedAlbum deletes the now-empty album row
+// too, so the release group falls back into Missing instead of surviving
+// as an invisible, fileless "owned" album (see that method's own doc
+// comment for why that dead end matters).
 func (s *Scanner) ClearMatch(trackFileID int64) error {
-	return s.db.SetTrackFileMatch(trackFileID, nil, musiclibrary.StatusUnmatched, 0)
+	albumID, err := s.trackFileAlbumID(trackFileID)
+	if err != nil {
+		return err
+	}
+	if err := s.db.SetTrackFileMatch(trackFileID, nil, musiclibrary.StatusUnmatched, 0); err != nil {
+		return err
+	}
+	return s.reapIfOrphaned(albumID)
 }
 
 // DeleteTrackFile permanently removes trackFileID: the file itself on
@@ -201,14 +212,50 @@ func (s *Scanner) ClearMatch(trackFileID int64) error {
 // tolerance the scanner's own missing-file reconciliation has); any
 // other removal error is returned without touching the database row, so
 // a permissions problem doesn't silently lose track of a file that's
-// still actually there.
+// still actually there. Also reaps the owning album if this was its last
+// file — see ClearMatch's own comment for why.
 func (s *Scanner) DeleteTrackFile(trackFileID int64) error {
 	tf, err := s.db.GetTrackFile(trackFileID)
 	if err != nil {
 		return fmt.Errorf("get track file: %w", err)
 	}
+	albumID, err := s.trackFileAlbumID(trackFileID)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(tf.Path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file %s: %w", tf.Path, err)
 	}
-	return s.db.DeleteTrackFile(trackFileID)
+	if err := s.db.DeleteTrackFile(trackFileID); err != nil {
+		return err
+	}
+	return s.reapIfOrphaned(albumID)
+}
+
+// trackFileAlbumID returns the album ID trackFileID's current match
+// belongs to, or 0 if it isn't matched to anything — read before a
+// clear/delete unlinks it, since ReapOrphanedAlbum needs to know which
+// album to check afterward.
+func (s *Scanner) trackFileAlbumID(trackFileID int64) (int64, error) {
+	tf, err := s.db.GetTrackFile(trackFileID)
+	if err != nil {
+		return 0, fmt.Errorf("get track file: %w", err)
+	}
+	if tf.TrackID == nil {
+		return 0, nil
+	}
+	track, err := s.db.GetTrack(*tf.TrackID)
+	if err != nil {
+		return 0, fmt.Errorf("get track: %w", err)
+	}
+	return track.AlbumID, nil
+}
+
+// reapIfOrphaned is a no-op for albumID == 0 (the file being cleared/
+// deleted was never matched, so there's no album to check).
+func (s *Scanner) reapIfOrphaned(albumID int64) error {
+	if albumID == 0 {
+		return nil
+	}
+	return s.db.ReapOrphanedAlbum(albumID)
 }

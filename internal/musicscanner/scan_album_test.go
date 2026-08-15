@@ -78,6 +78,28 @@ func TestScanAlbumFolderPrunesFileDeletedOutsideApp(t *testing.T) {
 	}
 }
 
+// TestScanAlbumFolderReapsAlbumLeftWithZeroFiles is the regression test
+// for a real dead end: an album whose last file the prune above removes
+// used to keep its now-empty albums row behind forever — invisible in
+// Owned (needs a file), Missing (an albums row still exists), and Wanted
+// (already converted away when first matched) all at once.
+func TestScanAlbumFolderReapsAlbumLeftWithZeroFiles(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	album, path := seedAlbumWithFile(t, s, rf, "Boards of Canada", "Geogaddi", "Boards of Canada/Geogaddi")
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.ScanAlbumFolder(context.Background(), album.ID); err != nil {
+		t.Fatalf("ScanAlbumFolder: %v", err)
+	}
+
+	if _, err := s.db.GetAlbum(album.ID); err != musiclibrary.ErrNotFound {
+		t.Errorf("GetAlbum after its only file was pruned: err = %v, want ErrNotFound (reaped)", err)
+	}
+}
+
 // TestScanAlbumFolderPrunesWhenWholeFolderDeleted covers the more extreme
 // case — not just the file but its entire containing directory is gone —
 // which fails filepath.WalkDir's very first step rather than simply

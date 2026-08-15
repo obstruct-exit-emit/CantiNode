@@ -301,6 +301,14 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 		}
 		result.FilesRemoved++
 	}
+	if result.FilesRemoved > 0 {
+		// This album may now have zero files left — see
+		// ReapOrphanedAlbum's own doc comment for why that dead end
+		// (invisible in Owned/Missing/Wanted alike) matters.
+		if err := s.db.ReapOrphanedAlbum(albumID); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("reap orphaned album %d: %v", albumID, err))
+		}
+	}
 
 	groups = groupMultiDiscFolders(groups)
 

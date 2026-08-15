@@ -339,7 +339,13 @@ func (s *Store) DeleteTrackFile(id int64) error {
 // because they were moved (outside the organizer, which updates the row
 // instead) or deleted. Called once per root folder at the end of a scan
 // pass, after every file actually found has already been upserted.
-// Returns the number of rows removed.
+// Returns the number of rows removed. Also reaps (via ReapOrphanedAlbum)
+// any album left with zero files by this prune — otherwise a whole
+// album's worth of files vanishing outside the app (the folder was
+// deleted, moved off this root entirely, whatever) leaves its albums row
+// behind forever: invisible in Owned (needs a file), Missing (an albums
+// row still exists), and Wanted (already converted away when it was first
+// matched) all at once.
 func (s *Store) DeleteTrackFilesMissing(rootFolderID int64, seenPaths []string) (int64, error) {
 	existing, err := s.ListTrackFilesByRootFolder(rootFolderID)
 	if err != nil {
@@ -351,14 +357,25 @@ func (s *Store) DeleteTrackFilesMissing(rootFolderID int64, seenPaths []string) 
 	}
 
 	var removed int64
+	touchedAlbums := map[int64]bool{}
 	for _, tf := range existing {
 		if seen[tf.Path] {
 			continue
+		}
+		if tf.TrackID != nil {
+			if track, err := s.GetTrack(*tf.TrackID); err == nil {
+				touchedAlbums[track.AlbumID] = true
+			}
 		}
 		if _, err := s.db.Exec(`DELETE FROM track_files WHERE id = ?`, tf.ID); err != nil {
 			return removed, fmt.Errorf("delete missing track file %d: %w", tf.ID, err)
 		}
 		removed++
+	}
+	for albumID := range touchedAlbums {
+		if err := s.ReapOrphanedAlbum(albumID); err != nil {
+			return removed, fmt.Errorf("reap orphaned album %d: %w", albumID, err)
+		}
 	}
 	return removed, nil
 }
