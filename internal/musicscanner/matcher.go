@@ -4,11 +4,30 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagreader"
 )
+
+// joinArtistCredit renders a MusicBrainz artist-credit list as a plain
+// display string — just the credited names joined together. This
+// codebase doesn't track each entry's own joinphrase (almost always
+// absent anyway on the common single-artist case), so a genuine
+// multi-artist credit renders slightly more bluntly ("Artist A, Artist
+// B") than MusicBrainz's own "Artist A feat. Artist B" — good enough for
+// "who actually performed this," which is the only thing this string is
+// ever used for (see applyMatch's trackArtistCredit param).
+func joinArtistCredit(credits []musicbrainz.ArtistCredit) string {
+	names := make([]string, 0, len(credits))
+	for _, c := range credits {
+		if c.Name != "" {
+			names = append(names, c.Name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
 
 // matchFileDirect looks tf up directly by the MusicBrainz recording ID
 // already embedded in its own tags — confidence 1.0. Bypasses all
@@ -20,7 +39,7 @@ func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFil
 	if err != nil {
 		return false, fmt.Errorf("lookup recording %s: %w", tags.MusicBrainzRecordingID, err)
 	}
-	if err := s.applyMatch(tf, *rec, 1.0, tags.MusicBrainzAlbumID, tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched); err != nil {
+	if err := s.applyMatch(tf, *rec, 1.0, tags.MusicBrainzAlbumID, tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, joinArtistCredit(rec.ArtistCredit)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -54,7 +73,7 @@ func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile
 		return false, nil
 	}
 
-	if err := s.applyMatch(tf, best, confidence, "", tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched); err != nil {
+	if err := s.applyMatch(tf, best, confidence, "", tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, joinArtistCredit(best.ArtistCredit)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -72,7 +91,18 @@ func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile
 // resolved release's own already-fetched tracklist, which is more
 // authoritative than a file's own tags whenever a release has actually
 // been resolved.
-func (s *Scanner) applyMatch(tf *musiclibrary.TrackFile, rec musicbrainz.Recording, confidence float64, preferredReleaseMBID string, trackNumber, discNumber int, status musiclibrary.MatchStatus) error {
+//
+// trackArtistCredit is stored on the created track as display metadata
+// only — deliberately separate from rec.ArtistCredit (used just above for
+// artist/album assignment, via rec.PrimaryArtist()): on a "Various
+// Artists" release, every track must still file under the same Various
+// Artists artist/album, but each has its own real performer worth
+// showing. Callers working from a bare recording lookup (matchFileDirect/
+// matchFileFuzzy/ManualMatch) pass the same rec's own credit for both;
+// matchEntriesToRelease passes the track's real per-recording credit
+// separately, since the Recording it builds has already substituted the
+// release's own credit into rec.ArtistCredit for the assignment step.
+func (s *Scanner) applyMatch(tf *musiclibrary.TrackFile, rec musicbrainz.Recording, confidence float64, preferredReleaseMBID string, trackNumber, discNumber int, status musiclibrary.MatchStatus, trackArtistCredit string) error {
 	artistRef := rec.PrimaryArtist()
 	if artistRef.ID == "" {
 		return fmt.Errorf("recording %s has no artist credit", rec.ID)
@@ -104,7 +134,13 @@ func (s *Scanner) applyMatch(tf *musiclibrary.TrackFile, rec musicbrainz.Recordi
 	if discNumber == 0 {
 		discNumber = 1
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, rec.ID, rec.Title, trackNumber, discNumber, int64(rec.Length))
+	// Only stored when it actually differs from the album's own artist —
+	// nothing worth showing on an ordinary single-artist album where
+	// every track's credit is identical to it.
+	if trackArtistCredit == artist.Name {
+		trackArtistCredit = ""
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, rec.ID, rec.Title, trackNumber, discNumber, int64(rec.Length), trackArtistCredit)
 	if err != nil {
 		return fmt.Errorf("get or create track: %w", err)
 	}
@@ -147,7 +183,7 @@ func (s *Scanner) ManualMatch(ctx context.Context, trackFileID int64, recordingM
 		trackNumber, discNumber = tags.TrackNumber, tags.DiscNumber
 	}
 
-	return s.applyMatch(tf, *rec, 1.0, preferredReleaseMBID, trackNumber, discNumber, musiclibrary.StatusManual)
+	return s.applyMatch(tf, *rec, 1.0, preferredReleaseMBID, trackNumber, discNumber, musiclibrary.StatusManual, joinArtistCredit(rec.ArtistCredit))
 }
 
 // ClearMatch unlinks trackFileID from whatever track it was matched to,

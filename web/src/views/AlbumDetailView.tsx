@@ -275,6 +275,9 @@ export default function AlbumDetailView({
                     <span>
                       {t.discNumber > 1 ? `${t.discNumber}.` : ""}
                       {String(t.trackNumber).padStart(2, "0")} — {t.title}
+                      {t.artistCredit && (
+                        <span className="muted"> — {t.artistCredit}</span>
+                      )}
                     </span>
                     <span className={tfiles.length > 0 ? "owned yes" : "owned no"}>
                       {tfiles.length > 0 ? "owned" : "no file"}

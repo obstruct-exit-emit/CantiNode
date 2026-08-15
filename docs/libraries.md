@@ -76,6 +76,21 @@ still can't be confidently placed land in an **Unmatched** list for manual
 review. A newly-discovered artist (one your files matched to, that you
 hadn't explicitly monitored) gets its metadata cached automatically too.
 
+A file CantiNode grabbed itself skips the whole-folder search step
+entirely — it already knows which album it searched for, so it resolves
+straight to that album's best-fitting cached edition instead of guessing
+blind from tags. Per-track verification still runs exactly as normal, and
+a mislabeled or wrong download whose own tags clearly disagree with what
+was expected still gets a real shot at being identified as whatever it
+actually is, rather than being force-matched to the wrong thing. A
+compilation ("Various Artists") is recognized even without a consistent
+`AlbumArtist` tag — if a folder's files agree on the album but genuinely
+disagree on artist, with nothing else to go on, that's treated as a
+compilation signal rather than a failure. Each track keeps its own real
+performing-artist credit from MusicBrainz too (shown on the album page
+whenever it differs from the album's own artist), not just the
+compilation's shared one.
+
 **Unmatched Files** (sidebar, under Libraries) is the review queue for
 whatever a scan couldn't place, grouped by folder — a merged CD1/CD2 pair
 reviews as one group, the same as automatic scanning treats it. Each group

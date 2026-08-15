@@ -11,6 +11,41 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Matching now knows the difference between a file CantiNode grabbed
+  itself and one that was already on disk or added by hand — and uses it.**
+  A completed grab already has a known target (the `wanted_albums`/`albums`
+  row it was searched for), but importing it used to throw that away and
+  re-derive everything blind from tags via the same fuzzy search a
+  manually-placed file needs. `internal/importer` now stamps each copied
+  file with `expected_release_group_mbid` before the scan that
+  discovers/matches them runs; `resolveFolderRelease` uses it to skip
+  straight to that release group's best-by-file-count cached edition,
+  never a MusicBrainz search. This only ever skips the *album* search —
+  per-track title/position verification (`matchEntriesToRelease`/
+  `slotTrack`) still runs unchanged, and a safety gate refuses the
+  shortcut outright if the folder's own tags positively name a different
+  album than expected, so a mislabeled or wrong download still gets a
+  real shot at being identified as whatever it actually is rather than
+  being force-bound to the wrong thing. The field doubles as a permanent,
+  queryable record of a file's own provenance (empty = found on disk or
+  added by hand).
+- **Compilations ("Various Artists") are now recognized even without a
+  consistent `AlbumArtist` tag.** A folder was already treated as a
+  compilation when every file agreed on `AlbumArtist=Various Artists` —
+  that's a real, if coincidental, MusicBrainz artist identity match. The
+  gap was a folder tagged only with each track's own (genuinely
+  different) `Artist`, and no `AlbumArtist` at all: `folderTagConsensus`
+  used to fail outright the moment artists disagreed, falling back to
+  weak per-file search. It now recognizes "album title agrees, artists
+  disagree, no AlbumArtist override anywhere" as a compilation signal and
+  searches MusicBrainz as "Various Artists" instead of giving up.
+- **Each track now keeps its own real performing-artist credit**, not
+  just the album's — confirmed live against a real "Various Artists"
+  compilation that MusicBrainz's own tracklist response already carries
+  this (Phil Collins, Duran Duran, UB40, each correctly distinct per
+  track), just nothing stored it before now. Shown on the album page only
+  when it actually differs from the album's own artist, so an ordinary
+  single-artist album is unaffected.
 - **The Unmatched Files auto-match panel can now discover an artist that
   isn't in your library at all yet.** Its Artist dropdown was always
   scoped to `GET /music/artist` (already-added artists only) — a folder

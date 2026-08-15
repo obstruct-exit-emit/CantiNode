@@ -40,7 +40,7 @@ func TestTargetRootFolderPrefersArtistExistingFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := musicStore.GetOrCreateTrack(album.ID, "t-mbid", "Track", 1, 1, 200000)
+	track, err := musicStore.GetOrCreateTrack(album.ID, "t-mbid", "Track", 1, 1, 200000, "")
 	if err != nil {
 		t.Fatal(err)
 	}

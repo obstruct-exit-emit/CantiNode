@@ -14,7 +14,7 @@ func TestGetOrCreateTrackCreatesThenReuses(t *testing.T) {
 		t.Fatalf("GetOrCreateAlbum: %v", err)
 	}
 
-	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000)
+	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000, "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestGetOrCreateTrackCreatesThenReuses(t *testing.T) {
 		t.Errorf("AlbumID = %d, want %d", t1.AlbumID, album.ID)
 	}
 
-	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000)
+	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000, "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack (second call): %v", err)
 	}

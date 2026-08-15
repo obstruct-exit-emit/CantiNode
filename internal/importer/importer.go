@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -197,6 +198,51 @@ func (s *Service) targetRootFolder(g download.GrabRecord) (rf musiclibrary.RootF
 	return folders[0], true
 }
 
+// expectedReleaseGroupMBID returns the release group g's own
+// wanted_albums/albums row already names, if any — the same known target
+// targetRootFolder resolves an artist from, one field further. Empty when
+// neither ID is set (shouldn't happen for a real grab) or the row it
+// pointed at is already gone; importGrab treats that exactly like a
+// manually-added file, falling through to ordinary tag-based matching.
+func (s *Service) expectedReleaseGroupMBID(g download.GrabRecord) string {
+	switch {
+	case g.WantedAlbumID > 0:
+		if w, err := s.music.GetWantedAlbum(g.WantedAlbumID); err == nil {
+			return w.ReleaseGroupMBID
+		}
+	case g.UpgradeAlbumID > 0:
+		if a, err := s.music.GetAlbum(g.UpgradeAlbumID); err == nil {
+			return a.ReleaseGroupMBID
+		}
+	}
+	return ""
+}
+
+// seedExpectedReleaseGroup walks dest (a completed grab's freshly-copied
+// audio files) and stamps releaseGroupMBID onto each one via
+// SeedExpectedReleaseGroup, before the scan that actually discovers and
+// matches them runs — see that method's own doc comment for why this
+// ordering matters. A no-op (not an error) when releaseGroupMBID is
+// empty: nothing to stamp for a grab whose own wanted/upgrade target
+// couldn't be resolved, same as a manually-added file.
+func (s *Service) seedExpectedReleaseGroup(rootFolderID int64, dest, releaseGroupMBID string) {
+	if releaseGroupMBID == "" {
+		return
+	}
+	err := filepath.WalkDir(dest, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !tagreader.IsAudioFile(path) {
+			return nil
+		}
+		if seedErr := s.music.SeedExpectedReleaseGroup(rootFolderID, path, releaseGroupMBID); seedErr != nil {
+			s.logger.Warn("importer: seed expected release group", "path", path, "error", seedErr)
+		}
+		return nil
+	})
+	if err != nil {
+		s.logger.Warn("importer: walk copied files to seed expected release group", "dest", dest, "error", err)
+	}
+}
+
 // stillGrabbed reports whether id is still in GrabStatusGrabbed right now
 // — a fresh DB read, not the possibly-stale GrabRecord importGrab was
 // called with. Fails open (true) on a read error: a transient DB hiccup
@@ -261,6 +307,13 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		s.logger.Warn("importer: no audio files found in completed download, nothing imported",
 			"grab_id", g.ID, "src", src)
 	}
+	// Stamps the files just copied with the release group this grab was
+	// actually for, before the scan below discovers/matches them — lets
+	// the folder-level matcher skip straight to the known target instead
+	// of re-deriving it blind from tags, the same way a manually-added
+	// file still has to. See expectedReleaseGroupMBID/
+	// seedExpectedReleaseGroup's own doc comments.
+	s.seedExpectedReleaseGroup(root.ID, dest, s.expectedReleaseGroupMBID(g))
 
 	if !s.stillGrabbed(g.ID) {
 		// The files are already safely copied to dest — left in place

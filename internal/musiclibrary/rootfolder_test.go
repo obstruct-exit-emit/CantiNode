@@ -90,7 +90,7 @@ func seedArtistFileOn(t *testing.T, s *Store, artistID, rootFolderID int64, uniq
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.GetOrCreateTrack(album.ID, "t-"+uniq, "Track "+uniq, 1, 1, 200000)
+	track, err := s.GetOrCreateTrack(album.ID, "t-"+uniq, "Track "+uniq, 1, 1, 200000, "")
 	if err != nil {
 		t.Fatal(err)
 	}

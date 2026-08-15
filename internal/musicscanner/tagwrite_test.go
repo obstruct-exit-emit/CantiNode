@@ -20,7 +20,7 @@ func TestWriteTagsEmbedsMatchedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000)
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "")
 	if err != nil {
 		t.Fatal(err)
 	}

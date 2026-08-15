@@ -51,7 +51,7 @@ func TestDeleteArtistCascadesAlbumsTracksWanted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000)
+	track, err := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "")
 	if err != nil {
 		t.Fatal(err)
 	}

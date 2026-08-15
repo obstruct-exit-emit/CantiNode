@@ -41,9 +41,20 @@ type TrackFile struct {
 	MatchConfidence float64     `json:"matchConfidence"`
 	ScannedAt       time.Time   `json:"scannedAt"`
 	OrganizedAt     *time.Time  `json:"organizedAt,omitempty"`
+	// ExpectedReleaseGroupMBID is stamped by internal/importer, before the
+	// scan that actually discovers/matches a completed grab's copied-in
+	// files ever runs, from the wanted_albums/albums row that grab was
+	// for — empty for a file that was already on disk or added by hand,
+	// never a grab CantiNode itself made. Doubles as both a durable
+	// provenance record and a matching hint (see
+	// internal/musicscanner's resolveFolderRelease): a file with this set
+	// can skip the album-search step matching would otherwise need, since
+	// the target is already known — never a license to skip per-track
+	// verification, only the search.
+	ExpectedReleaseGroupMBID string `json:"expectedReleaseGroupMbid,omitempty"`
 }
 
-const trackFileSelect = `SELECT id, root_folder_id, track_id, path, size_bytes, format, bitrate_kbps, duration_ms, tags_json, match_status, match_confidence, scanned_at, organized_at FROM track_files`
+const trackFileSelect = `SELECT id, root_folder_id, track_id, path, size_bytes, format, bitrate_kbps, duration_ms, tags_json, match_status, match_confidence, scanned_at, organized_at, expected_release_group_mbid FROM track_files`
 
 func scanTrackFile(row interface{ Scan(...any) error }) (*TrackFile, error) {
 	var tf TrackFile
@@ -51,7 +62,7 @@ func scanTrackFile(row interface{ Scan(...any) error }) (*TrackFile, error) {
 	var organizedAt sql.NullTime
 	if err := row.Scan(&tf.ID, &tf.RootFolderID, &trackID, &tf.Path, &tf.SizeBytes, &tf.Format,
 		&tf.BitrateKbps, &tf.DurationMs, &tf.TagsJSON, &tf.MatchStatus, &tf.MatchConfidence,
-		&tf.ScannedAt, &organizedAt); err != nil {
+		&tf.ScannedAt, &organizedAt, &tf.ExpectedReleaseGroupMBID); err != nil {
 		return nil, err
 	}
 	if trackID.Valid {
@@ -61,6 +72,35 @@ func scanTrackFile(row interface{ Scan(...any) error }) (*TrackFile, error) {
 		tf.OrganizedAt = &organizedAt.Time
 	}
 	return &tf, nil
+}
+
+// SeedExpectedReleaseGroup pre-creates a bare, unmatched track_files row
+// for path (or sets expected_release_group_mbid on an already-existing
+// one) — used by internal/importer to stamp a completed grab's known
+// target onto its files before the scan that actually discovers/matches
+// them runs, so the folder-level matcher (internal/musicscanner) finds it
+// already in place. The subsequent scan's own UpsertTrackFileByPath call
+// for the same path only ever updates size/format/bitrate/duration/tags —
+// never this column — so the stamp set here survives that pass intact.
+func (s *Store) SeedExpectedReleaseGroup(rootFolderID int64, path, releaseGroupMBID string) error {
+	existing, err := s.getTrackFileByPath(path)
+	if err == nil {
+		if _, err := s.db.Exec(`UPDATE track_files SET expected_release_group_mbid = ? WHERE id = ?`,
+			releaseGroupMBID, existing.ID); err != nil {
+			return fmt.Errorf("update expected release group: %w", err)
+		}
+		return nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if _, err := s.db.Exec(
+		`INSERT INTO track_files (root_folder_id, path, match_status, match_confidence, expected_release_group_mbid)
+		 VALUES (?, ?, ?, 0, ?)`,
+		rootFolderID, path, StatusUnmatched, releaseGroupMBID); err != nil {
+		return fmt.Errorf("seed expected release group: %w", err)
+	}
+	return nil
 }
 
 // UpsertTrackFileByPath inserts a new track file, or — if path is already
@@ -226,7 +266,7 @@ func (s *Store) ListTrackFilesByTrack(trackID int64) ([]TrackFile, error) {
 // RemoveArtist needs to touch every one of them, matched or not).
 func (s *Store) ListTrackFilesByArtist(artistID int64) ([]TrackFile, error) {
 	rows, err := s.db.Query(`
-		SELECT tf.id, tf.root_folder_id, tf.track_id, tf.path, tf.size_bytes, tf.format, tf.bitrate_kbps, tf.duration_ms, tf.tags_json, tf.match_status, tf.match_confidence, tf.scanned_at, tf.organized_at
+		SELECT tf.id, tf.root_folder_id, tf.track_id, tf.path, tf.size_bytes, tf.format, tf.bitrate_kbps, tf.duration_ms, tf.tags_json, tf.match_status, tf.match_confidence, tf.scanned_at, tf.organized_at, tf.expected_release_group_mbid
 		FROM track_files tf
 		JOIN tracks t ON t.id = tf.track_id
 		JOIN albums al ON al.id = t.album_id
@@ -245,7 +285,7 @@ func (s *Store) ListTrackFilesByArtist(artistID int64) ([]TrackFile, error) {
 // versions — must never touch a sibling album's files.
 func (s *Store) ListTrackFilesByAlbum(albumID int64) ([]TrackFile, error) {
 	rows, err := s.db.Query(`
-		SELECT tf.id, tf.root_folder_id, tf.track_id, tf.path, tf.size_bytes, tf.format, tf.bitrate_kbps, tf.duration_ms, tf.tags_json, tf.match_status, tf.match_confidence, tf.scanned_at, tf.organized_at
+		SELECT tf.id, tf.root_folder_id, tf.track_id, tf.path, tf.size_bytes, tf.format, tf.bitrate_kbps, tf.duration_ms, tf.tags_json, tf.match_status, tf.match_confidence, tf.scanned_at, tf.organized_at, tf.expected_release_group_mbid
 		FROM track_files tf
 		JOIN tracks t ON t.id = tf.track_id
 		WHERE t.album_id = ?

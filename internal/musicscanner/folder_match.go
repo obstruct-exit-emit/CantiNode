@@ -77,6 +77,10 @@ func (s *Scanner) resolveFolderRelease(ctx context.Context, remaining []folderEn
 		return release, 1.0, nil
 	}
 
+	if release, confidence, ok := s.resolveExpectedRelease(ctx, remaining); ok {
+		return release, confidence, nil
+	}
+
 	if len(remaining) == 1 {
 		// Nothing to disambiguate with a single file — a release search
 		// only earns its cost when there's more than one sibling to
@@ -105,6 +109,75 @@ func (s *Scanner) resolveFolderRelease(ctx context.Context, remaining []folderEn
 		return nil, 0, nil
 	}
 	return release, float64(best.Score) / 100.0, nil
+}
+
+// resolveExpectedRelease is resolveFolderRelease's grab-provenance fast
+// path: when every file in remaining was stamped with the same
+// ExpectedReleaseGroupMBID by internal/importer (see that field's own doc
+// comment on musiclibrary.TrackFile), the release GROUP is already
+// certain — no reason to spend a MusicBrainz search re-deriving it blind
+// from tags the way a manually-added file has to. This only ever skips
+// the search step, never per-track verification: the release it returns
+// still flows through matchEntriesToRelease's own title/position matching
+// exactly like any other resolved release, which is what actually catches
+// a wrong individual file.
+//
+// ok is false — falling through to the normal search-based path above —
+// whenever there's a real reason not to trust the shortcut: mixed or
+// absent expectations across the folder, no cached version yet for the
+// expected release group, no version whose track count is even roughly
+// plausible for this folder's file count, or — the actual safety check —
+// the folder's own tags positively naming an album that doesn't look like
+// any cached version's title. A folder with no album tag to check at all
+// has nothing to contradict the expectation, so the shortcut proceeds;
+// that's strictly better than today, where an untagged file has nothing
+// to fuzzy-search against either.
+func (s *Scanner) resolveExpectedRelease(ctx context.Context, remaining []folderEntry) (*musicbrainz.ReleaseWithTracklist, float64, bool) {
+	expected := ""
+	for i, e := range remaining {
+		mbid := e.tf.ExpectedReleaseGroupMBID
+		if mbid == "" {
+			return nil, 0, false
+		}
+		if i == 0 {
+			expected = mbid
+		} else if expected != mbid {
+			return nil, 0, false
+		}
+	}
+
+	versions, err := s.db.ListReleaseGroupVersions(expected)
+	if err != nil || len(versions) == 0 {
+		return nil, 0, false
+	}
+
+	const albumTitleMatchThreshold = 0.5 // more lenient than slotTrack's own 0.6 — album titles carry more legitimate edition-to-edition variance ("(Remastered)", "(Deluxe)") than a single track title does
+	if _, album, ok := folderTagConsensus(remaining); ok {
+		matchesAny := false
+		for _, v := range versions {
+			if titleSimilarity(album, v.Title) >= albumTitleMatchThreshold {
+				matchesAny = true
+				break
+			}
+		}
+		if !matchesAny {
+			return nil, 0, false
+		}
+	}
+
+	best := pickBestVersionByFileCount(versions, len(remaining))
+	if best == nil {
+		return nil, 0, false
+	}
+	release, err := s.mb.LookupReleaseWithTracklist(ctx, best.ReleaseMBID)
+	if err != nil {
+		return nil, 0, false
+	}
+	// High, but deliberately short of embeddedReleaseMBID's 1.0 — that
+	// signal names an exact release directly from the file's own tags;
+	// this one is one step more inferred (a release group plus a
+	// file-count-based edition guess), even though both skip the search.
+	return release, 0.95, true
 }
 
 // embeddedReleaseMBID returns the one release MBID entries agree on, if
@@ -136,32 +209,60 @@ func embeddedReleaseMBID(entries []folderEntry) string {
 // outright rather than silently picking a plurality and mismatching
 // whichever files disagree with it — see matchFolder's fallback.
 func folderTagConsensus(entries []folderEntry) (artist, album string, ok bool) {
+	albumAgrees := true
+	artistAgrees := true
+	albumArtistSeen := false // true once any file supplies a real AlbumArtist override
+	distinctArtists := map[string]bool{}
+
 	for _, e := range entries {
 		if a := strings.TrimSpace(e.tags.Album); a != "" {
 			switch {
 			case album == "":
 				album = a
 			case !strings.EqualFold(album, a):
-				return "", "", false
+				albumAgrees = false
 			}
 		}
-		ar := strings.TrimSpace(e.tags.AlbumArtist)
+		aa := strings.TrimSpace(e.tags.AlbumArtist)
+		if aa != "" {
+			albumArtistSeen = true
+		}
+		ar := aa
 		if ar == "" {
 			ar = strings.TrimSpace(e.tags.Artist)
 		}
 		if ar != "" {
+			distinctArtists[strings.ToLower(ar)] = true
 			switch {
 			case artist == "":
 				artist = ar
 			case !strings.EqualFold(artist, ar):
-				return "", "", false
+				artistAgrees = false
 			}
 		}
 	}
-	if album == "" {
-		return "", "", false // nothing to search a release by
+	if !albumAgrees || album == "" {
+		return "", "", false // no shared album to search a release by
 	}
-	return artist, album, true
+	if artistAgrees {
+		// Already covers a properly VA-tagged folder (AlbumArtist =
+		// "Various Artists" set consistently on every file) — that's
+		// just an ordinary agreeing artist as far as this function is
+		// concerned, no special-casing needed.
+		return artist, album, true
+	}
+	// Artists disagree. A genuine compilation signal only when nothing
+	// ever supplied an explicit AlbumArtist override and at least two
+	// really-different per-track artists are involved — that's a folder
+	// that agrees on the album but was simply never given a shared
+	// AlbumArtist tag, the common case for a less carefully tagged
+	// compilation. An AlbumArtist that itself disagrees across files, or
+	// a single stray mismatch, stays a hard failure: more likely broken
+	// tagging than a real compilation, not worth guessing at.
+	if !albumArtistSeen && len(distinctArtists) >= 2 {
+		return "Various Artists", album, true
+	}
+	return "", "", false
 }
 
 // pickBestReleaseCandidate scores each SearchReleases candidate on
@@ -206,6 +307,34 @@ func trackCountPenalty(candidateTracks, fileCount int) float64 {
 	return float64(diff) / float64(fileCount) * 0.5
 }
 
+// pickBestVersionByFileCount scores each already-cached version of a
+// release group by how close its own track count is to fileCount —
+// ties broken toward the representative version. Go port of the
+// frontend's identical helper (web/src/views/UnmatchedFilesView.tsx),
+// used here by resolveFolderRelease's grab-provenance fast path to pick
+// which specific edition of an already-certain release group a folder's
+// files most likely are, the same way the manual matching UI already
+// lets a human do for themselves. Returns nil if no version has a usable
+// (positive) track count at all.
+func pickBestVersionByFileCount(versions []musiclibrary.ReleaseGroupVersion, fileCount int) *musiclibrary.ReleaseGroupVersion {
+	var best *musiclibrary.ReleaseGroupVersion
+	bestDiff := -1
+	for i := range versions {
+		v := &versions[i]
+		if v.TrackCount <= 0 {
+			continue
+		}
+		diff := v.TrackCount - fileCount
+		if diff < 0 {
+			diff = -diff
+		}
+		if best == nil || diff < bestDiff || (diff == bestDiff && v.IsRepresentative && !best.IsRepresentative) {
+			best, bestDiff = v, diff
+		}
+	}
+	return best
+}
+
 // flatTrack is one release track flattened out of
 // ReleaseWithTracklist.Media, with its medium's Position resolved to a
 // disc number (defaulting to 1, same convention applyMatch already uses
@@ -246,7 +375,12 @@ func (s *Scanner) matchEntriesToRelease(entries []folderEntry, release *musicbra
 		}
 		used[idx] = true
 		rec := recordingForReleaseTrack(ft, release)
-		err := s.applyMatch(e.tf, rec, confidence, release.ID, ft.Position, ft.disc, musiclibrary.StatusMatched)
+		// ft.Recording.ArtistCredit — the track's own real per-recording
+		// credit, before recordingForReleaseTrack substitutes the
+		// release's own credit into rec for artist/album assignment — is
+		// what actually gets displayed; see applyMatch's trackArtistCredit
+		// param for why the two must stay distinct.
+		err := s.applyMatch(e.tf, rec, confidence, release.ID, ft.Position, ft.disc, musiclibrary.StatusMatched, joinArtistCredit(ft.Recording.ArtistCredit))
 		s.recordFileResult(result, e.tf, err == nil, err)
 	}
 }
@@ -256,9 +390,16 @@ func (s *Scanner) matchEntriesToRelease(entries []folderEntry, release *musicbra
 // applyMatch resolves its target release via
 // Recording.BestRelease(preferredReleaseMBID), it only needs
 // Recording.Releases to contain release itself. ft.Recording already
-// carries the real recording ID/Length from MusicBrainz; ArtistCredit is
-// filled in from the release's own credit (inc=recordings does not
-// re-embed a full recording body inside each track — only id/title/length).
+// carries the real recording ID/Length from MusicBrainz. ArtistCredit is
+// deliberately overwritten with the release's own credit rather than
+// ft.Recording's real per-track one (confirmed live to actually be
+// present and correct, e.g. a "Various Artists" compilation's own tracks
+// each carrying their real individual performer — see
+// matchEntriesToRelease's own use of it for display) — applyMatch's
+// artist/album assignment must stay keyed off the release's credit
+// (Various Artists) so every track of a compilation files under the same
+// artist/album, not scattered across whichever individual performers its
+// tracks happen to credit.
 func recordingForReleaseTrack(ft flatTrack, release *musicbrainz.ReleaseWithTracklist) musicbrainz.Recording {
 	title := ft.Recording.Title
 	if title == "" {

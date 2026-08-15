@@ -172,6 +172,83 @@ func TestStripDiscSuffix(t *testing.T) {
 	}
 }
 
+// entryWithAlbumArtist is entry's sibling for cases that need to control
+// AlbumArtist separately from Artist — folderTagConsensus prefers
+// AlbumArtist when present, exactly the distinction the Various Artists
+// inference tests below need to exercise.
+func entryWithAlbumArtist(id int64, path, artist, albumArtist, album string) folderEntry {
+	return folderEntry{
+		tf:   &musiclibrary.TrackFile{ID: id, Path: path},
+		tags: &tagreader.Tags{Artist: artist, AlbumArtist: albumArtist, Album: album},
+	}
+}
+
+// TestFolderTagConsensusVariousArtistsInference is the regression test for
+// a real gap: a compilation with no consistent AlbumArtist override (only
+// each track's own, genuinely different, Artist tag) used to fail
+// consensus outright and fall back to weak per-file fuzzy search, even
+// though the album title agreeing across every file is exactly the signal
+// a real compilation gives.
+func TestFolderTagConsensusVariousArtistsInference(t *testing.T) {
+	entries := []folderEntry{
+		entry(1, "/music/Now/01.mp3", "Phil Collins", "Now That's What I Call Music", 0),
+		entry(2, "/music/Now/02.mp3", "Duran Duran", "Now That's What I Call Music", 0),
+		entry(3, "/music/Now/03.mp3", "UB40", "Now That's What I Call Music", 0),
+	}
+	artist, album, ok := folderTagConsensus(entries)
+	if !ok {
+		t.Fatalf("folderTagConsensus ok = false, want true (inferred Various Artists)")
+	}
+	if artist != "Various Artists" {
+		t.Errorf("artist = %q, want %q", artist, "Various Artists")
+	}
+	if album != "Now That's What I Call Music" {
+		t.Errorf("album = %q, want the agreed-on title", album)
+	}
+}
+
+// TestFolderTagConsensusAlreadyTaggedVariousArtists confirms a folder
+// that's already properly tagged (AlbumArtist = "Various Artists" on
+// every file) keeps working exactly as before — it's just an ordinary
+// agreeing artist, no inference needed.
+func TestFolderTagConsensusAlreadyTaggedVariousArtists(t *testing.T) {
+	entries := []folderEntry{
+		entryWithAlbumArtist(1, "/music/Now/01.mp3", "Phil Collins", "Various Artists", "Now"),
+		entryWithAlbumArtist(2, "/music/Now/02.mp3", "Duran Duran", "Various Artists", "Now"),
+	}
+	artist, album, ok := folderTagConsensus(entries)
+	if !ok || artist != "Various Artists" || album != "Now" {
+		t.Errorf("folderTagConsensus = %q, %q, %v, want Various Artists, Now, true", artist, album, ok)
+	}
+}
+
+// TestFolderTagConsensusRejectsDisagreeingAlbumArtist confirms an
+// inconsistent explicit AlbumArtist (not merely absent) still fails
+// consensus outright rather than being guessed at as a compilation —
+// more likely broken/conflicting tagging than a real one.
+func TestFolderTagConsensusRejectsDisagreeingAlbumArtist(t *testing.T) {
+	entries := []folderEntry{
+		entryWithAlbumArtist(1, "/music/X/01.mp3", "", "Compilation Artist A", "Mixed Tape"),
+		entryWithAlbumArtist(2, "/music/X/02.mp3", "", "Compilation Artist B", "Mixed Tape"),
+	}
+	if _, _, ok := folderTagConsensus(entries); ok {
+		t.Error("folderTagConsensus ok = true, want false — disagreeing AlbumArtist should not infer Various Artists")
+	}
+}
+
+// TestFolderTagConsensusRejectsSingleArtistDisagreement confirms a folder
+// where only two files disagree and album doesn't even agree stays a hard
+// failure — no compilation signal at all, just mismatched content.
+func TestFolderTagConsensusRejectsSingleArtistDisagreement(t *testing.T) {
+	entries := []folderEntry{
+		entry(1, "/music/X/01.mp3", "Artist A", "Album One", 0),
+		entry(2, "/music/X/02.mp3", "Artist B", "Album Two", 0),
+	}
+	if _, _, ok := folderTagConsensus(entries); ok {
+		t.Error("folderTagConsensus ok = true, want false — no shared album at all")
+	}
+}
+
 // TestGroupMultiDiscFoldersKeepsDifferentAlbumsSeparate confirms a bundle
 // of genuinely different albums (a discography/box-set dump, each in its
 // own disc-pattern-named subfolder purely by coincidence) is NOT merged —

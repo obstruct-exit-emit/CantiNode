@@ -60,7 +60,7 @@ func seedMoveFile(t *testing.T, db *musiclibrary.Store, artistID int64, root mus
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := db.GetOrCreateTrack(album.ID, "t-"+uniq, "Track "+uniq, 1, 1, 200000)
+	track, err := db.GetOrCreateTrack(album.ID, "t-"+uniq, "Track "+uniq, 1, 1, 200000, "")
 	if err != nil {
 		t.Fatal(err)
 	}

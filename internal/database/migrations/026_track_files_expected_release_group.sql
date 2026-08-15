@@ -1,0 +1,13 @@
+-- Lets the importer stamp a completed grab's expected target (the
+-- release_group_mbid its wanted_albums/albums row already carries) onto
+-- the track_files rows it copies in, before the generic scan-and-match
+-- pass ever sees them. Two purposes in one column: a durable record of
+-- "did this file arrive via an automated grab" (empty = no, found on
+-- disk or added by hand), and a matching hint the folder-level resolver
+-- can use to skip the album-search step it would otherwise need for a
+-- file whose target is already certain. Never cleared after a match —
+-- once matched, a file's row is never re-considered for folder
+-- resolution again (see ScanRootFolder's own StatusUnmatched filter), so
+-- the stamp is simply inert afterward rather than needing cleanup, and
+-- doubles as a permanent provenance record.
+ALTER TABLE track_files ADD COLUMN expected_release_group_mbid TEXT NOT NULL DEFAULT '';

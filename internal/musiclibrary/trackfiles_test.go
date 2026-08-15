@@ -78,7 +78,7 @@ func TestUpsertTrackFileByPathInsertsThenUpdatesWithoutTouchingMatch(t *testing.
 
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 200000)
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 200000, "")
 	if err := db.SetTrackFileMatch(tf.ID, &track.ID, StatusMatched, 0.95); err != nil {
 		t.Fatalf("SetTrackFileMatch: %v", err)
 	}
@@ -104,6 +104,74 @@ func TestUpsertTrackFileByPathInsertsThenUpdatesWithoutTouchingMatch(t *testing.
 	}
 }
 
+// TestSeedExpectedReleaseGroupThenScanPreservesIt is the regression test
+// for the mechanism internal/importer relies on: seeding a bare row before
+// the file is otherwise known, then a normal rescan-style
+// UpsertTrackFileByPath for the same path (exactly what ScanRootFolder's
+// own walk does) must never clear expected_release_group_mbid back out —
+// only size/format/bitrate/duration/tags are ever touched by that path.
+func TestSeedExpectedReleaseGroupThenScanPreservesIt(t *testing.T) {
+	db := newTestStore(t)
+	rfID := testMusicRoot(t, db)
+
+	if err := db.SeedExpectedReleaseGroup(rfID, "/music/song.flac", "rg-expected"); err != nil {
+		t.Fatalf("SeedExpectedReleaseGroup (insert): %v", err)
+	}
+	seeded, err := db.getTrackFileByPath("/music/song.flac")
+	if err != nil {
+		t.Fatalf("getTrackFileByPath: %v", err)
+	}
+	if seeded.ExpectedReleaseGroupMBID != "rg-expected" {
+		t.Fatalf("ExpectedReleaseGroupMBID after seed = %q, want rg-expected", seeded.ExpectedReleaseGroupMBID)
+	}
+	if seeded.MatchStatus != StatusUnmatched {
+		t.Errorf("MatchStatus after seed = %q, want unmatched", seeded.MatchStatus)
+	}
+
+	// The scan's own subsequent discovery upsert for the same path — must
+	// not clobber the stamp just set.
+	rescanned, err := db.UpsertTrackFileByPath(rfID, "/music/song.flac", 5000, "flac", 900, 200000, `{"title":"Song"}`)
+	if err != nil {
+		t.Fatalf("UpsertTrackFileByPath: %v", err)
+	}
+	if rescanned.ID != seeded.ID {
+		t.Fatalf("scan created a new row: ID = %d, want %d", rescanned.ID, seeded.ID)
+	}
+	got, err := db.GetTrackFile(seeded.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ExpectedReleaseGroupMBID != "rg-expected" {
+		t.Errorf("ExpectedReleaseGroupMBID after scan = %q, want unchanged rg-expected", got.ExpectedReleaseGroupMBID)
+	}
+	if got.Format != "flac" || got.SizeBytes != 5000 {
+		t.Errorf("scan didn't update the file's own metadata: got %+v", got)
+	}
+}
+
+// TestSeedExpectedReleaseGroupUpdatesExistingRow confirms seeding an
+// already-known path (not the common case, but harmless) updates the
+// existing row in place rather than erroring or creating a duplicate.
+func TestSeedExpectedReleaseGroupUpdatesExistingRow(t *testing.T) {
+	db := newTestStore(t)
+	rfID := testMusicRoot(t, db)
+
+	tf, err := db.UpsertTrackFileByPath(rfID, "/music/song.flac", 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedExpectedReleaseGroup(rfID, "/music/song.flac", "rg-later"); err != nil {
+		t.Fatalf("SeedExpectedReleaseGroup (update): %v", err)
+	}
+	got, err := db.GetTrackFile(tf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ExpectedReleaseGroupMBID != "rg-later" {
+		t.Errorf("ExpectedReleaseGroupMBID = %q, want rg-later", got.ExpectedReleaseGroupMBID)
+	}
+}
+
 func TestListTrackFilesByStatus(t *testing.T) {
 	db := newTestStore(t)
 	rfID := testMusicRoot(t, db)
@@ -118,7 +186,7 @@ func TestListTrackFilesByStatus(t *testing.T) {
 	}
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000)
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "")
 	if err := db.SetTrackFileMatch(matched.ID, &track.ID, StatusMatched, 0.9); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +263,7 @@ func TestListTrackFilesByArtist(t *testing.T) {
 
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000)
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "")
 
 	mine, err := db.UpsertTrackFileByPath(rfID, "/music/mine.mp3", 1, "mp3", 128, 1000, "{}")
 	if err != nil {
@@ -208,7 +276,7 @@ func TestListTrackFilesByArtist(t *testing.T) {
 	// A different artist's file must not show up.
 	other, _ := db.GetOrCreateArtist("b-mbid", "Other", "Other")
 	otherAlbum, _ := db.GetOrCreateAlbum(other.ID, "al2-mbid", "rg2-mbid", "Other Album", "2021", "Album")
-	otherTrack, _ := db.GetOrCreateTrack(otherAlbum.ID, "t2-mbid", "Other Song", 1, 1, 1000)
+	otherTrack, _ := db.GetOrCreateTrack(otherAlbum.ID, "t2-mbid", "Other Song", 1, 1, 1000, "")
 	otherFile, err := db.UpsertTrackFileByPath(rfID, "/music/other.mp3", 1, "mp3", 128, 1000, "{}")
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +311,7 @@ func TestListArtistsAndAlbumsOnlyShowMatchedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000)
+	track, err := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,11 +374,11 @@ func TestCountOwnedAlbumsByArtist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track1, err := db.GetOrCreateTrack(album1.ID, "t-1-mbid", "Song One", 1, 1, 1000)
+	track1, err := db.GetOrCreateTrack(album1.ID, "t-1-mbid", "Song One", 1, 1, 1000, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	track2, err := db.GetOrCreateTrack(album2.ID, "t-2-mbid", "Song Two", 1, 1, 1000)
+	track2, err := db.GetOrCreateTrack(album2.ID, "t-2-mbid", "Song Two", 1, 1, 1000, "")
 	if err != nil {
 		t.Fatal(err)
 	}

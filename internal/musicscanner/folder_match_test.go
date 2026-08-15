@@ -49,9 +49,10 @@ type mbReleaseSearchResult struct {
 }
 
 type mbTrackRecording struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Length int    `json:"length"`
+	ID           string           `json:"id"`
+	Title        string           `json:"title"`
+	Length       int              `json:"length"`
+	ArtistCredit []mbArtistCredit `json:"artist-credit,omitempty"`
 }
 
 type mbReleaseTrack struct {
@@ -544,7 +545,7 @@ func TestScanRootFolderSingleRemainingFileSkipsReleaseSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "rec-existing", "Already Matched", 1, 1, 200000)
+	track, err := s.db.GetOrCreateTrack(album.ID, "rec-existing", "Already Matched", 1, 1, 200000, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,6 +570,206 @@ func TestScanRootFolderSingleRemainingFileSkipsReleaseSearch(t *testing.T) {
 	}
 	if result.FilesMatched != 1 {
 		t.Errorf("FilesMatched = %d, want 1 (the leftover file, via fallback)", result.FilesMatched)
+	}
+}
+
+// TestResolveExpectedReleaseSkipsSearchForGrabbedFiles is the regression
+// test for the grab-provenance fast path: files stamped with a known
+// expected_release_group_mbid (as internal/importer does before a
+// completed grab's own scan runs) resolve straight to that release's
+// best-by-file-count cached version, without ever calling release search
+// — confirmed here by never configuring fs.releaseSearch at all, so the
+// test would fail with "no candidates" if the shortcut weren't taken.
+func TestResolveExpectedReleaseSkipsSearchForGrabbedFiles(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.releaseLookups["rel-main"] = newTestAlbumRelease("rel-main", "Test Album", "Track One", "Track Two")
+
+	s, rf := newFolderTestScanner(t, fs)
+	if err := s.db.ReplaceReleaseGroupVersions("rg-main", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-main", ReleaseMBID: "rel-main", Title: "Test Album", TrackCount: 2, IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+
+	p1 := buildFLACFile(t, rf.Path, "01.flac", map[string]string{"ARTIST": "Test Artist", "ALBUM": "Test Album", "TITLE": "Track One", "TRACKNUMBER": "1"})
+	p2 := buildFLACFile(t, rf.Path, "02.flac", map[string]string{"ARTIST": "Test Artist", "ALBUM": "Test Album", "TITLE": "Track Two", "TRACKNUMBER": "2"})
+	for _, p := range []string{p1, p2} {
+		if err := s.db.SeedExpectedReleaseGroup(rf.ID, p, "rg-main"); err != nil {
+			t.Fatalf("SeedExpectedReleaseGroup(%s): %v", p, err)
+		}
+	}
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if fs.countOf("release-search") != 0 {
+		t.Errorf("release-search count = %d, want 0 — the grab-provenance shortcut should skip it entirely", fs.countOf("release-search"))
+	}
+	if result.FilesMatched != 2 {
+		t.Fatalf("FilesMatched = %d, want 2 (result=%+v)", result.FilesMatched, result)
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albums) != 1 || albums[0].MBID != "rel-main" {
+		t.Fatalf("albums = %+v, want exactly rel-main", albums)
+	}
+}
+
+// TestResolveExpectedReleaseSafetyGateRefusesMismatchedTags is the
+// regression test for the safety concern raised while designing this
+// feature: a grab whose actual content doesn't match what was searched
+// for (a bad/mislabeled download) must not be force-bound to the wrong
+// release just because CantiNode expected something else. When the
+// folder's own tags positively name an album that doesn't look like the
+// expected release group's cached title, the shortcut refuses itself and
+// falls through to the normal search-based path — proven here by
+// asserting release-search WAS called, and that the file ends up matched
+// to what its own tags actually say rather than the (wrong) expectation.
+func TestResolveExpectedReleaseSafetyGateRefusesMismatchedTags(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.releaseSearch = []mbReleaseSearchResult{
+		{ID: "rel-actual", Title: "What This Really Is", Score: 100, TrackCount: 2,
+			ArtistCredit: []mbArtistCredit{{Name: "Test Artist", Artist: mbArtistRef{ID: "artist-mbid", Name: "Test Artist"}}},
+			ReleaseGroup: mbReleaseGroup{ID: "rg-actual", Title: "What This Really Is", PrimaryType: "Album"}},
+	}
+	fs.releaseLookups["rel-actual"] = newTestAlbumRelease("rel-actual", "What This Really Is", "Track One", "Track Two")
+
+	s, rf := newFolderTestScanner(t, fs)
+	if err := s.db.ReplaceReleaseGroupVersions("rg-expected", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-expected", ReleaseMBID: "rel-expected", Title: "The Expected Album", TrackCount: 2, IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+
+	// Two files (not one) — resolveFolderRelease's own pre-existing
+	// "nothing to disambiguate with a single file" shortcut skips release
+	// search entirely regardless of expectations, which would otherwise
+	// mask what this test is actually checking.
+	p1 := buildFLACFile(t, rf.Path, "01.flac", map[string]string{"ARTIST": "Test Artist", "ALBUM": "What This Really Is", "TITLE": "Track One", "TRACKNUMBER": "1"})
+	p2 := buildFLACFile(t, rf.Path, "02.flac", map[string]string{"ARTIST": "Test Artist", "ALBUM": "What This Really Is", "TITLE": "Track Two", "TRACKNUMBER": "2"})
+	for _, p := range []string{p1, p2} {
+		if err := s.db.SeedExpectedReleaseGroup(rf.ID, p, "rg-expected"); err != nil {
+			t.Fatalf("SeedExpectedReleaseGroup(%s): %v", p, err)
+		}
+	}
+
+	if _, err := s.ScanRootFolder(t.Context(), rf); err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if fs.countOf("release-search") == 0 {
+		t.Error("release-search count = 0, want at least 1 — the safety gate should have refused the mismatched expectation and fallen through to search")
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albums) != 1 || albums[0].MBID != "rel-actual" {
+		t.Fatalf("albums = %+v, want the file matched to what it actually is (rel-actual), not the wrong expectation", albums)
+	}
+}
+
+func TestPickBestVersionByFileCount(t *testing.T) {
+	versions := []musiclibrary.ReleaseGroupVersion{
+		{ReleaseMBID: "rel-10", TrackCount: 10},
+		{ReleaseMBID: "rel-12", TrackCount: 12, IsRepresentative: true},
+		{ReleaseMBID: "rel-15", TrackCount: 15},
+		{ReleaseMBID: "rel-unknown", TrackCount: 0}, // no usable track count — never a candidate
+	}
+	if got := pickBestVersionByFileCount(versions, 12); got == nil || got.ReleaseMBID != "rel-12" {
+		t.Errorf("exact match: got %+v, want rel-12", got)
+	}
+	if got := pickBestVersionByFileCount(versions, 11); got == nil || got.ReleaseMBID != "rel-10" && got.ReleaseMBID != "rel-12" {
+		t.Errorf("closest match (tie 10 vs 12, both diff 1): got %+v, want the tie broken toward representative rel-12", got)
+	}
+	if got := pickBestVersionByFileCount(nil, 5); got != nil {
+		t.Errorf("empty versions: got %+v, want nil", got)
+	}
+	if got := pickBestVersionByFileCount([]musiclibrary.ReleaseGroupVersion{{ReleaseMBID: "x", TrackCount: 0}}, 5); got != nil {
+		t.Errorf("only unusable versions: got %+v, want nil", got)
+	}
+}
+
+func TestJoinArtistCredit(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []musicbrainz.ArtistCredit
+		want string
+	}{
+		{"empty", nil, ""},
+		{"single", []musicbrainz.ArtistCredit{{Name: "Phil Collins"}}, "Phil Collins"},
+		{"multiple", []musicbrainz.ArtistCredit{{Name: "Artist A"}, {Name: "Artist B"}}, "Artist A, Artist B"},
+	}
+	for _, c := range cases {
+		if got := joinArtistCredit(c.in); got != c.want {
+			t.Errorf("%s: joinArtistCredit(%+v) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+// TestMatchEntriesToReleaseStoresPerTrackArtistCredit is the regression
+// test for the VA compilation gap: each track of a resolved release must
+// get its own real performing-artist credit stored — not the release's
+// own "Various Artists" credit repeated on every track, which is what
+// recordingForReleaseTrack's ArtistCredit field (used for artist/album
+// assignment) alone would give if applyMatch didn't receive the track's
+// real credit separately.
+func TestMatchEntriesToReleaseStoresPerTrackArtistCredit(t *testing.T) {
+	fs := newFolderTestServer()
+	release := mbReleaseWithTracklist{
+		ID:    "rel-va",
+		Title: "Various Artists Comp",
+		ArtistCredit: []mbArtistCredit{
+			{Name: "Various Artists", Artist: mbArtistRef{ID: "va-mbid", Name: "Various Artists"}},
+		},
+		ReleaseGroup: mbReleaseGroup{ID: "rg-va", Title: "Various Artists Comp", PrimaryType: "Album"},
+		Media: []mbMedium{{Format: "CD", Position: 1, TrackCount: 2, Tracks: []mbReleaseTrack{
+			{Position: 1, Title: "Track One", Recording: mbTrackRecording{
+				ID: "rec-1", Title: "Track One", Length: 200000,
+				ArtistCredit: []mbArtistCredit{{Name: "Phil Collins", Artist: mbArtistRef{ID: "phil-mbid", Name: "Phil Collins"}}},
+			}},
+			{Position: 2, Title: "Track Two", Recording: mbTrackRecording{
+				ID: "rec-2", Title: "Track Two", Length: 200000,
+				ArtistCredit: []mbArtistCredit{{Name: "Duran Duran", Artist: mbArtistRef{ID: "duran-mbid", Name: "Duran Duran"}}},
+			}},
+		}}},
+	}
+	fs.releaseLookups["rel-va"] = release
+
+	s, rf := newFolderTestScanner(t, fs)
+	buildFLACFile(t, rf.Path, "01.flac", map[string]string{"MUSICBRAINZ_ALBUMID": "rel-va", "TITLE": "Track One", "TRACKNUMBER": "1", "ARTIST": "Various Artists", "ALBUM": "Various Artists Comp"})
+
+	// Route straight through matchFolder's embedded-release-MBID fast path
+	// (the file names the release directly) so this test exercises
+	// matchEntriesToRelease deterministically without depending on search
+	// scoring.
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("FilesMatched = %d, want 1 (result=%+v)", result.FilesMatched, result)
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "va-mbid"))
+	if err != nil || len(albums) != 1 {
+		t.Fatalf("albums = %+v, err %v, want exactly 1 under Various Artists", albums, err)
+	}
+	tracks, err := s.db.ListTracksByAlbum(albums[0].ID)
+	if err != nil || len(tracks) != 1 {
+		t.Fatalf("tracks = %+v, err %v, want exactly 1", tracks, err)
+	}
+	// Track One's own credit is "Phil Collins" — deliberately different
+	// from the release's own "Various Artists" credit, so a stored value
+	// matching it (not "Various Artists") proves the real per-track
+	// credit was used for display, while the album itself still correctly
+	// filed under Various Artists (asserted above).
+	if tracks[0].ArtistCredit != "Phil Collins" {
+		t.Errorf("track ArtistCredit = %q, want %q (the track's own real credit, not the album's)", tracks[0].ArtistCredit, "Phil Collins")
 	}
 }
 

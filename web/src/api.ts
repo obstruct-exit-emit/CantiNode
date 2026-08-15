@@ -294,6 +294,10 @@ export interface MusicTrack {
   durationMs: number;
   createdAt: string;
   updatedAt: string;
+  // This track's own real performing-artist credit from MusicBrainz —
+  // only present when it differs from the album's own artist (e.g. a
+  // "Various Artists" compilation's individual track performers).
+  artistCredit?: string;
 }
 
 export interface MusicTrackFile {
