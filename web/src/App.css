@@ -339,6 +339,17 @@ button.toggle.on:hover:not(:disabled) {
   margin-bottom: 1rem;
 }
 
+/* Groups a form's trailing buttons (e.g. Auto-match + Suggest matches) so
+   they wrap onto a new line together as one unit, rather than each button
+   being its own flex item free to land on a different line from the
+   other — which otherwise looked like the buttons randomly split apart
+   whenever the selects before them took up enough space to wrap. */
+.button-group {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+}
+
 /* A <select> otherwise sizes itself to its widest option's full text (an
    auto-match version dropdown's generated label — title, disambiguation,
    track count, country — routinely runs 60+ characters) which, combined

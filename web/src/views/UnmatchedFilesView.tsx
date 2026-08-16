@@ -723,17 +723,19 @@ function AutoMatchPanel({
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          disabled={autoMatching}
-          title="Fill in the artist/album/version dropdowns above automatically, when confident enough — always yours to review and change before matching"
-          onClick={autoMatch}
-        >
-          {autoMatching ? "Auto-matching…" : "Auto-match"}
-        </button>
-        <button type="submit" disabled={!albumMbid || suggesting}>
-          {suggesting ? "Matching…" : "Suggest matches"}
-        </button>
+        <span className="button-group">
+          <button
+            type="button"
+            disabled={autoMatching}
+            title="Fill in the artist/album/version dropdowns above automatically, when confident enough — always yours to review and change before matching"
+            onClick={autoMatch}
+          >
+            {autoMatching ? "Auto-matching…" : "Auto-match"}
+          </button>
+          <button type="submit" disabled={!albumMbid || suggesting}>
+            {suggesting ? "Matching…" : "Suggest matches"}
+          </button>
+        </span>
       </form>
       <div className="row">
         <button
