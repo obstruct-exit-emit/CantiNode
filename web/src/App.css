@@ -879,8 +879,8 @@ button.owned-link:hover {
 /* --- Plex-style layout: sidebar + content --- */
 .app.with-sidebar {
   display: grid;
-  grid-template-columns: 155px 1fr;
-  gap: 1rem;
+  grid-template-columns: 130px 1fr;
+  gap: 0.85rem;
   max-width: 1200px;
 }
 
@@ -889,7 +889,7 @@ button.owned-link:hover {
   top: 1rem;
   align-self: start;
   border-right: 1px solid var(--border);
-  padding-right: 1rem;
+  padding-right: 0.6rem;
   min-height: 80vh;
 }
 
@@ -909,10 +909,11 @@ button.owned-link:hover {
   border: none;
   color: var(--text);
   text-align: left;
-  padding: 0.45rem 0.6rem;
+  padding: 0.45rem 0.4rem;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
+  line-height: 1.25;
 }
 
 .nav-item:hover {
