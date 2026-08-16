@@ -25,7 +25,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/indexer"
@@ -69,10 +71,69 @@ func (s *searcher) categories() string {
 	return defaultCategories
 }
 
-// Search queries Prowlarr's own /api/v1/search — Prowlarr fans out to every
-// indexer it has configured and merges the results itself; CantiNode just
-// asks once. A media type Prowlarr's music category can't serve yields
-// nothing, not an error.
+// perSubIndexerTimeout bounds each individual sub-indexer request Search
+// fans out to — comfortably longer than a healthy indexer's real response
+// time, comfortably shorter than the caller's own overall search timeout
+// (60s in internal/api/shared.go and internal/autosearch), so a slow
+// sub-indexer misses its round instead of blocking the fast ones. A var,
+// not a const, so a test can shrink it rather than actually sleeping 20s.
+var perSubIndexerTimeout = 20 * time.Second
+
+// subIndexer is Prowlarr's own indexer list entry (GET /api/v1/indexer) —
+// only the fields Search's fan-out needs.
+type subIndexer struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Enable bool   `json:"enable"`
+}
+
+// listEnabledSubIndexers fetches Prowlarr's own configured indexer list,
+// filtered to the ones actually enabled there.
+func (s *searcher) listEnabledSubIndexers(ctx context.Context) ([]subIndexer, error) {
+	body, err := s.get(ctx, "/api/v1/indexer")
+	if err != nil {
+		return nil, err
+	}
+	var all []subIndexer
+	if err := json.Unmarshal(body, &all); err != nil {
+		return nil, fmt.Errorf("prowlarr: parsing indexer list: %w", err)
+	}
+	enabled := make([]subIndexer, 0, len(all))
+	for _, ind := range all {
+		if ind.Enable {
+			enabled = append(enabled, ind)
+		}
+	}
+	return enabled, nil
+}
+
+// buildSearchURL renders the query Search's own /api/v1/search call needs.
+// indexerID, when > 0, scopes the search to that one Prowlarr sub-indexer
+// (Prowlarr's own indexerIds param) instead of every indexer it has
+// configured.
+func (s *searcher) buildSearchURL(query string, indexerID int) string {
+	q := url.Values{"query": {query}, "type": {"search"}}
+	for _, cat := range strings.Split(s.categories(), ",") {
+		if cat = strings.TrimSpace(cat); cat != "" {
+			q.Add("categories", cat)
+		}
+	}
+	if indexerID > 0 {
+		q.Set("indexerIds", strconv.Itoa(indexerID))
+	}
+	return "/api/v1/search?" + q.Encode()
+}
+
+// Search queries Prowlarr's own /api/v1/search, one sub-indexer at a time
+// in parallel (each bounded by perSubIndexerTimeout) rather than Prowlarr's
+// own aggregate call — which can't respond faster than its slowest
+// sub-indexer, and in practice one scraped torrent site regularly takes
+// 25-60s+ while the rest answer in a few seconds. A slow or already-resting
+// (see backoff.go) sub-indexer simply contributes nothing to this round
+// instead of holding up the others. Falls back to the old single aggregate
+// call if the sub-indexer list itself can't be fetched — never worse than
+// before this existed. A media type Prowlarr's music category can't serve
+// yields nothing, not an error.
 func (s *searcher) Search(ctx context.Context, query, mediaType string) ([]indexer.Release, error) {
 	if mediaType != "music" {
 		return nil, nil
@@ -81,26 +142,67 @@ func (s *searcher) Search(ctx context.Context, query, mediaType string) ([]index
 		return nil, fmt.Errorf("prowlarr: a base URL (your Prowlarr instance's address) is required")
 	}
 
-	q := url.Values{"query": {query}, "type": {"search"}}
-	for _, cat := range strings.Split(s.categories(), ",") {
-		if cat = strings.TrimSpace(cat); cat != "" {
-			q.Add("categories", cat)
-		}
+	subs, err := s.listEnabledSubIndexers(ctx)
+	if err != nil || len(subs) == 0 {
+		return s.searchAggregate(ctx, query)
 	}
 
-	body, err := s.get(ctx, "/api/v1/search?"+q.Encode())
+	var (
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+		releases = []indexer.Release{}
+	)
+	for _, sub := range subs {
+		if subIndexerBackoff.resting(s.ind.ID, sub.ID) {
+			continue
+		}
+		wg.Add(1)
+		go func(sub subIndexer) {
+			defer wg.Done()
+			sctx, cancel := context.WithTimeout(ctx, perSubIndexerTimeout)
+			defer cancel()
+			body, err := s.get(sctx, s.buildSearchURL(query, sub.ID))
+			subIndexerBackoff.record(s.ind.ID, sub.ID, err)
+			if err != nil {
+				return // best-effort: one slow/failed sub-indexer doesn't sink the batch
+			}
+			found, err := parseReleases(body, s.ind)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			releases = append(releases, found...)
+			mu.Unlock()
+		}(sub)
+	}
+	wg.Wait()
+	return releases, nil
+}
+
+// searchAggregate is Search's pre-fan-out behavior: one call covering every
+// indexer Prowlarr has configured, at the mercy of however long Prowlarr's
+// own aggregation takes. Used only when the sub-indexer list itself
+// couldn't be fetched, so this feature is never worse than before it
+// existed.
+func (s *searcher) searchAggregate(ctx context.Context, query string) ([]indexer.Release, error) {
+	body, err := s.get(ctx, s.buildSearchURL(query, 0))
 	if err != nil {
 		return nil, err
 	}
+	return parseReleases(body, s.ind)
+}
 
+// parseReleases decodes a /api/v1/search response body into CantiNode's
+// own Release shape — shared by Search's per-sub-indexer fan-out and
+// searchAggregate's fallback.
+func parseReleases(body []byte, ind *indexer.Indexer) ([]indexer.Release, error) {
 	var results []release
 	if err := json.Unmarshal(body, &results); err != nil {
 		return nil, fmt.Errorf("prowlarr: parsing search response: %w", err)
 	}
-
 	releases := make([]indexer.Release, 0, len(results))
 	for _, r := range results {
-		releases = append(releases, r.toRelease(s.ind))
+		releases = append(releases, r.toRelease(ind))
 	}
 	return releases, nil
 }

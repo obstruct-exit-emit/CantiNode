@@ -11,6 +11,24 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Prowlarr searches no longer wait on the slowest indexer Prowlarr has
+  configured.** Diagnosed live: CantiNode's Prowlarr source called
+  Prowlarr's own aggregate `/api/v1/search`, which doesn't respond until
+  every indexer it has configured has — with 7 real indexers, 6 answered
+  in under 4 seconds each, but one scraped torrent site alone regularly
+  took 25-60s+, so every search waited on it. `internal/indexer/prowlarr`
+  now lists Prowlarr's own enabled sub-indexers and queries each one
+  individually (via Prowlarr's `indexerIds=` param) in parallel, each
+  bounded by its own 20s timeout — a slow one just misses that round
+  instead of blocking the rest. A new package-local backoff (mirroring
+  `internal/indexer`'s existing top-level indexer backoff) rests a
+  sub-indexer after 3 consecutive timeouts/failures so CantiNode stops
+  even attempting a consistently bad one for a while, without needing
+  Prowlarr to report anything itself — confirmed live that Prowlarr's own
+  `averageResponseTime` stat is a stale, RSS-sync-dominated rolling
+  average, not a reliable real-time signal. Falls back to the old single
+  aggregate call if the sub-indexer list itself can't be fetched, so this
+  is never worse than before.
 - **Album cover art now tries TheAudioDB first, falling back to Cover Art
   Archive** for whatever TheAudioDB doesn't have — previously album covers
   came from Cover Art Archive alone. TheAudioDB is keyed by release GROUP

@@ -11,15 +11,22 @@ search/scoring/grab pipeline:
   including per-indexer feed URLs from Jackett. Test buttons on the form
   and on every saved indexer.
 - **A Prowlarr connection**: add one indexer of type **Prowlarr** with your
-  Prowlarr instance's URL and API key. CantiNode calls Prowlarr's own
-  `GET /api/v1/search` — the same call Prowlarr's own search page makes —
-  so one connection searches everything Prowlarr already has configured,
-  with no per-indexer duplication and no application-sync dance (CantiNode
-  doesn't pretend to be a Readarr application Prowlarr pushes indexers
-  into). Each result names which of Prowlarr's own indexers actually
-  answered, and rides the exact same scoring/grab path as a directly-added
-  indexer's results — Prowlarr's own search has no quality-profile concept,
-  but going through CantiNode's still applies one.
+  Prowlarr instance's URL and API key — one connection searches everything
+  Prowlarr already has configured, with no per-indexer duplication and no
+  application-sync dance (CantiNode doesn't pretend to be a Readarr
+  application Prowlarr pushes indexers into). Rather than one call to
+  Prowlarr's own aggregate search (which can't respond faster than
+  whichever of Prowlarr's own indexers is slowest — one bad scraped site
+  used to mean every search waited on it, even with several fast indexers
+  already done), CantiNode queries each of Prowlarr's indexers
+  individually in parallel, each with its own bounded timeout; a
+  consistently slow or failing one rests on its own (see backoff below),
+  independent of Prowlarr's other indexers and independent of any other
+  indexer connection entirely. Each result still names which of Prowlarr's
+  own indexers actually answered, and rides the exact same scoring/grab
+  path as a directly-added indexer's results — Prowlarr's own search has
+  no quality-profile concept, but going through CantiNode's still applies
+  one.
 
 Each indexer carries an **audio category list** (default `3010,3040`) —
 adjust per indexer if yours differ. (The Prowlarr connection uses this too,
@@ -29,7 +36,11 @@ An indexer that keeps failing **rests with exponential backoff** instead
 of being retried every sweep — the first 2 consecutive failures are
 tolerated with no penalty (a single flaky sweep shouldn't sideline an
 indexer), then the 3rd starts a 2-minute rest, doubling per failure after
-that up to a 20-minute cap; one success clears it.
+that up to a 20-minute cap; one success clears it. A Prowlarr connection
+applies this same rest cycle to each of its own indexers individually
+(not to the Prowlarr connection as a whole), so one bad indexer inside
+Prowlarr resting doesn't affect Prowlarr's other indexers or anything
+else configured directly in CantiNode.
 
 ### Native indexers
 
