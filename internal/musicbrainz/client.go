@@ -7,10 +7,12 @@ package musicbrainz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -109,6 +111,66 @@ func (c *Client) LookupArtist(ctx context.Context, mbid string) (*Artist, error)
 		return nil, fmt.Errorf("decode artist %s: %w", mbid, err)
 	}
 	return &artist, nil
+}
+
+// ErrSeriesHasNoReleaseGroups means mbid resolved to a real MusicBrainz
+// Series, but not one CantiNode can track as a discography source — either
+// it links nothing but non-release-group entities (a Series can just as
+// well link Releases, Recordings, Works, or Events), or it links nothing
+// at all. A series MBID that doesn't exist, or an MBID for a different
+// entity type entirely (an artist, a release, ...), fails LookupSeries
+// with an ordinary MusicBrainz 404 instead — series/artist/release MBIDs
+// live in disjoint UUID space, so MusicBrainz itself already tells those
+// apart.
+var ErrSeriesHasNoReleaseGroups = errors.New("musicbrainz: series has no release-group entries")
+
+// LookupSeries fetches mbid's full release-group membership in one
+// unpaginated call (verified live against a real 87-entry series — a
+// Series lookup's relations aren't paged the way a Browse response is).
+// See musiclibrary.Artist.Kind's own doc comment for why CantiNode tracks
+// a Series as a synthetic library "artist." Relations is filtered to
+// target-type == "release_group" (a Series can link other entity types
+// too) and sorted by each one's own ordering-key ascending.
+func (c *Client) LookupSeries(ctx context.Context, mbid string) (*Series, error) {
+	body, err := c.get(ctx, "/series/"+url.PathEscape(mbid), url.Values{
+		"inc": {"release-group-rels+artist-credits"},
+		"fmt": {"json"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("lookup series %s: %w", mbid, err)
+	}
+	var resp seriesLookupResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("decode series %s: %w", mbid, err)
+	}
+
+	relations := make([]SeriesReleaseGroupRelation, 0, len(resp.Relations))
+	for _, rel := range resp.Relations {
+		if rel.TargetType != "release_group" {
+			continue
+		}
+		relations = append(relations, SeriesReleaseGroupRelation{
+			OrderingKey:      rel.OrderingKey,
+			ReleaseGroupMBID: rel.ReleaseGroup.ID,
+			Title:            rel.ReleaseGroup.Title,
+			PrimaryType:      rel.ReleaseGroup.PrimaryType,
+			SecondaryTypes:   rel.ReleaseGroup.SecondaryTypes,
+			FirstReleaseDate: rel.ReleaseGroup.FirstReleaseDate,
+			ArtistCredit:     rel.ReleaseGroup.ArtistCredit,
+		})
+	}
+	if len(relations) == 0 {
+		return nil, ErrSeriesHasNoReleaseGroups
+	}
+	sort.Slice(relations, func(i, j int) bool { return relations[i].OrderingKey < relations[j].OrderingKey })
+
+	return &Series{
+		ID:             resp.ID,
+		Type:           resp.Type,
+		Disambiguation: resp.Disambiguation,
+		Name:           resp.Name,
+		Relations:      relations,
+	}, nil
 }
 
 // browseLimit is MusicBrainz's own maximum page size for a browse

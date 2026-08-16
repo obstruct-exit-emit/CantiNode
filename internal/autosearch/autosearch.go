@@ -161,7 +161,7 @@ func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist,
 		s.logger.Warn("autosearch: some indexers failed to answer", "artist", artist.Name, "album", wanted.Title, "errors", errs)
 	}
 
-	candidates := candidatesearch.ScoreAndRank(found, blocked, prefs, artist.Name)
+	candidates := candidatesearch.ScoreAndRank(found, blocked, prefs, artist.SearchRelevanceName())
 	if len(candidates) == 0 || !candidates[0].Approved {
 		return false
 	}

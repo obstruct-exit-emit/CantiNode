@@ -270,6 +270,10 @@ export interface MusicArtist {
   updatedAt: string;
   ownedAlbumCount?: number;
   totalAlbumCount?: number;
+  // "artist" (the default) for a real MusicBrainz artist, "series" for a
+  // MusicBrainz Series tracked as a synthetic library artist (see
+  // addMusicSeries) — otherwise behaves identically everywhere in the UI.
+  kind: string;
 }
 
 export interface MusicAlbum {
@@ -680,6 +684,15 @@ export const api = {
   // handleQuickAddMusicArtist.
   quickAddMusicArtist: (mbid: string) =>
     request<MusicArtist>("/api/v1/music/artist/quick", json({ mbid })),
+  // Adds a MusicBrainz Series (e.g. a numbered compilation series like
+  // "Now That's What I Call Music!") as a synthetic library artist — a
+  // second way into the library beyond one real artist at a time. input is
+  // sent as raw pasted text (a full series URL or a bare MBID); the
+  // backend is the only place that parses/validates it, since it's also
+  // the only place that can authoritatively resolve it against MusicBrainz
+  // anyway. Behaves like monitoring a real artist from here on.
+  addMusicSeries: (input: string) =>
+    request<MusicArtist>("/api/v1/music/series", json({ input })),
   getMusicArtist: (id: number) => request<MusicArtist>(`/api/v1/music/artist/${id}`),
   unmonitorMusicArtist: (id: number) =>
     request<void>(`/api/v1/music/artist/${id}/unmonitor`, { method: "POST" }),

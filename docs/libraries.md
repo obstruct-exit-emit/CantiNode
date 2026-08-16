@@ -58,6 +58,30 @@ cached discography metadata (including that same album's cached versions
 and cover art) alone, since the artist and the rest of its discography are
 still here.
 
+## Adding via a MusicBrainz series link
+
+A second way into the library besides searching for one real artist at a
+time: **+ Add → Paste series link** takes a MusicBrainz **Series** link
+(type "Release group series" — a numbered compilation series like "Now
+That's What I Call Music!" is the common case) or a bare series ID, and
+tracks its whole discography as a monitored artist page, same as a real
+artist — every numbered entry becomes an album, browsable under one shared
+page instead of scattered across whichever real MusicBrainz artist-credit
+each entry actually carries (almost always "Various Artists" for a
+compilation series). A track's own real performer still shows on the
+album page and in its written tags, same as any other compilation (see
+[Existing-file import](#existing-file-import-unmatched-files) below) —
+only the grouping/browsing identity is the series itself.
+
+Behaves exactly like a monitored real artist otherwise: discography lands
+in Missing (nothing auto-wanted), **Refresh metadata** re-syncs the
+series for new entries (no bio/photo to refresh — a series has neither),
+and **Remove artist** removes it the same way. A new numbered entry
+released after the series was added only shows up in Missing once you
+click Refresh metadata — same manual-only convention a real artist's own
+new releases already follow, no separate background timer for a series
+either.
+
 ## Existing-file import (unmatched files)
 
 Scanning matches files in layers. First by **tag**: a file's own embedded

@@ -5,6 +5,27 @@ import (
 	"time"
 )
 
+// TestSearchRelevanceName is the test that would have caught the
+// relevance-gate gap before shipping the MusicBrainz-series-add feature:
+// internal/release.Score's artistRelevant check rejects any candidate
+// release whose title doesn't plausibly name wantedArtist, but a series'
+// own real name essentially never appears verbatim in a release's own
+// file/torrent name the way a real artist's does — searching for a series
+// artist's wanted albums with its literal name as wantedArtist would
+// reject good results. A real artist must still get its own name checked
+// against, unchanged.
+func TestSearchRelevanceName(t *testing.T) {
+	real := Artist{Name: "Avantasia", Kind: "artist"}
+	if got := real.SearchRelevanceName(); got != "Avantasia" {
+		t.Errorf("real artist SearchRelevanceName() = %q, want Avantasia", got)
+	}
+
+	series := Artist{Name: "Now That's What I Call Music!", Kind: "series"}
+	if got := series.SearchRelevanceName(); got != "" {
+		t.Errorf("series artist SearchRelevanceName() = %q, want empty (artistRelevant's own free pass)", got)
+	}
+}
+
 func TestGetOrCreateArtistCreatesThenReuses(t *testing.T) {
 	db := newTestStore(t)
 
@@ -263,5 +284,140 @@ func TestReplaceAndListArtistReleaseGroups(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Errorf("len(got) after replace = %d, want 1", len(got))
+	}
+}
+
+func TestGetOrCreateSeriesArtistCreatesThenReuses(t *testing.T) {
+	db := newTestStore(t)
+
+	a1, err := db.GetOrCreateSeriesArtist("series-mbid-1", "Now That's What I Call Music!")
+	if err != nil {
+		t.Fatalf("GetOrCreateSeriesArtist: %v", err)
+	}
+	if a1.ID == 0 {
+		t.Error("expected nonzero ID")
+	}
+	if a1.Kind != "series" {
+		t.Errorf("Kind = %q, want series", a1.Kind)
+	}
+
+	a2, err := db.GetOrCreateSeriesArtist("series-mbid-1", "Now That's What I Call Music!")
+	if err != nil {
+		t.Fatalf("GetOrCreateSeriesArtist (second call): %v", err)
+	}
+	if a2.ID != a1.ID {
+		t.Errorf("second call created a new row: ID = %d, want %d", a2.ID, a1.ID)
+	}
+
+	got, err := db.GetArtist(a1.ID)
+	if err != nil {
+		t.Fatalf("GetArtist: %v", err)
+	}
+	if got.Kind != "series" {
+		t.Errorf("GetArtist Kind = %q, want series", got.Kind)
+	}
+}
+
+// TestGetOrCreateArtistDefaultsToArtistKind proves the ordinary real-artist
+// path (unchanged by this feature) still gets kind='artist' via the
+// column's own default — GetOrCreateArtist itself was never touched to set
+// it explicitly.
+func TestGetOrCreateArtistDefaultsToArtistKind(t *testing.T) {
+	db := newTestStore(t)
+
+	a, err := db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Kind != "artist" {
+		t.Errorf("Kind = %q, want artist", a.Kind)
+	}
+	got, err := db.GetArtist(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != "artist" {
+		t.Errorf("GetArtist Kind = %q, want artist", got.Kind)
+	}
+}
+
+func TestGetSeriesArtistForReleaseGroup(t *testing.T) {
+	db := newTestStore(t)
+
+	series, err := db.GetOrCreateSeriesArtist("series-mbid", "Now That's What I Call Music!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceArtistReleaseGroups(series.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-now-84", Title: "NOW 84", PrimaryType: "Album"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A real, non-series artist that happens to have a release group cached
+	// too — must never be returned by this lookup.
+	realArtist, err := db.GetOrCreateArtist("real-artist-mbid", "Various Artists", "Various Artists")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceArtistReleaseGroups(realArtist.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-unrelated", Title: "Some Compilation", PrimaryType: "Album"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	found, ok, err := db.GetSeriesArtistForReleaseGroup("rg-now-84")
+	if err != nil {
+		t.Fatalf("GetSeriesArtistForReleaseGroup: %v", err)
+	}
+	if !ok || found.ID != series.ID {
+		t.Errorf("found = %+v, ok = %v, want the series artist %d", found, ok, series.ID)
+	}
+
+	_, ok, err = db.GetSeriesArtistForReleaseGroup("rg-unrelated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("a release group only cached under a real (non-series) artist must not be found here")
+	}
+
+	_, ok, err = db.GetSeriesArtistForReleaseGroup("rg-does-not-exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Error("an unknown release group must not be found")
+	}
+}
+
+// TestGetSeriesArtistForReleaseGroupTiesBreakToLowerID covers the rare
+// case of one release group claimed by two different tracked series —
+// resolves deterministically rather than arbitrarily.
+func TestGetSeriesArtistForReleaseGroupTiesBreakToLowerID(t *testing.T) {
+	db := newTestStore(t)
+
+	first, err := db.GetOrCreateSeriesArtist("series-a", "Series A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.GetOrCreateSeriesArtist("series-b", "Series B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{first.ID, second.ID} {
+		if err := db.ReplaceArtistReleaseGroups(id, []ReleaseGroupCache{
+			{ReleaseGroupMBID: "rg-shared", Title: "Shared Entry", PrimaryType: "Album"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	found, ok, err := db.GetSeriesArtistForReleaseGroup("rg-shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || found.ID != first.ID {
+		t.Errorf("found = %+v, want the lower artist ID %d (first created)", found, first.ID)
 	}
 }

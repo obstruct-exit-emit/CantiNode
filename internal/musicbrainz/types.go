@@ -140,6 +140,76 @@ type releaseGroupBrowseResponse struct {
 	Offset        int                   `json:"release-group-offset"`
 }
 
+// Series is a MusicBrainz Series entity, resolved via LookupSeries — a
+// stable, ordered collection of release groups (a numbered compilation
+// series, e.g. "Now That's What I Call Music!", is the common case).
+// CantiNode tracks one as a synthetic library "artist" (see
+// musiclibrary.Artist.Kind's own doc comment for why) rather than
+// scattering its entries across whichever real MusicBrainz artist-credit
+// each one happens to carry.
+type Series struct {
+	ID string
+	// Type is MusicBrainz's own series type, e.g. "Release group series" —
+	// the only kind CantiNode's Relations parsing keeps anything from (a
+	// Series can also link Releases, Recordings, Works, or Events; those
+	// relations are filtered out, so a series of the wrong kind ends up
+	// with an empty Relations slice — see LookupSeries).
+	Type           string
+	Disambiguation string
+	Name           string
+	// Relations is every release group linked to this series, sorted by
+	// OrderingKey (the series' own sequence number) ascending.
+	Relations []SeriesReleaseGroupRelation
+}
+
+// SeriesReleaseGroupRelation is one release group's membership in a
+// tracked series — its own identity (same fields ReleaseGroupSummary
+// carries elsewhere) plus its position in the series and its own real
+// artist-credit, captured for completeness even though CantiNode's
+// matching pipeline resolves a series-tracked file's filing artist from
+// the local library instead (see musiclibrary.GetSeriesArtistForReleaseGroup).
+type SeriesReleaseGroupRelation struct {
+	OrderingKey      int
+	ReleaseGroupMBID string
+	Title            string
+	PrimaryType      string
+	SecondaryTypes   []string
+	FirstReleaseDate string
+	ArtistCredit     []ArtistCredit
+}
+
+// seriesLookupResponse is the raw shape of GET /series/{mbid}?inc=
+// release-group-rels+artist-credits, verified live against a real 87-entry
+// series. Relations includes every kind of thing a series can link
+// (releases, recordings, works, events), not just release groups — target-
+// type distinguishes them, and only "release_group" is one CantiNode
+// currently understands.
+type seriesLookupResponse struct {
+	ID             string           `json:"id"`
+	Type           string           `json:"type"`
+	Disambiguation string           `json:"disambiguation"`
+	Name           string           `json:"name"`
+	Relations      []seriesRelation `json:"relations"`
+}
+
+type seriesRelation struct {
+	TargetType   string             `json:"target-type"`
+	OrderingKey  int                `json:"ordering-key"`
+	ReleaseGroup seriesReleaseGroup `json:"release_group"`
+}
+
+// seriesReleaseGroup mirrors ReleaseGroupSummary's identity fields plus
+// the artist-credit only present in this nested shape (a series relation's
+// own response, not a plain release-group lookup/browse).
+type seriesReleaseGroup struct {
+	ID               string         `json:"id"`
+	Title            string         `json:"title"`
+	PrimaryType      string         `json:"primary-type"`
+	SecondaryTypes   []string       `json:"secondary-types"`
+	FirstReleaseDate string         `json:"first-release-date"`
+	ArtistCredit     []ArtistCredit `json:"artist-credit"`
+}
+
 // Genre is one of MusicBrainz's own curated genre tags (inc=genres) —
 // distinct from Tag, which is free-form community folksonomy.
 type Genre struct {
@@ -175,9 +245,9 @@ type Rating struct {
 // nothing displays them yet, so a future feature never needs a fresh
 // MusicBrainz round trip for data already fetched once.
 type Artist struct {
-	ID             string  `json:"id"`
-	Name           string  `json:"name"`
-	SortName       string  `json:"sort-name"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	SortName string `json:"sort-name"`
 	// Type ("Person", "Group", "Orchestra", "Choir", ...), Disambiguation,
 	// and Country only ever come back populated from SearchArtists — the
 	// "monitor an artist" search UI's only real way to tell apart two

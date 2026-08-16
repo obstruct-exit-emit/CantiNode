@@ -1,6 +1,7 @@
 package musicbrainz
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -86,6 +87,140 @@ func TestLookupRecording(t *testing.T) {
 	}
 	if rel.ReleaseGroup.PrimaryType != "Album" {
 		t.Errorf("ReleaseGroup.PrimaryType = %q", rel.ReleaseGroup.PrimaryType)
+	}
+}
+
+// sampleSeriesJSON is shaped like the real payload verified live against
+// MusicBrainz's own API for the "Now That's What I Call Music!" series
+// (GET /series/{mbid}?inc=release-group-rels+artist-credits&fmt=json):
+// relations out of ordering-key order (MusicBrainz doesn't guarantee any
+// particular order), one relation whose target-type isn't a release group
+// at all (must be filtered out), and a release group whose primary-type
+// comes back JSON null (observed live — must decode cleanly to "").
+const sampleSeriesJSON = `{
+	"id": "d223e2e2-e90b-4d88-b637-4215b7ebaac2",
+	"type": "Release group series",
+	"disambiguation": "USA",
+	"name": "Now That’s What I Call Music!",
+	"relations": [
+		{
+			"target-type": "release_group",
+			"ordering-key": 84,
+			"release_group": {
+				"id": "c08490f1-fa82-407e-8731-4a2e17840a6a",
+				"title": "NOW That's What I Call Music 84",
+				"primary-type": null,
+				"secondary-types": [],
+				"first-release-date": "2022-10-28",
+				"artist-credit": [
+					{
+						"name": "Various Artists",
+						"artist": {
+							"id": "89ad4ac3-39f7-470e-963a-56509c546377",
+							"name": "Various Artists",
+							"sort-name": "Various Artists"
+						}
+					}
+				]
+			}
+		},
+		{
+			"target-type": "release_group",
+			"ordering-key": 1,
+			"release_group": {
+				"id": "c8f39a5b-e9b0-3b9e-9292-3c4527ecb61f",
+				"title": "NOW",
+				"primary-type": null,
+				"secondary-types": [],
+				"first-release-date": "1998-10-27",
+				"artist-credit": [
+					{
+						"name": "Various Artists",
+						"artist": {
+							"id": "89ad4ac3-39f7-470e-963a-56509c546377",
+							"name": "Various Artists",
+							"sort-name": "Various Artists"
+						}
+					}
+				]
+			}
+		},
+		{
+			"target-type": "artist",
+			"ordering-key": 1,
+			"artist": {
+				"id": "89ad4ac3-39f7-470e-963a-56509c546377",
+				"name": "Various Artists"
+			}
+		}
+	]
+}`
+
+func TestLookupSeries(t *testing.T) {
+	var gotPath, gotInc string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotInc = r.URL.Query().Get("inc")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleSeriesJSON))
+	})
+
+	s, err := c.LookupSeries(t.Context(), "d223e2e2-e90b-4d88-b637-4215b7ebaac2")
+	if err != nil {
+		t.Fatalf("LookupSeries: %v", err)
+	}
+	if gotPath != "/series/d223e2e2-e90b-4d88-b637-4215b7ebaac2" {
+		t.Errorf("request path = %q", gotPath)
+	}
+	if !strings.Contains(gotInc, "release-group-rels") || !strings.Contains(gotInc, "artist-credits") {
+		t.Errorf("inc = %q, want release-group-rels and artist-credits", gotInc)
+	}
+
+	if s.Name != "Now That’s What I Call Music!" || s.Type != "Release group series" {
+		t.Errorf("Name/Type = %q/%q", s.Name, s.Type)
+	}
+	if len(s.Relations) != 2 {
+		t.Fatalf("len(Relations) = %d, want 2 (the artist relation must be filtered out)", len(s.Relations))
+	}
+	// Sorted by ordering-key ascending, regardless of the response's own order.
+	if s.Relations[0].OrderingKey != 1 || s.Relations[0].Title != "NOW" {
+		t.Errorf("Relations[0] = %+v, want ordering-key 1 (NOW)", s.Relations[0])
+	}
+	if s.Relations[1].OrderingKey != 84 || s.Relations[1].Title != "NOW That's What I Call Music 84" {
+		t.Errorf("Relations[1] = %+v, want ordering-key 84", s.Relations[1])
+	}
+	if s.Relations[1].ReleaseGroupMBID != "c08490f1-fa82-407e-8731-4a2e17840a6a" {
+		t.Errorf("ReleaseGroupMBID = %q", s.Relations[1].ReleaseGroupMBID)
+	}
+	if s.Relations[1].PrimaryType != "" {
+		t.Errorf("PrimaryType = %q, want empty (JSON null must decode cleanly)", s.Relations[1].PrimaryType)
+	}
+	if len(s.Relations[1].ArtistCredit) == 0 || s.Relations[1].ArtistCredit[0].Name != "Various Artists" {
+		t.Errorf("ArtistCredit = %+v, want Various Artists passed through", s.Relations[1].ArtistCredit)
+	}
+}
+
+// TestLookupSeriesRejectsSeriesWithNoReleaseGroups covers a real series of
+// a kind CantiNode doesn't support (one that links only, say, recordings
+// or works) — a 200 response with nothing usable after filtering, which
+// must be a clear, distinguishable rejection rather than silently
+// returning an empty series.
+func TestLookupSeriesRejectsSeriesWithNoReleaseGroups(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"id": "some-work-series-mbid",
+			"type": "Work series",
+			"name": "Some Work Series",
+			"relations": [
+				{"target-type": "work", "ordering-key": 1, "work": {"id": "w1"}}
+			]
+		}`))
+	})
+
+	_, err := c.LookupSeries(t.Context(), "some-work-series-mbid")
+	if !errors.Is(err, ErrSeriesHasNoReleaseGroups) {
+		t.Errorf("err = %v, want ErrSeriesHasNoReleaseGroups", err)
 	}
 }
 

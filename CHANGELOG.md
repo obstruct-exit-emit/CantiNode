@@ -11,6 +11,27 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A second way to add music: paste a MusicBrainz Series link.** A
+  numbered compilation series (e.g. "Now That's What I Call Music!") can
+  now be added and monitored as its own artist page — every entry becomes
+  an album under it, instead of scattering across whichever real
+  MusicBrainz artist-credit each one carries (almost always "Various
+  Artists" for a compilation series). Behaves like monitoring a real
+  artist otherwise: discography lands in Missing, `Refresh metadata`
+  re-syncs it (no bio/photo — a series has neither), no background
+  auto-resync or auto-wanting of new entries. `artists` gained a `kind`
+  column (migration 028) distinguishing a series-backed row from a real
+  MusicBrainz artist; matching (`applyMatch`) now checks whether a
+  release group is tracked under a series before falling back to the
+  recording/release's own real artist-credit, so a grabbed/matched entry
+  actually lands owned under the series instead of a stray new "Various
+  Artists" row with its wanted counterpart stuck forever. Search scoring's
+  relevance gate (`artistRelevant` in `internal/release` — rejects a
+  candidate release whose title doesn't plausibly name the wanted artist)
+  also had to learn to skip itself for a series artist, since a series'
+  own name essentially never
+  appears verbatim in a release's file/torrent name the way a real
+  artist's does.
 - **Prowlarr searches no longer wait on the slowest indexer Prowlarr has
   configured.** Diagnosed live: CantiNode's Prowlarr source called
   Prowlarr's own aggregate `/api/v1/search`, which doesn't respond until
