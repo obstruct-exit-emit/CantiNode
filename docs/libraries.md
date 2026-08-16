@@ -61,15 +61,21 @@ still here.
 ## Adding via a MusicBrainz series link
 
 A second way into the library besides searching for one real artist at a
-time: **+ Add → Paste series link** takes a MusicBrainz **Series** link
-(type "Release group series" — a numbered compilation series like "Now
-That's What I Call Music!" is the common case) or a bare series ID, and
-tracks its whole discography as a monitored artist page, same as a real
-artist — every numbered entry becomes an album, browsable under one shared
-page instead of scattered across whichever real MusicBrainz artist-credit
-each entry actually carries (almost always "Various Artists" for a
-compilation series). A track's own real performer still shows on the
-album page and in its written tags, same as any other compilation (see
+time: **+ Add → Paste series link** takes a MusicBrainz **Series** link or
+a bare series ID and tracks its whole discography as a monitored artist
+page, same as a real artist — every numbered entry becomes an album,
+browsable under one shared page instead of scattered across whichever real
+MusicBrainz artist-credit each entry actually carries (almost always
+"Various Artists" for a compilation series like "Now That's What I Call
+Music!"). Both MusicBrainz series types that resolve to albums are
+supported — "Release group series" (each entry a release group directly)
+and "Release series" (each entry a specific release/edition, resolved to
+its own release group with one extra lookup per entry — slower to add,
+since MusicBrainz doesn't include that in the series data itself, but
+otherwise identical afterward); a series linking recordings, works, or
+events instead is rejected with a clear error, since none of those resolve
+to an album. A track's own real performer still shows on the album page
+and in its written tags, same as any other compilation (see
 [Existing-file import](#existing-file-import-unmatched-files) below) —
 only the grouping/browsing identity is the series itself.
 

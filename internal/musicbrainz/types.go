@@ -149,16 +149,22 @@ type releaseGroupBrowseResponse struct {
 // each one happens to carry.
 type Series struct {
 	ID string
-	// Type is MusicBrainz's own series type, e.g. "Release group series" —
-	// the only kind CantiNode's Relations parsing keeps anything from (a
-	// Series can also link Releases, Recordings, Works, or Events; those
-	// relations are filtered out, so a series of the wrong kind ends up
-	// with an empty Relations slice — see LookupSeries).
+	// Type is MusicBrainz's own series type — "Release group series" (each
+	// entry a release group directly) and "Release series" (each entry a
+	// specific release, resolved to its own release group via an extra
+	// lookup — see LookupSeries) are both understood; a Series can also
+	// link Recordings, Works, or Events, which aren't (those relations are
+	// filtered out, so a series of one of those kinds ends up with an
+	// empty Relations slice).
 	Type           string
 	Disambiguation string
 	Name           string
-	// Relations is every release group linked to this series, sorted by
-	// OrderingKey (the series' own sequence number) ascending.
+	// Relations is every release group linked to this series (directly,
+	// or via a specific release that belongs to it), sorted by
+	// OrderingKey (the series' own sequence number) ascending, deduplicated
+	// by release group (a "Release series" could in principle list two
+	// different editions of the same underlying album as separate entries
+	// — the lowest ordering-key wins).
 	Relations []SeriesReleaseGroupRelation
 }
 
@@ -196,6 +202,14 @@ type seriesRelation struct {
 	TargetType   string             `json:"target-type"`
 	OrderingKey  int                `json:"ordering-key"`
 	ReleaseGroup seriesReleaseGroup `json:"release_group"`
+	// Release is populated instead of ReleaseGroup when TargetType is
+	// "release" (a "Release series" — see Series.Type's own doc comment).
+	// MusicBrainz doesn't nest a release's own release-group inside a
+	// series relation at all (release-groups isn't a valid inc for the
+	// series resource), so this only carries the release's own identity —
+	// LookupSeries resolves ReleaseGroupMBID with one further lookup per
+	// such relation.
+	Release seriesRelease `json:"release"`
 }
 
 // seriesReleaseGroup mirrors ReleaseGroupSummary's identity fields plus
@@ -208,6 +222,26 @@ type seriesReleaseGroup struct {
 	SecondaryTypes   []string       `json:"secondary-types"`
 	FirstReleaseDate string         `json:"first-release-date"`
 	ArtistCredit     []ArtistCredit `json:"artist-credit"`
+}
+
+// seriesRelease is a specific release as it appears nested inside a
+// "Release series" relation — its own release-group isn't included here
+// (see seriesRelation.Release's own doc comment), only what's needed to
+// look that up separately plus a fallback title/date/credit in case that
+// lookup ever fails.
+type seriesRelease struct {
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	Date         string         `json:"date"`
+	ArtistCredit []ArtistCredit `json:"artist-credit"`
+}
+
+// releaseWithReleaseGroupResponse is the raw shape of GET
+// /release/{mbid}?inc=release-groups — deliberately lighter than
+// LookupReleaseWithTracklist (no media/tracklist), used only to resolve a
+// "Release series" entry's own release group.
+type releaseWithReleaseGroupResponse struct {
+	ReleaseGroup ReleaseGroupSummary `json:"release-group"`
 }
 
 // Genre is one of MusicBrainz's own curated genre tags (inc=genres) —

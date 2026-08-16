@@ -32,6 +32,20 @@ in progress. Highlights from the hardening period, newest first:
   own name essentially never
   appears verbatim in a release's file/torrent name the way a real
   artist's does.
+- **Series-add now also supports "Release series"**, not just "Release
+  group series" — found live minutes after shipping the series-add feature
+  above, pasting a real "Release series" link ("Cities 97.1 Sampler")
+  rejected outright. The two are different MusicBrainz series kinds: a
+  "Release group series" links release groups (albums) directly, but a
+  "Release series" links specific releases (editions/pressings) instead,
+  and MusicBrainz doesn't include a release's own release group in that
+  relationship data at all (`release-groups` isn't even a valid `inc` for
+  the series resource). `LookupSeries` now makes one further, best-effort
+  lookup per release entry to resolve its release group (a real,
+  sequential, rate-limited cost — slower to add a large "Release series"
+  than a "Release group series", where everything comes back in one call),
+  deduplicating by release group in case the same underlying album is
+  listed under two different editions.
 - **Prowlarr searches no longer wait on the slowest indexer Prowlarr has
   configured.** Diagnosed live: CantiNode's Prowlarr source called
   Prowlarr's own aggregate `/api/v1/search`, which doesn't respond until

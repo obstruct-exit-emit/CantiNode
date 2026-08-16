@@ -115,25 +115,33 @@ func (c *Client) LookupArtist(ctx context.Context, mbid string) (*Artist, error)
 
 // ErrSeriesHasNoReleaseGroups means mbid resolved to a real MusicBrainz
 // Series, but not one CantiNode can track as a discography source — either
-// it links nothing but non-release-group entities (a Series can just as
-// well link Releases, Recordings, Works, or Events), or it links nothing
-// at all. A series MBID that doesn't exist, or an MBID for a different
-// entity type entirely (an artist, a release, ...), fails LookupSeries
-// with an ordinary MusicBrainz 404 instead — series/artist/release MBIDs
-// live in disjoint UUID space, so MusicBrainz itself already tells those
-// apart.
+// it links nothing but entity types that don't resolve to an album at all
+// (a Series can just as well link Recordings, Works, or Events instead of
+// Release Groups/Releases), every one of its Release entries failed the
+// extra release-group resolution lookup, or it links nothing at all. A
+// series MBID that doesn't exist, or an MBID for a different entity type
+// entirely (an artist, a release, ...), fails LookupSeries with an
+// ordinary MusicBrainz 404 instead — series/artist/release MBIDs live in
+// disjoint UUID space, so MusicBrainz itself already tells those apart.
 var ErrSeriesHasNoReleaseGroups = errors.New("musicbrainz: series has no release-group entries")
 
 // LookupSeries fetches mbid's full release-group membership in one
 // unpaginated call (verified live against a real 87-entry series — a
 // Series lookup's relations aren't paged the way a Browse response is).
 // See musiclibrary.Artist.Kind's own doc comment for why CantiNode tracks
-// a Series as a synthetic library "artist." Relations is filtered to
-// target-type == "release_group" (a Series can link other entity types
-// too) and sorted by each one's own ordering-key ascending.
+// a Series as a synthetic library "artist." Understands both series kinds
+// that link release groups (see Series.Type's own doc comment): a
+// "release_group" relation is used as-is; a "release" relation (a
+// "Release series") needs one further lookup per entry to resolve its own
+// release group, since MusicBrainz doesn't nest that inside a series
+// relation at all — a real, sequential, rate-limited cost this incurs only
+// for that series kind, best-effort (an entry whose extra lookup fails is
+// skipped rather than failing the whole series). Both kinds' relations are
+// merged, deduplicated by release group (lowest ordering-key wins), and
+// sorted by ordering-key ascending.
 func (c *Client) LookupSeries(ctx context.Context, mbid string) (*Series, error) {
 	body, err := c.get(ctx, "/series/"+url.PathEscape(mbid), url.Values{
-		"inc": {"release-group-rels+artist-credits"},
+		"inc": {"release-group-rels+release-rels+artist-credits"},
 		"fmt": {"json"},
 	})
 	if err != nil {
@@ -144,23 +152,47 @@ func (c *Client) LookupSeries(ctx context.Context, mbid string) (*Series, error)
 		return nil, fmt.Errorf("decode series %s: %w", mbid, err)
 	}
 
-	relations := make([]SeriesReleaseGroupRelation, 0, len(resp.Relations))
+	byReleaseGroup := make(map[string]SeriesReleaseGroupRelation, len(resp.Relations))
 	for _, rel := range resp.Relations {
-		if rel.TargetType != "release_group" {
+		var entry SeriesReleaseGroupRelation
+		switch rel.TargetType {
+		case "release_group":
+			entry = SeriesReleaseGroupRelation{
+				OrderingKey:      rel.OrderingKey,
+				ReleaseGroupMBID: rel.ReleaseGroup.ID,
+				Title:            rel.ReleaseGroup.Title,
+				PrimaryType:      rel.ReleaseGroup.PrimaryType,
+				SecondaryTypes:   rel.ReleaseGroup.SecondaryTypes,
+				FirstReleaseDate: rel.ReleaseGroup.FirstReleaseDate,
+				ArtistCredit:     rel.ReleaseGroup.ArtistCredit,
+			}
+		case "release":
+			rg, err := c.lookupReleaseGroupForRelease(ctx, rel.Release.ID)
+			if err != nil {
+				continue // best-effort: one bad/deleted release entry doesn't sink the whole series
+			}
+			entry = SeriesReleaseGroupRelation{
+				OrderingKey:      rel.OrderingKey,
+				ReleaseGroupMBID: rg.ID,
+				Title:            rg.Title,
+				PrimaryType:      rg.PrimaryType,
+				SecondaryTypes:   rg.SecondaryTypes,
+				FirstReleaseDate: rg.FirstReleaseDate,
+				ArtistCredit:     rel.Release.ArtistCredit,
+			}
+		default:
 			continue
 		}
-		relations = append(relations, SeriesReleaseGroupRelation{
-			OrderingKey:      rel.OrderingKey,
-			ReleaseGroupMBID: rel.ReleaseGroup.ID,
-			Title:            rel.ReleaseGroup.Title,
-			PrimaryType:      rel.ReleaseGroup.PrimaryType,
-			SecondaryTypes:   rel.ReleaseGroup.SecondaryTypes,
-			FirstReleaseDate: rel.ReleaseGroup.FirstReleaseDate,
-			ArtistCredit:     rel.ReleaseGroup.ArtistCredit,
-		})
+		if existing, ok := byReleaseGroup[entry.ReleaseGroupMBID]; !ok || entry.OrderingKey < existing.OrderingKey {
+			byReleaseGroup[entry.ReleaseGroupMBID] = entry
+		}
 	}
-	if len(relations) == 0 {
+	if len(byReleaseGroup) == 0 {
 		return nil, ErrSeriesHasNoReleaseGroups
+	}
+	relations := make([]SeriesReleaseGroupRelation, 0, len(byReleaseGroup))
+	for _, entry := range byReleaseGroup {
+		relations = append(relations, entry)
 	}
 	sort.Slice(relations, func(i, j int) bool { return relations[i].OrderingKey < relations[j].OrderingKey })
 
@@ -171,6 +203,27 @@ func (c *Client) LookupSeries(ctx context.Context, mbid string) (*Series, error)
 		Name:           resp.Name,
 		Relations:      relations,
 	}, nil
+}
+
+// lookupReleaseGroupForRelease resolves releaseMBID's own release group —
+// deliberately lighter than LookupReleaseWithTracklist (no media/
+// tracklist), used only by LookupSeries's "Release series" handling.
+func (c *Client) lookupReleaseGroupForRelease(ctx context.Context, releaseMBID string) (ReleaseGroupSummary, error) {
+	body, err := c.get(ctx, "/release/"+url.PathEscape(releaseMBID), url.Values{
+		"inc": {"release-groups"},
+		"fmt": {"json"},
+	})
+	if err != nil {
+		return ReleaseGroupSummary{}, fmt.Errorf("lookup release group for release %s: %w", releaseMBID, err)
+	}
+	var resp releaseWithReleaseGroupResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return ReleaseGroupSummary{}, fmt.Errorf("decode release %s: %w", releaseMBID, err)
+	}
+	if resp.ReleaseGroup.ID == "" {
+		return ReleaseGroupSummary{}, fmt.Errorf("release %s has no release group", releaseMBID)
+	}
+	return resp.ReleaseGroup, nil
 }
 
 // browseLimit is MusicBrainz's own maximum page size for a browse

@@ -278,7 +278,7 @@ func (s *server) handleAddMusicSeries(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, musicbrainz.ErrSeriesHasNoReleaseGroups) {
 			writeError(w, http.StatusBadRequest,
-				"this MusicBrainz series has no release groups CantiNode can track (it may link releases, recordings, works, or events instead)")
+				"this MusicBrainz series has no albums CantiNode can track (it may link recordings, works, or events instead of release groups/releases)")
 			return
 		}
 		writeError(w, http.StatusBadGateway, "look up series: "+err.Error())

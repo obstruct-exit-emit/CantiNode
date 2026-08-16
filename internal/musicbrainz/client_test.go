@@ -200,6 +200,142 @@ func TestLookupSeries(t *testing.T) {
 	}
 }
 
+// sampleReleaseSeriesJSON is shaped like the real payload verified live
+// against MusicBrainz's own API for "Cities 97.1 Sampler" — a "Release
+// series" (each entry a specific release, not a release group directly;
+// MusicBrainz doesn't nest release-group data inside this relation shape
+// at all, unlike the release_group-relation case).
+const sampleReleaseSeriesJSON = `{
+	"id": "b64abda5-c659-4216-a109-efc9fba5acc4",
+	"type": "Release series",
+	"disambiguation": "",
+	"name": "Cities 97.1 Sampler",
+	"relations": [
+		{
+			"target-type": "release",
+			"ordering-key": 27,
+			"release": {
+				"id": "edf3e301-17f2-4c73-a410-601ae1a24b54",
+				"title": "Cities 97 Sampler Volume 27",
+				"date": "2015-11-17",
+				"artist-credit": [
+					{"name": "Various Artists", "artist": {"id": "89ad4ac3-39f7-470e-963a-56509c546377", "name": "Various Artists", "sort-name": "Various Artists"}}
+				]
+			}
+		}
+	]
+}`
+
+// sampleReleaseWithReleaseGroupJSON is shaped like the real payload
+// verified live for GET /release/{mbid}?inc=release-groups — the
+// follow-up lookup a "Release series" entry needs.
+const sampleReleaseWithReleaseGroupJSON = `{
+	"id": "edf3e301-17f2-4c73-a410-601ae1a24b54",
+	"title": "Cities 97 Sampler Volume 27",
+	"release-group": {
+		"id": "310badb0-5e18-4985-82fa-de9169534084",
+		"title": "Cities 97 Sampler, Volume 27",
+		"primary-type": "Album",
+		"secondary-types": ["Live"],
+		"first-release-date": "2015-11-17"
+	}
+}`
+
+// TestLookupSeriesResolvesReleaseSeriesEntries covers the "Release series"
+// case (the type CantiNode originally rejected outright, reported live):
+// each relation names a specific release, not a release group directly,
+// so LookupSeries must make one further per-entry lookup to resolve it.
+func TestLookupSeriesResolvesReleaseSeriesEntries(t *testing.T) {
+	var releaseLookupPath string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/release/") {
+			releaseLookupPath = r.URL.Path
+			w.Write([]byte(sampleReleaseWithReleaseGroupJSON))
+			return
+		}
+		w.Write([]byte(sampleReleaseSeriesJSON))
+	})
+
+	s, err := c.LookupSeries(t.Context(), "b64abda5-c659-4216-a109-efc9fba5acc4")
+	if err != nil {
+		t.Fatalf("LookupSeries: %v", err)
+	}
+	if releaseLookupPath != "/release/edf3e301-17f2-4c73-a410-601ae1a24b54" {
+		t.Errorf("release lookup path = %q, want the entry's own release resolved", releaseLookupPath)
+	}
+	if len(s.Relations) != 1 {
+		t.Fatalf("len(Relations) = %d, want 1", len(s.Relations))
+	}
+	rel := s.Relations[0]
+	if rel.ReleaseGroupMBID != "310badb0-5e18-4985-82fa-de9169534084" {
+		t.Errorf("ReleaseGroupMBID = %q, want the resolved release group, not the release's own id", rel.ReleaseGroupMBID)
+	}
+	if rel.Title != "Cities 97 Sampler, Volume 27" {
+		t.Errorf("Title = %q, want the release GROUP's own title", rel.Title)
+	}
+	if rel.OrderingKey != 27 {
+		t.Errorf("OrderingKey = %d, want 27 (from the series relation, not the release lookup)", rel.OrderingKey)
+	}
+	if len(rel.ArtistCredit) == 0 || rel.ArtistCredit[0].Name != "Various Artists" {
+		t.Errorf("ArtistCredit = %+v, want the release's own credit carried through", rel.ArtistCredit)
+	}
+}
+
+// TestLookupSeriesSkipsReleaseEntryWhenResolutionFails proves one bad or
+// deleted release entry in a "Release series" doesn't sink the whole
+// series — best-effort, matching this codebase's general pattern for a
+// per-entry enrichment step.
+func TestLookupSeriesSkipsReleaseEntryWhenResolutionFails(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/release/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleReleaseSeriesJSON))
+	})
+
+	_, err := c.LookupSeries(t.Context(), "b64abda5-c659-4216-a109-efc9fba5acc4")
+	if !errors.Is(err, ErrSeriesHasNoReleaseGroups) {
+		t.Errorf("err = %v, want ErrSeriesHasNoReleaseGroups (the only entry's resolution failed, leaving nothing)", err)
+	}
+}
+
+// TestLookupSeriesDedupesSharedReleaseGroup covers a "Release series"
+// listing two different editions of what's ultimately the same underlying
+// album as separate entries — a real possibility MusicBrainz allows.
+// Deduplicated by release group, lowest ordering-key wins.
+func TestLookupSeriesDedupesSharedReleaseGroup(t *testing.T) {
+	seriesJSON := `{
+		"id": "series-mbid", "type": "Release series", "name": "Two Editions",
+		"relations": [
+			{"target-type": "release", "ordering-key": 5, "release": {"id": "release-edition-b", "title": "Edition B"}},
+			{"target-type": "release", "ordering-key": 1, "release": {"id": "release-edition-a", "title": "Edition A"}}
+		]
+	}`
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/release/release-edition-a" || r.URL.Path == "/release/release-edition-b" {
+			// Both editions resolve to the same underlying release group.
+			w.Write([]byte(`{"id": "irrelevant", "title": "irrelevant", "release-group": {"id": "shared-rg", "title": "The Album", "primary-type": "Album"}}`))
+			return
+		}
+		w.Write([]byte(seriesJSON))
+	})
+
+	s, err := c.LookupSeries(t.Context(), "series-mbid")
+	if err != nil {
+		t.Fatalf("LookupSeries: %v", err)
+	}
+	if len(s.Relations) != 1 {
+		t.Fatalf("len(Relations) = %d, want 1 (deduplicated by release group)", len(s.Relations))
+	}
+	if s.Relations[0].OrderingKey != 1 {
+		t.Errorf("OrderingKey = %d, want 1 (the lower ordering-key wins)", s.Relations[0].OrderingKey)
+	}
+}
+
 // TestLookupSeriesRejectsSeriesWithNoReleaseGroups covers a real series of
 // a kind CantiNode doesn't support (one that links only, say, recordings
 // or works) — a 200 response with nothing usable after filtering, which
