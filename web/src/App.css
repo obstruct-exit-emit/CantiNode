@@ -879,8 +879,8 @@ button.owned-link:hover {
 /* --- Plex-style layout: sidebar + content --- */
 .app.with-sidebar {
   display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 1.25rem;
+  grid-template-columns: 155px 1fr;
+  gap: 1rem;
   max-width: 1200px;
 }
 
