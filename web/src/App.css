@@ -177,6 +177,7 @@ dd {
 
 form {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
@@ -336,6 +337,21 @@ button.toggle.on:hover:not(:disabled) {
 
 .search-form {
   margin-bottom: 1rem;
+}
+
+/* A <select> otherwise sizes itself to its widest option's full text (an
+   auto-match version dropdown's generated label — title, disambiguation,
+   track count, country — routinely runs 60+ characters) which, combined
+   with several selects in one flex row, forced the whole form wider than
+   the viewport. min-width: 0 lets it actually shrink/wrap like other flex
+   items; the closed (unopened) state then ellipsizes instead of forcing
+   width — the dropdown itself still shows every option's full text. */
+.search-form select {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-form {
