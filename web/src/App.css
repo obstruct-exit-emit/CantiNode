@@ -339,6 +339,20 @@ button.toggle.on:hover:not(:disabled) {
   margin-bottom: 1rem;
 }
 
+/* Stacks a form's fields (e.g. the auto-match panel's artist/album/version
+   selects) one per line instead of side by side — each select can carry a
+   long generated label (title, disambiguation, track count, country), so
+   a row layout either forced horizontal scroll or, wrapped, still read as
+   a cramped, unpredictable jumble. flex-basis: 100% claims the whole
+   row inside the parent form's own flex-wrap, pushing .button-group
+   below it onto its own line. */
+.stacked-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1 0 100%;
+}
+
 /* Groups a form's trailing buttons (e.g. Auto-match + Suggest matches) so
    they wrap onto a new line together as one unit, rather than each button
    being its own flex item free to land on a different line from the

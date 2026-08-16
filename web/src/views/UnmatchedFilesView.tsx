@@ -686,43 +686,45 @@ function AutoMatchPanel({
   return (
     <div className="add-panel">
       <form className="search-form" onSubmit={(e) => { e.preventDefault(); suggest(); }}>
-        <select
-          value={artistId}
-          onChange={(e) => pickArtist(e.target.value === "" ? "" : Number(e.target.value))}
-        >
-          <option value="">Artist…</option>
-          {artists.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
+        <div className="stacked-fields">
+          <select
+            value={artistId}
+            onChange={(e) => pickArtist(e.target.value === "" ? "" : Number(e.target.value))}
+          >
+            <option value="">Artist…</option>
+            {artists.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <select value={albumMbid} onChange={(e) => pickAlbum(e.target.value)} disabled={!albums}>
+            <option value="">{albums ? "Album…" : "Pick an artist first"}</option>
+            {albums?.map((al) => (
+              <option key={al.mbid} value={al.mbid}>
+                {al.title} ({al.sub})
+              </option>
+            ))}
+          </select>
+          <select
+            value={releaseMbid}
+            onChange={(e) => setReleaseMbid(e.target.value)}
+            disabled={!versions || versions.length === 0}
+          >
+            <option value="">
+              {!albumMbid ? "Pick an album first" : versions ? (versions.length ? "Version…" : "No cached versions") : "Loading…"}
             </option>
-          ))}
-        </select>
-        <select value={albumMbid} onChange={(e) => pickAlbum(e.target.value)} disabled={!albums}>
-          <option value="">{albums ? "Album…" : "Pick an artist first"}</option>
-          {albums?.map((al) => (
-            <option key={al.mbid} value={al.mbid}>
-              {al.title} ({al.sub})
-            </option>
-          ))}
-        </select>
-        <select
-          value={releaseMbid}
-          onChange={(e) => setReleaseMbid(e.target.value)}
-          disabled={!versions || versions.length === 0}
-        >
-          <option value="">
-            {!albumMbid ? "Pick an album first" : versions ? (versions.length ? "Version…" : "No cached versions") : "Loading…"}
-          </option>
-          {versions?.map((v) => (
-            <option key={v.releaseMbid} value={v.releaseMbid}>
-              {v.title}
-              {v.disambiguation ? ` (${v.disambiguation})` : ""}
-              {v.mediaSummary ? ` — ${v.mediaSummary}` : ""}
-              {v.trackCount ? ` · ${v.trackCount} tracks` : ""}
-              {v.country ? ` · ${v.country}` : ""}
-            </option>
-          ))}
-        </select>
+            {versions?.map((v) => (
+              <option key={v.releaseMbid} value={v.releaseMbid}>
+                {v.title}
+                {v.disambiguation ? ` (${v.disambiguation})` : ""}
+                {v.mediaSummary ? ` — ${v.mediaSummary}` : ""}
+                {v.trackCount ? ` · ${v.trackCount} tracks` : ""}
+                {v.country ? ` · ${v.country}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
         <span className="button-group">
           <button
             type="button"
