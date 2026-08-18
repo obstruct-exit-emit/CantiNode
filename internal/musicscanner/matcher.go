@@ -30,20 +30,24 @@ func joinArtistCredit(credits []musicbrainz.ArtistCredit) string {
 	return strings.Join(names, ", ")
 }
 
-// isCompilationRelease reports whether rg is flagged as anything other
-// than a plain single-artist studio album — MusicBrainz's own
-// SecondaryTypes signal, which covers both an ordinary artist's own "Best
-// Of" and a genuine Various Artists release. correctArtistCreditForCompilation
-// triggering on the broader signal is still correct either way: an
-// ordinary compilation's release-level credit is just that same one
-// artist, so substituting it is a harmless no-op.
-func isCompilationRelease(rg musicbrainz.ReleaseGroup) bool {
-	for _, t := range rg.SecondaryTypes {
-		if strings.EqualFold(t, "Compilation") {
-			return true
-		}
-	}
-	return false
+// releaseNeedsArtistCreditCheck reports whether rg is anything other than a
+// plain single-artist studio album (PrimaryType "Album", no
+// SecondaryTypes) — worth the extra MusicBrainz fetch
+// correctArtistCreditForCompilation makes to check the release's own real
+// artist-credit. Deliberately broader than just MusicBrainz's own
+// "Compilation" SecondaryTypes flag: found live, a real various-artists
+// release (a "Cities 97 Sampler" radio-station compilation) whose release
+// group MusicBrainz tags SecondaryTypes ["Live"] instead of
+// ["Compilation"] — its release-level artist-credit is still correctly
+// "Various Artists" (confirmed live against the real API), MusicBrainz's
+// own type classification just doesn't say "Compilation." Triggering on
+// this broader signal is still correct either way: an ordinary
+// single-artist Live album/EP/soundtrack/best-of's own release-level
+// credit is just that same one artist, so substituting it is a harmless
+// no-op — the cost of a false positive is one extra MusicBrainz request,
+// not a wrong result.
+func releaseNeedsArtistCreditCheck(rg musicbrainz.ReleaseGroup) bool {
+	return rg.PrimaryType != "Album" || len(rg.SecondaryTypes) > 0
 }
 
 // correctArtistCreditForCompilation mutates rec's own ArtistCredit to its
@@ -82,7 +86,7 @@ func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *mu
 	if _, isSeries, err := s.db.GetSeriesArtistForReleaseGroup(release.ReleaseGroup.ID); err == nil && isSeries {
 		return
 	}
-	if !isCompilationRelease(release.ReleaseGroup) {
+	if !releaseNeedsArtistCreditCheck(release.ReleaseGroup) {
 		return
 	}
 	full, err := s.mb.LookupReleaseWithTracklist(ctx, release.ID)

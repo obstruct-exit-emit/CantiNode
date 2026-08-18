@@ -153,6 +153,49 @@ func sampleCompilationTrackRecording(id, performerName string) mbRecording {
 	return rec
 }
 
+// sampleSamplerTrackRecording is sampleCompilationTrackRecording's
+// counterpart for the real live case that prompted broadening
+// releaseNeedsArtistCreditCheck beyond MusicBrainz's own "Compilation"
+// SecondaryTypes flag: id's own recording is credited to performerName,
+// but its best release's release group is tagged SecondaryTypes ["Live"]
+// rather than ["Compilation"] — confirmed live against the real
+// MusicBrainz API for an actual "Cities 97 Sampler" radio-station
+// various-artists compilation, whose release group is mistagged "Live"
+// even though its release-level artist-credit is correctly
+// "Various Artists".
+func sampleSamplerTrackRecording(id, performerName string) mbRecording {
+	rec := mbRecording{ID: id, Title: "Some Song", Length: 202000}
+	rec.ArtistCredit = []struct {
+		Name   string `json:"name"`
+		Artist struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			SortName string `json:"sort-name"`
+		} `json:"artist"`
+	}{{Name: performerName, Artist: struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		SortName string `json:"sort-name"`
+	}{ID: "performer-mbid-" + performerName, Name: performerName, SortName: performerName}}}
+	rec.Releases = []struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Date         string `json:"date"`
+		ReleaseGroup struct {
+			ID             string   `json:"id"`
+			Title          string   `json:"title"`
+			PrimaryType    string   `json:"primary-type"`
+			SecondaryTypes []string `json:"secondary-types,omitempty"`
+		} `json:"release-group"`
+	}{{ID: "sampler-release-mbid", Title: "Cities 97 Sampler Volume 27", Date: "2015", ReleaseGroup: struct {
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		PrimaryType    string   `json:"primary-type"`
+		SecondaryTypes []string `json:"secondary-types,omitempty"`
+	}{ID: "sampler-rg-mbid", Title: "Cities 97 Sampler Volume 27", PrimaryType: "Album", SecondaryTypes: []string{"Live"}}}}
+	return rec
+}
+
 // sampleReleaseArtistCredit is a lookupResponses fixture for the
 // LookupReleaseWithTracklist call correctArtistCreditForCompilation makes
 // — only ArtistCredit is populated since that's the only field the fix
@@ -507,6 +550,64 @@ func TestMatchFileDirectFilesCompilationTrackUnderReleaseArtist(t *testing.T) {
 	}
 	if track.ArtistCredit != "Phil Collins" {
 		t.Errorf("Track.ArtistCredit = %q, want the real performer Phil Collins preserved for display", track.ArtistCredit)
+	}
+}
+
+// TestMatchFileDirectFilesLiveTaggedSamplerTrackUnderReleaseArtist is the
+// regression test for a real bug found live: two tracks off different
+// "Cities 97 Sampler" volumes each got their own separate artist library
+// entry (Gary Moore, Rachel Platten) instead of filing under the shared
+// "Various Artists" artist their compilation actually belongs to — because
+// MusicBrainz tags that release series' release groups SecondaryTypes
+// ["Live"], not ["Compilation"], so the old, narrower
+// isCompilationRelease check never fired. Confirms the broadened
+// releaseNeedsArtistCreditCheck catches it too.
+func TestMatchFileDirectFilesLiveTaggedSamplerTrackUnderReleaseArtist(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-sampler-1":        sampleSamplerTrackRecording("rec-sampler-1", "Gary Moore"),
+		"sampler-release-mbid": sampleReleaseArtistCredit("sampler-release-mbid", "Various Artists"),
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":               "Some Song",
+		"ARTIST":              "Gary Moore",
+		"MUSICBRAINZ_TRACKID": "rec-sampler-1",
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("result = %+v, want 1 matched", result)
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 {
+		t.Fatalf("len(matched) = %d, want 1", len(matched))
+	}
+	track, err := s.db.GetTrack(*matched[0].TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetAlbum(track.AlbumID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist, err := s.db.GetArtist(album.ArtistID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artist.Name != "Various Artists" {
+		t.Errorf("filed under artist %q, want the release's own Various Artists credit despite its release group being tagged Live, not Compilation", artist.Name)
+	}
+	if track.ArtistCredit != "Gary Moore" {
+		t.Errorf("Track.ArtistCredit = %q, want the real performer Gary Moore preserved for display", track.ArtistCredit)
 	}
 }
 

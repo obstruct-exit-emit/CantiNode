@@ -647,6 +647,20 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Some Various Artists compilation tracks still filed under their own
+  real performer instead of the shared "Various Artists" artist.**
+  Reported live: Gary Moore and Rachel Platten tracks off different
+  "Cities 97 Sampler" radio-station compilation volumes each got their
+  own separate library artist entry. Root cause: `correctArtistCreditForCompilation`
+  only substituted the release's own artist-credit when the release
+  group's MusicBrainz `SecondaryTypes` said `"Compilation"` — but that
+  sampler series is tagged `"Live"` instead, even though its
+  release-level artist-credit is correctly "Various Artists" (confirmed
+  live against the real API). `releaseNeedsArtistCreditCheck` now
+  triggers on any release group that isn't a plain single-artist studio
+  album, not just ones explicitly tagged "Compilation" — a false
+  positive (an ordinary solo Live album/EP/soundtrack) just costs one
+  extra harmless MusicBrainz request, never a wrong result.
 - **The "Various Artists" pseudo-artist was flooding Missing with tens of
   thousands of bogus entries.** Any compilation track files under
   MusicBrainz's own special "Various Artists" artist (a real, universal
