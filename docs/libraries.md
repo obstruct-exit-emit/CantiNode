@@ -99,7 +99,16 @@ Refresh metadata click.
 
 Scanning matches files in layers. First by **tag**: a file's own embedded
 `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID` tags place it outright,
-however oddly it's named. Then by **whole-folder release matching**
+however oddly it's named — but only if the file's own tags actually agree
+with each other. If the embedded recording ID resolves to a MusicBrainz
+recording whose own known releases don't include the album the file's
+`MUSICBRAINZ_RELEASEGROUPID`/`TITLE` tags name (a real MusicBrainz data
+gap: a compilation can carry its own separate recording entry,
+disconnected from the "official" single/album one, for what's really the
+same performance), that embedded ID is no longer trusted blindly — the
+file falls through to whole-folder release matching instead, using its
+still-reliable album tag rather than the mismatched track one. Then by
+**whole-folder release matching**
 (track count and titles against a MusicBrainz release) — CD1/CD2/Disc-N
 sibling subfolders of the same multi-disc album are detected and merged
 into one matching group first (purely for matching purposes; files stay

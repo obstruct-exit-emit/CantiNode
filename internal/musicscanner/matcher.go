@@ -2,6 +2,7 @@ package musicscanner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -119,23 +120,49 @@ func embeddedTagsAgree(tags *tagreader.Tags, rec *musicbrainz.Recording) bool {
 	return false
 }
 
+// titleAgrees reports whether tags' own Title (when present) is plausibly
+// the same song as rec's — catches a stale-but-internally-consistent
+// embedded recording ID: one with no release-group tag to contradict it
+// (or none present at all) but that's simply the wrong recording. Same
+// threshold and tolerance-for-tag-noise reasoning as slotTrack's own
+// title fallback (folder_match.go) — kept as its own literal constant
+// here since the two independently document their own reasoning, not
+// because the value differs.
+func titleAgrees(tags *tagreader.Tags, rec *musicbrainz.Recording) bool {
+	if tags.Title == "" || rec.Title == "" {
+		return true
+	}
+	const directMatchTitleThreshold = 0.6
+	return titleSimilarity(tags.Title, rec.Title) >= directMatchTitleThreshold
+}
+
+// errDirectMatchInconsistent is matchFileDirect's own sentinel for "the
+// embedded recording ID doesn't check out" (embeddedTagsAgree or
+// titleAgrees failed) — not a real error. matchFolder (folder_match.go)
+// catches this specifically via errors.Is and gives the file a shot at
+// whole-folder consensus matching instead of recording a scan error or
+// leaving it unmatched outright. Deliberately narrow: a genuine lookup
+// failure (network, 404, stale MBID) still returns its own real error and
+// keeps today's behavior (recorded in ScanResult.Errors) — only a
+// positively-detected internal inconsistency reroutes.
+var errDirectMatchInconsistent = errors.New("embedded recording ID is inconsistent with the file's own tags")
+
 // matchFileDirect looks tf up directly by the MusicBrainz recording ID
 // already embedded in its own tags — confidence 1.0. Bypasses all
 // folder-level reasoning (see folder_match.go): the file's own tags are
 // already as authoritative as MusicBrainz gets, so long as they actually
-// agree with each other (see embeddedTagsAgree). Precondition:
+// agree with each other (see embeddedTagsAgree/titleAgrees). Precondition:
 // tags.MusicBrainzRecordingID != "".
 func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags) (bool, error) {
 	rec, err := s.mb.LookupRecording(ctx, tags.MusicBrainzRecordingID)
 	if err != nil {
 		return false, fmt.Errorf("lookup recording %s: %w", tags.MusicBrainzRecordingID, err)
 	}
-	if !embeddedTagsAgree(tags, rec) {
+	if !embeddedTagsAgree(tags, rec) || !titleAgrees(tags, rec) {
 		// Decline the fast path rather than confidently matching to the
-		// wrong album — left unmatched for the review flow (manual match /
-		// auto-match's own Suggest-matches), which resolves this correctly
-		// since it doesn't blindly trust the same mismatched recording ID.
-		return false, nil
+		// wrong album/song — matchFolder catches this sentinel and gives
+		// the file a real shot at whole-folder consensus matching instead.
+		return false, errDirectMatchInconsistent
 	}
 	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
 	s.correctArtistCreditForCompilation(ctx, rec, tags.MusicBrainzAlbumID)

@@ -14,6 +14,7 @@ import (
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 // buildFLACFile writes a minimal FLAC file (just a Vorbis comment block —
@@ -334,6 +335,84 @@ func TestScanRootFolderDirectMatchStillWorksWhenReleaseGroupTagAgrees(t *testing
 	}
 	if result.FilesFound != 1 || result.FilesMatched != 1 {
 		t.Errorf("result = %+v, want 1 found and 1 matched (tags agree)", result)
+	}
+}
+
+// TestTitleAgrees covers the second sanity check matchFileDirect runs —
+// a stale-but-internally-consistent embedded recording ID (no
+// release-group tag to contradict it) that simply names the wrong song.
+func TestTitleAgrees(t *testing.T) {
+	rec := &musicbrainz.Recording{Title: "Alpha and Omega"}
+	cases := []struct {
+		name string
+		tags *tagreader.Tags
+		want bool
+	}{
+		{"exact match", &tagreader.Tags{Title: "Alpha and Omega"}, true},
+		{"minor punctuation/case noise", &tagreader.Tags{Title: "alpha AND omega"}, true},
+		{"no title tag to check", &tagreader.Tags{Title: ""}, true},
+		{"genuinely different song", &tagreader.Tags{Title: "Skinny Love"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := titleAgrees(c.tags, rec); got != c.want {
+				t.Errorf("titleAgrees(%q, %q) = %v, want %v", c.tags.Title, rec.Title, got, c.want)
+			}
+		})
+	}
+}
+
+// TestScanRootFolderDeclinesDirectMatchWhenTitleDisagrees is
+// TestScanRootFolderDeclinesDirectMatchWhenReleaseGroupTagDisagrees's
+// counterpart for the other trigger: no release-group tag to contradict
+// the recording ID, but the file's own TITLE tag names a different song
+// than the (stale) recording actually is.
+func TestScanRootFolderDeclinesDirectMatchWhenTitleDisagrees(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-mbid": sampleRecording("rec-mbid", 0), // Title "Alpha and Omega"
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":               "Skinny Love", // does not match the recording's real title
+		"ARTIST":              "Birdy",
+		"MUSICBRAINZ_TRACKID": "rec-mbid",
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesFound != 1 || result.FilesMatched != 0 {
+		t.Errorf("result = %+v, want 1 found, 0 matched (titles disagree, fast path must decline)", result)
+	}
+}
+
+// TestScanRootFolderGenuineLookupErrorStillSurfacesInErrors is the
+// control proving errDirectMatchInconsistent's routing is narrow: a real
+// lookup failure (the recording MBID doesn't exist on MusicBrainz at all)
+// must still surface in ScanResult.Errors exactly as before, not get
+// silently swallowed by the new auto-route-to-folder-consensus path.
+func TestScanRootFolderGenuineLookupErrorStillSurfacesInErrors(t *testing.T) {
+	s, rf := newTestScanner(t, nil, nil) // no lookupResponses at all -> every lookup 404s
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":               "Alpha and Omega",
+		"ARTIST":              "Boards of Canada",
+		"MUSICBRAINZ_TRACKID": "does-not-exist",
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if len(result.Errors) == 0 {
+		t.Error("a genuine lookup failure should still be recorded in ScanResult.Errors")
+	}
+	if result.FilesMatched != 0 {
+		t.Errorf("FilesMatched = %d, want 0", result.FilesMatched)
 	}
 }
 
@@ -682,7 +761,10 @@ func TestScanRootFolderDedupesAlbumAcrossDifferentReleaseEditions(t *testing.T) 
 		"TITLE": "Alpha and Omega", "ARTIST": "Boards of Canada", "MUSICBRAINZ_TRACKID": "rec-a",
 	})
 	buildFLACFile(t, rf.Path, "two.flac", map[string]string{
-		"TITLE": "Beta", "ARTIST": "Boards of Canada", "MUSICBRAINZ_TRACKID": "rec-b",
+		// TITLE must agree with sampleRecording's own hardcoded "Alpha and
+		// Omega" (recB.Title) — titleAgrees (matcher.go) would otherwise
+		// decline this file's direct-MBID match for an unrelated reason.
+		"TITLE": "Alpha and Omega", "ARTIST": "Boards of Canada", "MUSICBRAINZ_TRACKID": "rec-b",
 	})
 
 	result, err := s.ScanRootFolder(ctx, rf)

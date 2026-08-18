@@ -260,7 +260,12 @@ func TestScanRootFolderDirectRecordingIDBypassesFolderGrouping(t *testing.T) {
 
 	s, rf := newFolderTestScanner(t, fs)
 	buildFLACFile(t, rf.Path, "01.flac", map[string]string{
-		"ARTIST": "Test Artist", "ALBUM": "Test Album", "TITLE": "Direct Track",
+		// TITLE must agree with sampleRecording's own hardcoded "Alpha and
+		// Omega" — titleAgrees (matcher.go) declines the direct-MBID fast
+		// path on a title mismatch, which would defeat this test's own
+		// point (proving isolation from folder resolution) for an
+		// unrelated reason.
+		"ARTIST": "Test Artist", "ALBUM": "Test Album", "TITLE": "Alpha and Omega",
 		"MUSICBRAINZ_TRACKID": "direct-rec",
 	})
 
@@ -282,6 +287,61 @@ func TestScanRootFolderDirectRecordingIDBypassesFolderGrouping(t *testing.T) {
 	}
 	if len(files) != 1 || files[0].MatchConfidence != 1.0 {
 		t.Errorf("files = %+v, want confidence 1.0", files)
+	}
+}
+
+// TestScanRootFolderAutoRoutesDisagreeingDirectMatchToFolderConsensus is
+// the end-to-end regression test for the auto-route fix: a file whose
+// embedded recording ID disagrees with its own release-group tag no
+// longer just sits unmatched — it gets a real shot at whole-folder
+// consensus matching, using the correct MusicBrainzAlbumID tag the bad
+// recording ID doesn't touch. Mirrors the actual Birdy case, verified
+// live: the file's Album/MusicBrainzAlbumID tags were correct even
+// though its MusicBrainzRecordingID wasn't.
+func TestScanRootFolderAutoRoutesDisagreeingDirectMatchToFolderConsensus(t *testing.T) {
+	fs := newFolderTestServer()
+	// The embedded recording ID resolves to a release group ("rg-mbid",
+	// sampleRecording's own) that disagrees with the file's own
+	// MusicBrainzReleaseGroupID tag below — the errDirectMatchInconsistent
+	// trigger.
+	fs.recordingLookups["rec-mismatched"] = sampleRecording("rec-mismatched", 0)
+	// The file's own (correct) MusicBrainzAlbumID names a real,
+	// resolvable release under a different release group — what folder
+	// consensus should actually resolve it to.
+	fs.releaseLookups["compilation-release"] = newTestAlbumRelease("compilation-release", "Skinny Love Comp", "Skinny Love")
+
+	s, rf := newFolderTestScanner(t, fs)
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"ARTIST":                     "Birdy",
+		"ALBUM":                      "Skinny Love Comp",
+		"TITLE":                      "Skinny Love",
+		"TRACKNUMBER":                "1",
+		"MUSICBRAINZ_TRACKID":        "rec-mismatched",
+		"MUSICBRAINZ_ALBUMID":        "compilation-release",
+		"MUSICBRAINZ_RELEASEGROUPID": "rg-compilation-release", // does NOT match sampleRecording's "rg-mbid"
+	})
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("FilesMatched = %d, want 1 — the declined file should auto-resolve via folder consensus, not sit unmatched", result.FilesMatched)
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 {
+		t.Fatalf("matched = %+v, want 1", matched)
+	}
+	track, err := s.db.GetTrack(*matched[0].TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if track.Title != "Skinny Love" {
+		t.Errorf("Track.Title = %q, want the release's own track title (resolved via folder consensus, not the bad recording lookup)", track.Title)
 	}
 }
 

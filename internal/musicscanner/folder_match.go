@@ -2,6 +2,7 @@ package musicscanner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -27,12 +28,22 @@ type folderEntry struct {
 // whole-album matching pass, run once per folder after ScanRootFolder's
 // walk finishes. A file with its own embedded MusicBrainz recording ID
 // still fast-paths through matchFileDirect, entirely independent of its
-// siblings' resolution.
+// siblings' resolution — unless matchFileDirect finds its embedded ID
+// inconsistent with the file's own other tags (errDirectMatchInconsistent,
+// matcher.go), in which case it falls into remaining instead, giving
+// whole-folder consensus a real shot at it: MusicBrainzAlbumID/Album are
+// independent of a bad recording ID and were correct in the real case
+// that prompted this (a compilation track whose recording ID pointed at
+// an unrelated release).
 func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result *ScanResult) {
 	var remaining []folderEntry
 	for _, e := range entries {
 		if e.tags.MusicBrainzRecordingID != "" {
 			matched, err := s.matchFileDirect(ctx, e.tf, e.tags)
+			if errors.Is(err, errDirectMatchInconsistent) {
+				remaining = append(remaining, e)
+				continue
+			}
 			s.recordFileResult(result, e.tf, matched, err)
 			continue
 		}

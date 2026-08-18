@@ -11,6 +11,23 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A title sanity check alongside the release-group one, and declined
+  direct matches now auto-resolve via folder consensus instead of just
+  sitting in Unmatched.** Two follow-ups to the tag-consistency fix
+  above. `matchFileDirect` now also compares the looked-up recording's
+  own title against the file's `TITLE` tag (`titleAgrees`, reusing the
+  existing `titleSimilarity` helper — no new dependency) — catches a
+  stale embedded recording ID that's simply the wrong song, even with no
+  release-group tag to contradict it. And a file declined by either
+  check no longer stops there: `matchFolder` catches the decline via a
+  new sentinel (`errDirectMatchInconsistent`) and gives the file a real
+  shot at whole-folder consensus matching, using its still-reliable
+  `MusicBrainzAlbumID`/`Album` tags instead of the mismatched recording
+  one — closing the loop so a case like the Birdy one auto-resolves
+  correctly instead of just being correctly flagged for manual review. A
+  genuine lookup failure (network, 404) is unaffected and still surfaces
+  in scan errors exactly as before — only a positively-detected internal
+  tag inconsistency reroutes.
 - **A new periodic discography refresh, and a real fix for a class of
   wrong-album matches — two robustness improvements aimed at closing the
   gap with Lidarr's own polish, prompted by a real live bug (a Birdy
