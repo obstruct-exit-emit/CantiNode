@@ -20,6 +20,20 @@ import (
 
 const defaultBaseURL = "https://musicbrainz.org/ws/2"
 
+// VariousArtistsMBID is MusicBrainz's own special-purpose "Various Artists"
+// artist — the credited artist on any release whose actual performers vary
+// by track (most compilations), the same universal ID on every MusicBrainz
+// server (https://musicbrainz.org/artist/89ad4ac3-39f7-470e-963a-56509c546377),
+// not something CantiNode assigns itself. Not a real artist with a
+// discography of its own worth tracking: its "releases" are every
+// multi-performer compilation MusicBrainz has ever cataloged (tens of
+// thousands), so treating it like an ordinary artist for Missing-list
+// purposes would flood that artist's page with virtually every compilation
+// that exists rather than anything the user could plausibly want. See
+// internal/discography.Service.RefreshArtist's own use of this constant to
+// skip discography caching for it specifically.
+const VariousArtistsMBID = "89ad4ac3-39f7-470e-963a-56509c546377"
+
 // minRequestInterval enforces MusicBrainz's rate-limiting policy
 // (https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting): at most one
 // request per second per client. Set slightly above 1s, not exactly 1s, to
@@ -91,6 +105,58 @@ func (c *Client) LookupRecording(ctx context.Context, mbid string) (*Recording, 
 		return nil, fmt.Errorf("decode recording %s: %w", mbid, err)
 	}
 	return &rec, nil
+}
+
+// batchLookupChunkSize bounds how many recording MBIDs go into one
+// rid:(... OR ...) search query — comfortably under any practical URL
+// length limit for a Lucene OR-clause of UUIDs.
+const batchLookupChunkSize = 50
+
+// BatchLookupRecordings resolves many recording MBIDs in as few requests as
+// possible, via MusicBrainz's rid:(id1 OR id2 OR ...) search syntax
+// (verified live against the real API to return full inc=artist-credits+
+// releases+release-groups data, same as LookupRecording) — a folder of N
+// tagged files can resolve their embedded recording IDs in one request
+// instead of N, each otherwise paying MusicBrainz's own ~1 req/sec throttle.
+// ids is chunked at batchLookupChunkSize per request. An id with no match
+// (deleted/merged MBID) is simply absent from the returned map, not an
+// error. A chunk request failure returns immediately — no partial results
+// are returned on error, keeping the failure mode simple for callers to
+// reason about (see internal/musicscanner's own fallback-to-per-file
+// behavior on error).
+func (c *Client) BatchLookupRecordings(ctx context.Context, ids []string) (map[string]Recording, error) {
+	out := make(map[string]Recording, len(ids))
+	for start := 0; start < len(ids); start += batchLookupChunkSize {
+		end := start + batchLookupChunkSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunk := ids[start:end]
+
+		terms := make([]string, len(chunk))
+		for i, id := range chunk {
+			terms[i] = id
+		}
+		query := "rid:(" + strings.Join(terms, " OR ") + ")"
+
+		body, err := c.get(ctx, "/recording/", url.Values{
+			"query": {query},
+			"inc":   {"artist-credits+releases+release-groups"},
+			"fmt":   {"json"},
+			"limit": {fmt.Sprintf("%d", batchLookupChunkSize)},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("batch lookup recordings: %w", err)
+		}
+		var resp recordingSearchResponse
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return nil, fmt.Errorf("decode batch recording lookup: %w", err)
+		}
+		for _, rec := range resp.Recordings {
+			out[rec.ID] = rec
+		}
+	}
+	return out, nil
 }
 
 // LookupArtist fetches a single artist by MBID — identity plus genres/

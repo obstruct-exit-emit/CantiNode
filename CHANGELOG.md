@@ -11,6 +11,32 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Batched MusicBrainz recording lookups for direct-matched folders.**
+  `matchFolder` used to resolve every file's embedded
+  `MUSICBRAINZ_TRACKID` with its own `LookupRecording` round trip — a
+  folder of 12 tagged files cost 12 separate requests at MusicBrainz's
+  ~1.1s throttle before whole-folder matching even started. A new
+  `musicbrainz.Client.BatchLookupRecordings` resolves a whole folder's
+  worth of recording IDs in one request via MusicBrainz's own
+  `rid:(id1 OR id2 OR ...)` search syntax (chunked at 50 IDs/request);
+  `matchFolder` now batches every direct-MBID file in a folder through
+  it, applying the same tag/title-consistency checks
+  (`resolveDirectMatch`, extracted out of `matchFileDirect`) to each
+  result. Falls back to today's per-file lookups if the batch call
+  itself fails outright — never worse than before.
+- **The new-artist metadata backfill sweep is now its own independent
+  periodic background loop, restart-safe against interruption.**
+  Previously, filling in discography/bio/photo for an artist a scan
+  discovered implicitly only ever ran once, synchronously, right after
+  that scan — tied to the scan's own goroutine, so a process restart
+  mid-sweep (a redeploy, a crash) killed it outright with nothing to
+  resume it until the next full scan. New package
+  `internal/metadatabackfill` (mirroring `internal/discoveryrefresh`'s
+  own periodic-sweep shape) now also runs this on its own 15-minute
+  timer, independent of any particular scan — an interrupted pass is
+  always picked up again within one interval. Also now the shared home
+  for the discography/version/tracklist/bio caching logic previously
+  spread across several `internal/api` methods.
 - **A title sanity check alongside the release-group one, and declined
   direct matches now auto-resolve via folder consensus instead of just
   sitting in Unmatched.** Two follow-ups to the tag-consistency fix
@@ -621,6 +647,20 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **The "Various Artists" pseudo-artist was flooding Missing with tens of
+  thousands of bogus entries.** Any compilation track files under
+  MusicBrainz's own special "Various Artists" artist (a real, universal
+  MBID, not one CantiNode assigns) — but that artist's "discography" is
+  every multi-performer compilation MusicBrainz has ever cataloged, not
+  anything meaningful to list as Missing. Confirmed live: browsing it hit
+  MusicBrainz's own rate limit partway through and had left 10,000
+  cached "missing" release-group rows from an earlier, pre-limit run —
+  the highest count CantiNode's own pagination ceiling allows.
+  `discography.Service.RefreshArtist` now special-cases
+  `musicbrainz.VariousArtistsMBID`: skips the browse entirely and clears
+  any stale cached rows, so it self-heals on its own next refresh (a
+  scan, the metadata backfill sweep, or an explicit "Refresh metadata")
+  with no manual cleanup needed.
 - **A Various Artists compilation organized into a folder per track's own
   performer instead of one shared "Various Artists" folder.** Reported
   live: `{Artist}/{Album}/...` was resolving `{Artist}` to each track's

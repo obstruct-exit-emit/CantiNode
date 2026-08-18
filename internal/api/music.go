@@ -156,11 +156,11 @@ func (s *server) handleMonitorMusicArtist(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// Passes the mbArtist already looked up above straight through, rather
-	// than going via refreshMusicArtistMetadata (which only has an mbid to
-	// work with, from callers — handleRefreshMusicArtist — that never
+	// than going via metadataBackfill.RefreshArtist (which only has an mbid
+	// to work with, from callers — handleRefreshMusicArtist — that never
 	// looked one up themselves) and repeating an identical MusicBrainz
 	// request for data already in hand.
-	if err := s.cacheFullArtistMetadata(ctx, a.ID, mbArtist); err != nil {
+	if err := s.metadataBackfill.CacheFullArtistMetadata(ctx, a.ID, mbArtist); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
@@ -182,11 +182,11 @@ func (s *server) handleMonitorMusicArtist(w http.ResponseWriter, r *http.Request
 // matching a file, and the bio/photo lookup in particular is a real,
 // synchronous extra network round trip mid-workflow. MetadataFetchedAt is
 // deliberately left unset, so the artist looks exactly like one added
-// before this feature existed: the very next scan's own
-// cacheNewArtistsMetadata sweep finds it and finishes the job (bio/photo,
-// and — via cacheDiscographyVersions — every release group's versions and
-// tracklists) automatically, no separate "catch up later" mechanism
-// needed here.
+// before this feature existed: internal/metadatabackfill's own periodic
+// sweep (or the very next scan, whichever comes first) finds it and
+// finishes the job (bio/photo, and — via CacheDiscographyVersions — every
+// release group's versions and tracklists) automatically, no separate
+// "catch up later" mechanism needed here.
 func (s *server) handleQuickAddMusicArtist(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		MBID string `json:"mbid"`
@@ -310,23 +310,24 @@ func (s *server) handleAddMusicSeries(w http.ResponseWriter, r *http.Request) {
 // artistID's own discography — the series-add counterpart to
 // cacheArtistDiscography. Delegates to internal/discography (shared with
 // the periodic discoveryrefresh sweep), then hands off to
-// cacheDiscographyVersions for per-release-group version/tracklist
-// pre-warming — that part is genuinely kind-agnostic and stays here since
-// discography.Service deliberately never does it (see Refresh's own doc
-// comment on why the scheduled sweep must stay cheap).
+// metadataBackfill.CacheDiscographyVersions for per-release-group version/
+// tracklist pre-warming — that part is genuinely kind-agnostic and lives in
+// internal/metadatabackfill precisely because discography.Service
+// deliberately never does it (see Refresh's own doc comment on why the
+// scheduled sweep must stay cheap).
 func (s *server) cacheSeriesDiscography(ctx context.Context, artistID int64, series *musicbrainz.Series) error {
 	groups, err := s.discography.RefreshSeries(ctx, artistID, series)
 	if err != nil {
 		return err
 	}
-	go s.cacheDiscographyVersions(context.Background(), groups)
+	go s.metadataBackfill.CacheDiscographyVersions(context.Background(), groups)
 	return nil
 }
 
 // refreshMusicSeriesMetadata re-syncs artistID's discography from its
-// series — the series-add counterpart to refreshMusicArtistMetadata, used
-// by handleRefreshMusicArtist's own kind branch. Never touches bio/photo,
-// unlike the real-artist refresh path: a series has neither.
+// series — the series-add counterpart to metadataBackfill.RefreshArtist,
+// used by handleRefreshMusicArtist's own kind branch. Never touches
+// bio/photo, unlike the real-artist refresh path: a series has neither.
 func (s *server) refreshMusicSeriesMetadata(ctx context.Context, artistID int64, mbid string) error {
 	series, err := s.mb.LookupSeries(ctx, mbid)
 	if err != nil {
@@ -364,7 +365,7 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := s.artistRefreshCtx(r)
 	defer cancel()
-	refresh := s.refreshMusicArtistMetadata
+	refresh := s.metadataBackfill.RefreshArtist
 	if a.Kind == "series" {
 		refresh = s.refreshMusicSeriesMetadata
 	}
@@ -375,68 +376,10 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// refreshMusicArtistMetadata caches an already-known artistID's entire
-// metadata set — discography, genres/tags/rating, versions/tracklists,
-// bio/image — given only its mbid (handleRefreshMusicArtist's own only
-// starting point). Looks the artist up once, then hands off to
-// cacheFullArtistMetadata for the rest; a caller that already looked the
-// artist up itself (handleMonitorMusicArtist) should call
-// cacheFullArtistMetadata directly instead, to skip repeating that lookup.
-func (s *server) refreshMusicArtistMetadata(ctx context.Context, artistID int64, mbid string) error {
-	mbArtist, err := s.mb.LookupArtist(ctx, mbid)
-	if err != nil {
-		return err
-	}
-	return s.cacheFullArtistMetadata(ctx, artistID, mbArtist)
-}
-
-// cacheFullArtistMetadata is the complete "add or refresh an artist" job
-// given an already-looked-up mbArtist: cacheArtistDiscography's baseline,
-// plus backgrounded per-release-group version/tracklist caching and a
-// best-effort TheAudioDB bio/image fetch. A TheAudioDB failure is never
-// fatal — the MusicBrainz side alone is enough to succeed.
-//
-// handleQuickAddMusicArtist deliberately uses cacheArtistDiscography
-// alone instead of this — see its own doc comment for why the heavier
-// half here isn't needed to unblock a match in progress, and is left for
-// the next scan's cacheNewArtistsMetadata sweep to pick up instead.
-func (s *server) cacheFullArtistMetadata(ctx context.Context, artistID int64, mbArtist *musicbrainz.Artist) error {
-	groups, err := s.cacheArtistDiscography(ctx, artistID, mbArtist)
-	if err != nil {
-		return err
-	}
-
-	// Eagerly cache every release group's known versions AND every one of
-	// those versions' own full tracklist, in the background — the point is
-	// that browsing Missing/Wanted, or picking a specific release version
-	// in the matching UI, afterward never calls MusicBrainz at all; only
-	// this (monitor, an explicit "Refresh metadata", or the backfill sweep
-	// for an artist added before this existed) does. Backgrounded because
-	// a release group can have many versions and each tracklist costs a
-	// further MusicBrainz request at its ~1/sec rate limit, so a prolific
-	// artist's full discography can take minutes to hours — far too long to
-	// hold this request (or the scan that may have triggered it, via
-	// cacheNewArtistsMetadata) open for. Detached from ctx (which dies the
-	// moment this handler returns) the same way the music scan's own
-	// background goroutine is.
-	go s.cacheDiscographyVersions(context.Background(), groups)
-
-	meta, err := s.audiodb.LookupArtistByMBID(ctx, mbArtist.ID)
-	if err != nil {
-		// Transient failure (network, TheAudioDB down) — cosmetic, not fatal,
-		// and leaves MetadataFetchedAt unset so a later scan or explicit
-		// refresh tries again rather than treating this as a permanent miss.
-		return nil
-	}
-	bio, imageURL := "", ""
-	if meta != nil {
-		bio, imageURL = meta.Bio, meta.ImageURL
-	}
-	// Stamped even when TheAudioDB simply has nothing for this artist (a
-	// definitive answer, not a failure) so cacheNewArtistsMetadata doesn't
-	// re-query it on every subsequent scan.
-	return s.musicStore.SetArtistMetadata(artistID, bio, imageURL, time.Now().UTC())
-}
+// refreshMusicArtistMetadata and cacheFullArtistMetadata moved to
+// internal/metadatabackfill (RefreshArtist/CacheFullArtistMetadata) — see
+// that package's own doc comment for why: the same logic now also backs a
+// periodic restart-safe sweep, not just these on-demand call sites.
 
 // cacheArtistDiscography stores mbArtist's full release-group discography
 // (any primary/secondary type — the Missing section lets the user pick,
@@ -481,135 +424,19 @@ type releaseGroupTracklist struct {
 	Tracks       []releaseGroupTrack `json:"tracks"`
 }
 
-// pickRepresentativeRelease chooses which of a release group's releases to
-// show a tracklist preview for: an "Official" release over any other status
-// (promos/bootlegs/pseudo-releases are frequently missing tracks or
-// reordered), then the earliest dated one as a stable, deterministic
-// tie-break. Returns nil for an empty slice.
-func pickRepresentativeRelease(releases []musicbrainz.ReleaseSearchResult) *musicbrainz.ReleaseSearchResult {
-	var best *musicbrainz.ReleaseSearchResult
-	for i := range releases {
-		r := &releases[i]
-		if best == nil {
-			best = r
-			continue
-		}
-		if bestOfficial, rOfficial := best.Status == "Official", r.Status == "Official"; rOfficial != bestOfficial {
-			if rOfficial {
-				best = r
-			}
-			continue
-		}
-		if r.Date != "" && (best.Date == "" || r.Date < best.Date) {
-			best = r
-		}
-	}
-	return best
-}
-
-// cacheReleaseGroupVersions browses every known release (version/edition)
-// of releaseGroupMBID and replaces its cached version list — the metadata
-// a version picker needs (title/date/country/status/track count/media
-// summary), without yet fetching any of their full tracklists (see
-// cacheAllVersionTracklists for that). Shared by resolveRepresentativeRelease
-// (an on-demand cache-miss fallback), the eager discography sweep, and the
-// backfill sweep for an artist added before this feature existed.
-func (s *server) cacheReleaseGroupVersions(ctx context.Context, releaseGroupMBID string) ([]musiclibrary.ReleaseGroupVersion, error) {
-	releases, err := s.mb.BrowseReleaseGroupReleases(ctx, releaseGroupMBID)
-	if err != nil {
-		return nil, err
-	}
-	if len(releases) == 0 {
-		return nil, fmt.Errorf("no releases found for this release group")
-	}
-	best := pickRepresentativeRelease(releases)
-	versions := make([]musiclibrary.ReleaseGroupVersion, 0, len(releases))
-	for _, r := range releases {
-		versions = append(versions, musiclibrary.ReleaseGroupVersion{
-			ReleaseGroupMBID: releaseGroupMBID,
-			ReleaseMBID:      r.ID,
-			Title:            r.Title,
-			ReleaseDate:      r.Date,
-			Country:          r.Country,
-			Status:           r.Status,
-			Disambiguation:   r.Disambiguation,
-			TrackCount:       r.TotalTrackCount(),
-			MediaSummary:     r.MediaSummary(),
-			IsRepresentative: best != nil && r.ID == best.ID,
-		})
-	}
-	if err := s.musicStore.ReplaceReleaseGroupVersions(releaseGroupMBID, versions); err != nil {
-		return nil, err
-	}
-	return versions, nil
-}
-
-// cacheAllVersionTracklists eagerly fetches and caches every one of
-// versions' own full tracklist not already cached — every known edition of
-// an album, not just the representative one, so the matching UI's version
-// picker never needs to call MusicBrainz again once this finishes. Skips
-// anything already cached (a tracklist never changes once released);
-// best-effort per version, so one failure is logged and skipped rather
-// than aborting the rest.
-func (s *server) cacheAllVersionTracklists(ctx context.Context, versions []musiclibrary.ReleaseGroupVersion) {
-	for _, v := range versions {
-		if ctx.Err() != nil {
-			return
-		}
-		if cached, err := s.musicStore.GetCachedTracklist(v.ReleaseMBID); err == nil {
-			var probe musicbrainz.ReleaseWithTracklist
-			if jerr := json.Unmarshal([]byte(cached.TracksJSON), &probe); jerr == nil {
-				continue
-			}
-			// Row exists but isn't in the current format (e.g. migrated
-			// from the old flattened tracklist cache) — fall through and
-			// refetch/overwrite it rather than treating its mere presence
-			// as "already warm" forever.
-			slog.Warn("music: cached tracklist is unreadable, refreshing", "release", v.Title)
-		} else if !errors.Is(err, musiclibrary.ErrNotFound) {
-			slog.Warn("music: checking version tracklist cache", "release", v.Title, "error", err)
-			continue
-		}
-		full, err := s.mb.LookupReleaseWithTracklist(ctx, v.ReleaseMBID)
-		if err != nil {
-			slog.Warn("music: fetching version tracklist", "release", v.Title, "error", err)
-			continue
-		}
-		if err := s.storeTracklist(v.ReleaseGroupMBID, full); err != nil {
-			slog.Warn("music: caching version tracklist", "release", v.Title, "error", err)
-		}
-	}
-}
-
-// cacheDiscographyVersions runs cacheReleaseGroupVersions then
-// cacheAllVersionTracklists for every one of groups — the full eager sweep
-// run in the background after an artist's discography is (re)synced (see
-// refreshMusicArtistMetadata) or during the backfill sweep for an artist
-// that predates this feature (see backfillReleaseGroupVersions).
-// Best-effort per release group, so one failure is logged and skipped
-// rather than aborting the rest of the sweep.
-func (s *server) cacheDiscographyVersions(ctx context.Context, groups []musiclibrary.ReleaseGroupCache) {
-	for _, g := range groups {
-		if ctx.Err() != nil {
-			return
-		}
-		versions, err := s.cacheReleaseGroupVersions(ctx, g.ReleaseGroupMBID)
-		if err != nil {
-			slog.Warn("music: caching release group versions", "releaseGroup", g.Title, "error", err)
-			continue
-		}
-		s.cacheAllVersionTracklists(ctx, versions)
-	}
-}
+// pickRepresentativeRelease, cacheReleaseGroupVersions,
+// cacheAllVersionTracklists, cacheDiscographyVersions, and storeTracklist
+// all moved to internal/metadatabackfill (exported, same names minus the
+// lowercase-first-letter) — see that package's own doc comment.
 
 // backfillReleaseGroupVersions catches artists that predate release-version
 // caching — added (or last refreshed) before this feature existed, so
 // their discography was synced under the old single-tracklist scheme and
 // has zero release_group_versions rows for any of their release groups.
-// Runs alongside cacheNewArtistsMetadata on every scan (backgrounded by
-// the caller, since a large library's full backlog can take minutes to
+// Runs alongside the metadata backfill sweep on every scan (backgrounded
+// by the caller, since a large library's full backlog can take minutes to
 // hours to clear at MusicBrainz's rate limit); naturally idempotent
-// (cacheDiscographyVersions skips whatever's already cached, and
+// (CacheDiscographyVersions skips whatever's already cached, and
 // ReleaseGroupMBIDsWithRealVersions — one batched query per artist rather
 // than one per release group — makes an already-caught-up library cheap
 // to re-check on every subsequent scan), so an interrupted sweep just
@@ -648,22 +475,9 @@ func (s *server) backfillReleaseGroupVersions(ctx context.Context) {
 			}
 		}
 		if len(pending) > 0 {
-			s.cacheDiscographyVersions(ctx, pending)
+			s.metadataBackfill.CacheDiscographyVersions(ctx, pending)
 		}
 	}
-}
-
-// storeTracklist marshals full and writes it through to musicStore's
-// per-release tracklist cache — the whole musicbrainz.ReleaseWithTracklist
-// (not a hand-picked projection), so a cache hit can be decoded straight
-// back into the same type musicscanner.SuggestMatches and the tracklist
-// preview flattener both consume.
-func (s *server) storeTracklist(releaseGroupMBID string, full *musicbrainz.ReleaseWithTracklist) error {
-	b, err := json.Marshal(full)
-	if err != nil {
-		return fmt.Errorf("marshal tracklist: %w", err)
-	}
-	return s.musicStore.SetCachedTracklist(full.ID, releaseGroupMBID, string(b))
 }
 
 // getReleaseWithTracklist returns releaseMBID's full tracklist, from cache
@@ -686,24 +500,25 @@ func (s *server) getReleaseWithTracklist(ctx context.Context, releaseMBID, relea
 	if err != nil {
 		return nil, err
 	}
-	if err := s.storeTracklist(releaseGroupMBID, full); err != nil {
+	if err := s.metadataBackfill.StoreTracklist(releaseGroupMBID, full); err != nil {
 		slog.Warn("music: caching tracklist", "release", releaseMBID, "error", err)
 	}
 	return full, nil
 }
 
 // resolveRepresentativeRelease returns the full tracklist of
-// releaseGroupMBID's representative release (see pickRepresentativeRelease)
-// — from the cached version list/tracklist when available (the normal
-// case: an artist's discography sync already warmed both), falling back to
-// a live browse+fetch (and caching the result) for a release group nothing
-// has cached yet. Shared by fetchAndCacheTracklist (the Missing/Wanted
-// tracklist preview) and handleSuggestTrackFileMatches when the caller
-// hasn't picked a specific version.
+// releaseGroupMBID's representative release (see
+// metadatabackfill.pickRepresentativeRelease) — from the cached version
+// list/tracklist when available (the normal case: an artist's discography
+// sync already warmed both), falling back to a live browse+fetch (and
+// caching the result) for a release group nothing has cached yet. Shared by
+// fetchAndCacheTracklist (the Missing/Wanted tracklist preview) and
+// handleSuggestTrackFileMatches when the caller hasn't picked a specific
+// version.
 func (s *server) resolveRepresentativeRelease(ctx context.Context, releaseGroupMBID string) (*musicbrainz.ReleaseWithTracklist, error) {
 	v, err := s.musicStore.GetRepresentativeReleaseVersion(releaseGroupMBID)
 	if errors.Is(err, musiclibrary.ErrNotFound) {
-		if _, cerr := s.cacheReleaseGroupVersions(ctx, releaseGroupMBID); cerr != nil {
+		if _, cerr := s.metadataBackfill.CacheReleaseGroupVersions(ctx, releaseGroupMBID); cerr != nil {
 			return nil, cerr
 		}
 		v, err = s.musicStore.GetRepresentativeReleaseVersion(releaseGroupMBID)
@@ -747,7 +562,7 @@ func flattenForPreview(full *musicbrainz.ReleaseWithTracklist) releaseGroupTrack
 // handleGetReleaseGroupTracklist serves a release group's tracklist
 // preview — the Missing/Wanted sections' "see the tracks" action. In the
 // normal case this is served entirely from the cache resolveRepresentativeRelease
-// reads (see cacheDiscographyVersions): by the time an album is visible in
+// reads (see metadataBackfill.CacheDiscographyVersions): by the time an album is visible in
 // Missing/Wanted at all, its artist's discography sync has already eagerly
 // cached every release group's versions and tracklists in the background.
 // The live MusicBrainz fetch inside resolveRepresentativeRelease only runs
@@ -787,7 +602,7 @@ func (s *server) handleListReleaseGroupVersions(w http.ResponseWriter, r *http.R
 	if !hasRealVersionMetadata(versions) {
 		ctx, cancel := s.metadataCtx(r)
 		defer cancel()
-		versions, err = s.cacheReleaseGroupVersions(ctx, mbid)
+		versions, err = s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
@@ -911,7 +726,7 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 // release_group_versions happened to have caught up with that release
 // group yet. Without this, an artist removed before its background
 // discography-version sweep finished (which can take minutes to hours —
-// see cacheDiscographyVersions) could have its owned albums' cover art
+// see metadataBackfill.CacheDiscographyVersions) could have its owned albums' cover art
 // survive the removal, contradicting this function's own guarantee.
 func (s *server) purgeArtistCaches(artist musiclibrary.Artist, groups []musiclibrary.ReleaseGroupCache, ownedAlbums []musiclibrary.Album) {
 	var candidateMBIDs []string
@@ -1164,7 +979,7 @@ func (s *server) handleReleaseGroupCover(w http.ResponseWriter, r *http.Request)
 	if errors.Is(err, musiclibrary.ErrNotFound) {
 		ctx, cancel := s.metadataCtx(r)
 		defer cancel()
-		if _, cerr := s.cacheReleaseGroupVersions(ctx, mbid); cerr != nil {
+		if _, cerr := s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid); cerr != nil {
 			writeError(w, http.StatusBadGateway, cerr.Error())
 			return
 		}
@@ -1605,7 +1420,7 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 		defer cancel()
 
 		result, err := s.musicScanner.ScanAll(ctx)
-		s.cacheNewArtistsMetadata(ctx)
+		s.metadataBackfill.PollOnce(ctx)
 
 		s.musicScanMu.Lock()
 		finished := time.Now().UTC()
@@ -1631,35 +1446,11 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
-// cacheNewArtistsMetadata fills in discography/bio/photo for artists a scan
-// just discovered by matching a file (musicscanner.matchFolder/matchFile
-// create the artist row directly via musicStore, with no MusicBrainz or
-// TheAudioDB metadata beyond name/MBID). This is the "added" side of "cache
-// everything on add, never refetch until asked": explicitly monitoring an
-// artist already does this inline (see handleMonitorMusicArtist); this is
-// its counterpart for artists that appear implicitly, by owning a file, and
-// runs once per artist — MetadataFetchedAt is set the first time regardless
-// of outcome, so an artist TheAudioDB doesn't have is never retried on
-// every subsequent scan. Best-effort: one artist's failure (a dead network,
-// TheAudioDB down) is logged and skipped rather than aborting the rest.
-func (s *server) cacheNewArtistsMetadata(ctx context.Context) {
-	artists, err := s.musicStore.ListArtists()
-	if err != nil {
-		slog.Warn("music scan: listing artists for metadata caching", "error", err)
-		return
-	}
-	for _, a := range artists {
-		if a.MetadataFetchedAt != nil {
-			continue
-		}
-		if ctx.Err() != nil {
-			return
-		}
-		if err := s.refreshMusicArtistMetadata(ctx, a.ID, a.MBID); err != nil {
-			slog.Warn("music scan: caching metadata for new artist", "artist", a.Name, "error", err)
-		}
-	}
-}
+// cacheNewArtistsMetadata (the on-scan trigger for artists a scan just
+// discovered implicitly) moved to internal/metadatabackfill.Service.PollOnce
+// — see handleTriggerMusicScan's own call site and that package's doc
+// comment for why this now also runs on its own independent periodic timer,
+// not just once per scan.
 
 // handleScanMusicAlbum rescans a single album's own folder — the album
 // page's "Scan files" action. Unlike handleTriggerMusicScan, this runs

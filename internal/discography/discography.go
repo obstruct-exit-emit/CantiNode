@@ -33,7 +33,29 @@ func New(mb *musicbrainz.Client, store *musiclibrary.Store) *Service {
 // paginated via BrowseArtistReleaseGroups rather than the truncated-at-25
 // list a plain artist lookup returns) plus the genres/tags/rating that
 // came back with the same lookup for free.
+//
+// mbArtist.ID == musicbrainz.VariousArtistsMBID is a deliberate exception:
+// see that constant's own doc comment for why its "discography" is every
+// compilation MusicBrainz has ever cataloged, not anything worth listing as
+// Missing. Confirmed live: browsing it hit MusicBrainz's own rate limit
+// partway through (10,000+ release groups, the highest CantiNode's own
+// pagination ceiling allows) and had previously left just as many bogus
+// "missing" rows cached from an earlier successful-but-pointless run —
+// ReplaceArtistReleaseGroups(artistID, nil) clears those out the same way
+// this skips creating any more of them, so any artist already affected
+// self-heals the next time this runs (a scan, the metadata backfill sweep,
+// or an explicit "Refresh metadata"), no manual cleanup needed.
 func (s *Service) RefreshArtist(ctx context.Context, artistID int64, mbArtist *musicbrainz.Artist) ([]musiclibrary.ReleaseGroupCache, error) {
+	if mbArtist.ID == musicbrainz.VariousArtistsMBID {
+		if err := s.store.ReplaceArtistReleaseGroups(artistID, nil); err != nil {
+			return nil, err
+		}
+		if err := s.store.SetArtistSynced(artistID, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
 	releaseGroups, err := s.mb.BrowseArtistReleaseGroups(ctx, mbArtist.ID)
 	if err != nil {
 		return nil, err

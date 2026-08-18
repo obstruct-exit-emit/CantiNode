@@ -36,19 +36,16 @@ type folderEntry struct {
 // that prompted this (a compilation track whose recording ID pointed at
 // an unrelated release).
 func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result *ScanResult) {
+	var direct []folderEntry
 	var remaining []folderEntry
 	for _, e := range entries {
 		if e.tags.MusicBrainzRecordingID != "" {
-			matched, err := s.matchFileDirect(ctx, e.tf, e.tags)
-			if errors.Is(err, errDirectMatchInconsistent) {
-				remaining = append(remaining, e)
-				continue
-			}
-			s.recordFileResult(result, e.tf, matched, err)
+			direct = append(direct, e)
 			continue
 		}
 		remaining = append(remaining, e)
 	}
+	remaining = append(remaining, s.matchDirectEntries(ctx, direct, result)...)
 	if len(remaining) == 0 {
 		return
 	}
@@ -71,6 +68,73 @@ func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result
 		return
 	}
 	s.matchEntriesToRelease(remaining, release, confidence, result)
+}
+
+// matchDirectEntries resolves every direct entry's embedded MusicBrainz
+// recording ID in as few MusicBrainz requests as possible — one batched
+// BatchLookupRecordings call instead of direct's own per-file matchFileDirect
+// loop, each of which otherwise pays MusicBrainz's ~1.1s throttle
+// individually. Returns the entries that should fall through to
+// whole-folder consensus matching instead (matchFolder's own remaining):
+// either because resolveDirectMatch found the recording inconsistent with
+// the file's own tags (errDirectMatchInconsistent — the same auto-route
+// this package has always done), or because the batch call itself failed
+// outright, in which case every direct entry falls back to today's
+// per-file matchFileDirect loop instead — never worse than before this
+// batching existed.
+func (s *Scanner) matchDirectEntries(ctx context.Context, direct []folderEntry, result *ScanResult) []folderEntry {
+	if len(direct) == 0 {
+		return nil
+	}
+
+	recs, err := s.batchLookupDirect(ctx, direct)
+	if err != nil {
+		s.logger.Warn("batch recording lookup failed, falling back to per-file lookups", "error", err)
+		var fallbackRemaining []folderEntry
+		for _, e := range direct {
+			matched, err := s.matchFileDirect(ctx, e.tf, e.tags)
+			if errors.Is(err, errDirectMatchInconsistent) {
+				fallbackRemaining = append(fallbackRemaining, e)
+				continue
+			}
+			s.recordFileResult(result, e.tf, matched, err)
+		}
+		return fallbackRemaining
+	}
+
+	var remaining []folderEntry
+	for _, e := range direct {
+		rec, ok := recs[e.tags.MusicBrainzRecordingID]
+		if !ok {
+			// Not present in the batch results — a deleted/merged MBID,
+			// the same outcome LookupRecording's own 404 gives today.
+			s.recordFileResult(result, e.tf, false, fmt.Errorf("recording %s not found", e.tags.MusicBrainzRecordingID))
+			continue
+		}
+		matched, err := s.resolveDirectMatch(ctx, e.tf, e.tags, &rec)
+		if errors.Is(err, errDirectMatchInconsistent) {
+			remaining = append(remaining, e)
+			continue
+		}
+		s.recordFileResult(result, e.tf, matched, err)
+	}
+	return remaining
+}
+
+// batchLookupDirect collects direct's distinct embedded recording IDs and
+// resolves them in one call — split out from matchDirectEntries mainly so
+// the "collect IDs, call once" step is easy to unit test in isolation.
+func (s *Scanner) batchLookupDirect(ctx context.Context, direct []folderEntry) (map[string]musicbrainz.Recording, error) {
+	seen := make(map[string]bool, len(direct))
+	ids := make([]string, 0, len(direct))
+	for _, e := range direct {
+		id := e.tags.MusicBrainzRecordingID
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return s.mb.BatchLookupRecordings(ctx, ids)
 }
 
 // resolveFolderRelease decides the single MusicBrainz release remaining's

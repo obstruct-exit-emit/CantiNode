@@ -26,6 +26,7 @@ import (
 	"github.com/cantinode/cantinode/internal/importer"
 	"github.com/cantinode/cantinode/internal/indexer"
 	"github.com/cantinode/cantinode/internal/library"
+	"github.com/cantinode/cantinode/internal/metadatabackfill"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
@@ -46,12 +47,13 @@ type server struct {
 
 	// Music: the whole domain model (musiclibrary) and scan/match pipeline
 	// (musicscanner) — see internal/musiclibrary's own package doc comment.
-	musicStore   *musiclibrary.Store
-	musicScanner *musicscanner.Scanner
-	mb           *musicbrainz.Client
-	audiodb      *audiodb.Client
-	coverart     *coverart.Client
-	discography  *discography.Service
+	musicStore       *musiclibrary.Store
+	musicScanner     *musicscanner.Scanner
+	mb               *musicbrainz.Client
+	audiodb          *audiodb.Client
+	coverart         *coverart.Client
+	discography      *discography.Service
+	metadataBackfill *metadatabackfill.Service
 
 	musicScanMu    sync.Mutex
 	musicScanState musicScanState
@@ -66,6 +68,7 @@ type Background struct {
 	Importer         *importer.Service
 	Autosearch       *autosearch.Service
 	DiscoveryRefresh *discoveryrefresh.Service
+	MetadataBackfill *metadatabackfill.Service
 }
 
 // NewRouter builds the API handler and returns the background services the
@@ -90,23 +93,25 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// doubling the effective request rate against TheAudioDB.
 	audiodbClient := audiodb.NewClient(musicSettings.AudioDBAPIKey)
 	discographySvc := discography.New(mb, musicStore)
+	metadataBackfillSvc := metadatabackfill.New(musicStore, mb, audiodbClient, discographySvc)
 
 	s := &server{
-		cfg:          cfg,
-		db:           db,
-		store:        store,
-		indexers:     indexers,
-		downloads:    downloads,
-		health:       health.New(store, indexers, downloads),
-		images:       imagecache.New(filepath.Join(cfg.DataDir(), "covers", "remote")),
-		sessions:     newSessionStore(),
-		version:      version,
-		musicStore:   musicStore,
-		musicScanner: musicScanner,
-		mb:           mb,
-		audiodb:      audiodbClient,
-		coverart:     coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient),
-		discography:  discographySvc,
+		cfg:              cfg,
+		db:               db,
+		store:            store,
+		indexers:         indexers,
+		downloads:        downloads,
+		health:           health.New(store, indexers, downloads),
+		images:           imagecache.New(filepath.Join(cfg.DataDir(), "covers", "remote")),
+		sessions:         newSessionStore(),
+		version:          version,
+		musicStore:       musicStore,
+		musicScanner:     musicScanner,
+		mb:               mb,
+		audiodb:          audiodbClient,
+		coverart:         coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient),
+		discography:      discographySvc,
+		metadataBackfill: metadataBackfillSvc,
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist
@@ -245,7 +250,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	auto := autosearch.New(musicStore, indexers, downloads, store)
 	discoveryRefresh := discoveryrefresh.New(musicStore, discographySvc)
 
-	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto, DiscoveryRefresh: discoveryRefresh}
+	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto, DiscoveryRefresh: discoveryRefresh, MetadataBackfill: metadataBackfillSvc}
 }
 
 // handleHealth returns the cached result of the last background health run

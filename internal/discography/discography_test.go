@@ -86,6 +86,54 @@ func TestRefreshArtistCachesDiscographyAndMetadata(t *testing.T) {
 	}
 }
 
+// TestRefreshArtistSkipsVariousArtistsDiscography proves the special-cased
+// skip for musicbrainz.VariousArtistsMBID: never calls MusicBrainz to
+// browse its (effectively unbounded) release-group list, and clears any
+// stale rows an earlier, pre-fix run may have already cached for it —
+// confirmed live: the real "Various Artists" artist had accumulated 10,000
+// bogus "missing" rows this way before this fix existed.
+func TestRefreshArtistSkipsVariousArtistsDiscography(t *testing.T) {
+	s, store := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("RefreshArtist should never call MusicBrainz for Various Artists, got request to %q", r.URL.Path)
+	})
+
+	artist, err := store.GetOrCreateArtist(musicbrainz.VariousArtistsMBID, "Various Artists", "Various Artists")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate stale rows left over from before this fix existed.
+	if err := store.ReplaceArtistReleaseGroups(artist.ID, []musiclibrary.ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-stale", Title: "Some Compilation", PrimaryType: "Album"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mbArtist := &musicbrainz.Artist{ID: musicbrainz.VariousArtistsMBID, Name: "Various Artists"}
+	groups, err := s.RefreshArtist(context.Background(), artist.ID, mbArtist)
+	if err != nil {
+		t.Fatalf("RefreshArtist: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("groups = %+v, want none", groups)
+	}
+
+	cached, err := store.ListArtistReleaseGroups(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cached) != 0 {
+		t.Errorf("cached release groups = %+v, want none — stale rows should be cleared", cached)
+	}
+
+	refreshed, err := store.GetArtist(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.LastSyncedAt == nil {
+		t.Error("LastSyncedAt should still be set, so this isn't retried as if it never ran")
+	}
+}
+
 func TestRefreshSeriesCachesDiscography(t *testing.T) {
 	s, store := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("RefreshSeries should never call MusicBrainz itself -- it's given an already-looked-up series")

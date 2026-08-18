@@ -22,6 +22,7 @@ import (
 	"github.com/cantinode/cantinode/internal/indexer"
 	"github.com/cantinode/cantinode/internal/indexer/prowlarr"
 	"github.com/cantinode/cantinode/internal/logging"
+	"github.com/cantinode/cantinode/internal/metadatabackfill"
 )
 
 // Background cadences (wanted search, metadata refresh, health checks,
@@ -147,11 +148,13 @@ func run(dataDir string) error {
 	// in-flight grabs to copy a finished one into the library and scan it in
 	// (see internal/importer), autosearch sweeping monitored artists'
 	// wanted albums to search and grab automatically (see
-	// internal/autosearch), and discoveryrefresh re-caching every monitored
+	// internal/autosearch), discoveryrefresh re-caching every monitored
 	// artist's/series' own discography so a new release lands in Missing on
-	// its own (see internal/discoveryrefresh). Full metadata refresh
-	// (bio/photo, version/tracklist caching) is still triggered from the API
-	// (monitor, "Refresh metadata"), not on a schedule.
+	// its own (see internal/discoveryrefresh), and metadatabackfill catching
+	// up any artist still missing discography/bio/photo metadata — normally
+	// finished inline right after a scan, but restart-safe against an
+	// interruption mid-sweep since it also runs independently on its own
+	// timer (see internal/metadatabackfill).
 	bgCtx, cancelBg := context.WithCancel(context.Background())
 	defer cancelBg()
 	// Cadences: built-in defaults unless tuned under Settings → General →
@@ -165,6 +168,7 @@ func run(dataDir string) error {
 	go bg.DiscoveryRefresh.RunPeriodic(bgCtx, func(now time.Time) time.Time {
 		return now.Add(timings.DiscographyRefreshInterval())
 	})
+	go bg.MetadataBackfill.RunPeriodic(bgCtx, metadatabackfill.PollInterval)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr(),

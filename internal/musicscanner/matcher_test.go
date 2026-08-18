@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cantinode/cantinode/internal/database"
@@ -175,6 +176,29 @@ func sampleReleaseArtistCredit(releaseMBID, artistName string) mbRecording {
 	return rec
 }
 
+// parseBatchRecordingIDs recognizes BatchLookupRecordings' own
+// "rid:(id1 OR id2 OR ...)" query shape and extracts the IDs inside — used
+// by both testMusicBrainzServer-style fakes in this package (here and in
+// folder_match_test.go) so a batched lookup during a test resolves against
+// the same per-ID lookupResponses/recordingLookups fixtures the existing
+// direct-match tests already populate, instead of falling through to the
+// separate (usually empty) fuzzy-search fixture every plain SearchRecordings
+// call still hits via the same URL path. ok is false for any other query
+// shape (an ordinary fuzzy search).
+func parseBatchRecordingIDs(query string) (ids []string, ok bool) {
+	const prefix, suffix = "rid:(", ")"
+	if !strings.HasPrefix(query, prefix) || !strings.HasSuffix(query, suffix) {
+		return nil, false
+	}
+	inner := query[len(prefix) : len(query)-len(suffix)]
+	for _, part := range strings.Split(inner, " OR ") {
+		if part != "" {
+			ids = append(ids, part)
+		}
+	}
+	return ids, true
+}
+
 // newTestScanner wires up a Scanner against an in-memory database and a
 // MusicBrainz client pointed at a local httptest server that serves
 // lookupResponses (keyed by recording MBID, for LookupRecording) and
@@ -185,6 +209,16 @@ func newTestScanner(t *testing.T, lookupResponses map[string]mbRecording, search
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/recording/" {
+			if ids, ok := parseBatchRecordingIDs(r.URL.Query().Get("query")); ok {
+				var recs []mbRecording
+				for _, id := range ids {
+					if rec, ok := lookupResponses[id]; ok {
+						recs = append(recs, rec)
+					}
+				}
+				json.NewEncoder(w).Encode(map[string]any{"count": len(recs), "recordings": recs})
+				return
+			}
 			json.NewEncoder(w).Encode(map[string]any{"count": len(searchResponse), "recordings": searchResponse})
 			return
 		}

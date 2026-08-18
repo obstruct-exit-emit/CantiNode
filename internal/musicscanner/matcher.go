@@ -152,12 +152,25 @@ var errDirectMatchInconsistent = errors.New("embedded recording ID is inconsiste
 // folder-level reasoning (see folder_match.go): the file's own tags are
 // already as authoritative as MusicBrainz gets, so long as they actually
 // agree with each other (see embeddedTagsAgree/titleAgrees). Precondition:
-// tags.MusicBrainzRecordingID != "".
+// tags.MusicBrainzRecordingID != "". The single-lookup fallback for a
+// caller with no batch of its own to fetch alongside this one (matchFolder's
+// batched path calls resolveDirectMatch directly instead, on a rec already
+// fetched via BatchLookupRecordings — see its own doc comment).
 func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags) (bool, error) {
 	rec, err := s.mb.LookupRecording(ctx, tags.MusicBrainzRecordingID)
 	if err != nil {
 		return false, fmt.Errorf("lookup recording %s: %w", tags.MusicBrainzRecordingID, err)
 	}
+	return s.resolveDirectMatch(ctx, tf, tags, rec)
+}
+
+// resolveDirectMatch is matchFileDirect's own logic minus the lookup
+// itself: the tag-consistency safety checks (embeddedTagsAgree/
+// titleAgrees) plus applyMatch, given a recording already in hand — shared
+// by matchFileDirect's single-lookup path and matchFolder's batched path
+// (folder_match.go), so both apply exactly the same safety checks to a
+// recording however it was fetched.
+func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags, rec *musicbrainz.Recording) (bool, error) {
 	if !embeddedTagsAgree(tags, rec) || !titleAgrees(tags, rec) {
 		// Decline the fast path rather than confidently matching to the
 		// wrong album/song — matchFolder catches this sentinel and gives

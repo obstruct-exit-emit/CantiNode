@@ -2,6 +2,7 @@ package musicbrainz
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -382,6 +383,69 @@ func TestSearchRecordings(t *testing.T) {
 		if !strings.Contains(gotQuery, want) {
 			t.Errorf("query %q does not contain %q", gotQuery, want)
 		}
+	}
+}
+
+// batchRecordingJSON is sampleRecordingJSON with id/title swapped out —
+// used to build distinct fake recordings for BatchLookupRecordings tests.
+func batchRecordingJSON(id, title string) string {
+	return `{"id": "` + id + `", "title": "` + title + `", "length": 1000, "artist-credit": [], "releases": []}`
+}
+
+func TestBatchLookupRecordings(t *testing.T) {
+	var gotQuery string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query().Get("query")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"count": 2, "recordings": [` +
+			batchRecordingJSON("rec-1", "Song One") + "," +
+			batchRecordingJSON("rec-2", "Song Two") + `]}`))
+	})
+
+	recs, err := c.BatchLookupRecordings(t.Context(), []string{"rec-1", "rec-2", "rec-missing"})
+	if err != nil {
+		t.Fatalf("BatchLookupRecordings: %v", err)
+	}
+	if !strings.Contains(gotQuery, "rid:(rec-1 OR rec-2 OR rec-missing)") {
+		t.Errorf("query = %q, want a rid:(...) clause listing every id", gotQuery)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("len(recs) = %d, want 2 (rec-missing should simply be absent, not an error)", len(recs))
+	}
+	if recs["rec-1"].Title != "Song One" || recs["rec-2"].Title != "Song Two" {
+		t.Errorf("recs = %+v, want rec-1/rec-2 keyed by their own id", recs)
+	}
+	if _, ok := recs["rec-missing"]; ok {
+		t.Error("rec-missing should be absent from the result map, not present with a zero value")
+	}
+}
+
+func TestBatchLookupRecordingsChunksAtBatchSize(t *testing.T) {
+	var requests [][]string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("query")
+		inner := strings.TrimSuffix(strings.TrimPrefix(query, "rid:("), ")")
+		requests = append(requests, strings.Split(inner, " OR "))
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"count": 0, "recordings": []}`))
+	})
+
+	ids := make([]string, batchLookupChunkSize+1)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("rec-%d", i)
+	}
+
+	if _, err := c.BatchLookupRecordings(t.Context(), ids); err != nil {
+		t.Fatalf("BatchLookupRecordings: %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("issued %d requests, want 2 (one per chunk of %d ids over the limit)", len(requests), batchLookupChunkSize)
+	}
+	if len(requests[0]) != batchLookupChunkSize {
+		t.Errorf("first chunk had %d ids, want %d", len(requests[0]), batchLookupChunkSize)
+	}
+	if len(requests[1]) != 1 {
+		t.Errorf("second chunk had %d ids, want 1 (the leftover)", len(requests[1]))
 	}
 }
 

@@ -2,6 +2,7 @@ package musicscanner
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -114,6 +115,13 @@ type folderTestServer struct {
 	releaseSearch    []mbReleaseSearchResult
 	releaseLookups   map[string]mbReleaseWithTracklist
 
+	// recordingBatchFails, when set, makes the batch rid:(...) endpoint
+	// fail outright (a non-retryable status) instead of serving
+	// recordingLookups — for testing matchDirectEntries' own fallback to
+	// today's per-file matchFileDirect loop when the batch call itself
+	// fails.
+	recordingBatchFails bool
+
 	mu     sync.Mutex
 	counts map[string]int
 }
@@ -149,6 +157,21 @@ func (f *folderTestServer) handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case r.URL.Path == "/recording/":
+		if ids, ok := parseBatchRecordingIDs(r.URL.Query().Get("query")); ok {
+			f.count("recording-batch")
+			if f.recordingBatchFails {
+				w.WriteHeader(http.StatusBadRequest) // non-retryable, non-transient — fails immediately
+				return
+			}
+			var recs []mbRecording
+			for _, id := range ids {
+				if rec, ok := f.recordingLookups[id]; ok {
+					recs = append(recs, rec)
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"count": len(recs), "recordings": recs})
+			return
+		}
 		f.count("recording-search")
 		json.NewEncoder(w).Encode(map[string]any{"count": len(f.recordingSearch), "recordings": f.recordingSearch})
 	case strings.HasPrefix(r.URL.Path, "/recording/"):
@@ -287,6 +310,70 @@ func TestScanRootFolderDirectRecordingIDBypassesFolderGrouping(t *testing.T) {
 	}
 	if len(files) != 1 || files[0].MatchConfidence != 1.0 {
 		t.Errorf("files = %+v, want confidence 1.0", files)
+	}
+}
+
+// TestScanRootFolderBatchesDirectRecordingLookups proves a folder of
+// several direct-MBID files resolves in one MusicBrainz recording request,
+// not one per file — the actual point of batching (see
+// matchDirectEntries' own doc comment).
+func TestScanRootFolderBatchesDirectRecordingLookups(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.recordingLookups["rec-1"] = sampleRecording("rec-1", 0)
+	fs.recordingLookups["rec-2"] = sampleRecording("rec-2", 0)
+	fs.recordingLookups["rec-3"] = sampleRecording("rec-3", 0)
+
+	s, rf := newFolderTestScanner(t, fs)
+	for i, id := range []string{"rec-1", "rec-2", "rec-3"} {
+		buildFLACFile(t, rf.Path, fmt.Sprintf("%02d.flac", i+1), map[string]string{
+			"ARTIST": "Boards of Canada", "TITLE": "Alpha and Omega",
+			"MUSICBRAINZ_TRACKID": id,
+		})
+	}
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 3 {
+		t.Fatalf("FilesMatched = %d, want 3 (result=%+v)", result.FilesMatched, result)
+	}
+	if got := fs.countOf("recording-batch"); got != 1 {
+		t.Errorf("recording-batch count = %d, want exactly 1 — one batched request for all 3 files, not one per file", got)
+	}
+	if got := fs.countOf("recording-lookup"); got != 0 {
+		t.Errorf("recording-lookup (single-ID) count = %d, want 0 — the batched path shouldn't fall back to per-file lookups here", got)
+	}
+}
+
+// TestScanRootFolderFallsBackToPerFileLookupWhenBatchFails proves the
+// never-worse-than-before guarantee: if the batch rid:(...) request itself
+// fails outright (network/bad-request/etc.), every direct-MBID file still
+// gets matched via today's per-file matchFileDirect loop instead of being
+// left unmatched.
+func TestScanRootFolderFallsBackToPerFileLookupWhenBatchFails(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.recordingBatchFails = true
+	fs.recordingLookups["rec-1"] = sampleRecording("rec-1", 0)
+	fs.recordingLookups["rec-2"] = sampleRecording("rec-2", 0)
+
+	s, rf := newFolderTestScanner(t, fs)
+	for i, id := range []string{"rec-1", "rec-2"} {
+		buildFLACFile(t, rf.Path, fmt.Sprintf("%02d.flac", i+1), map[string]string{
+			"ARTIST": "Boards of Canada", "TITLE": "Alpha and Omega",
+			"MUSICBRAINZ_TRACKID": id,
+		})
+	}
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 2 {
+		t.Fatalf("FilesMatched = %d, want 2 — a failed batch call must fall back to per-file matching, not leave files unmatched (result=%+v)", result.FilesMatched, result)
+	}
+	if got := fs.countOf("recording-lookup"); got != 2 {
+		t.Errorf("recording-lookup count = %d, want 2 — one per-file fallback lookup for each direct-MBID file", got)
 	}
 }
 
