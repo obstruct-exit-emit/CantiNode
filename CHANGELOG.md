@@ -11,6 +11,32 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A new periodic discography refresh, and a real fix for a class of
+  wrong-album matches — two robustness improvements aimed at closing the
+  gap with Lidarr's own polish, prompted by a real live bug (a Birdy
+  compilation track landing on her own studio album instead).** (1)
+  `internal/discoveryrefresh` re-checks every monitored artist's/tracked
+  series' own discography against MusicBrainz on a schedule (default
+  24h, matching Lidarr's own default "Refresh Artist" cadence, tunable
+  under Settings → General → Advanced: background timings) — a new
+  release now lands in Missing on its own instead of only ever showing
+  up after a manual "Refresh metadata" click. Deliberately kept to just
+  the cheap discography-only check (one MusicBrainz request per artist
+  in the common case, shared with the manual-refresh path via the new
+  `internal/discography` package) — bio/photo and per-release-group
+  version caching stay on their existing paths so this is safe to run
+  unconditionally across a whole library. Never auto-wants a newly-found
+  release — lands in Missing only, same as monitoring already works. (2)
+  `matchFileDirect` (the embedded-MusicBrainz-ID fast path) now cross-
+  checks a file's `MusicBrainzReleaseGroupID` tag against its
+  `MusicBrainzRecordingID` tag's own known releases before trusting the
+  recording ID absolutely. Traced live: a compilation track's recording
+  ID can point at a MusicBrainz recording entry that's only linked to an
+  artist's own single/album, disconnected from the actual compilation
+  release the rest of the file's tags correctly name (a real MusicBrainz
+  data-duplication pattern, not a CantiNode bug) — previously matched
+  confidently to the wrong album; now declines the fast path and leaves
+  the file for manual/auto-match review instead.
 - **A second way to add music: paste a MusicBrainz Series link.** A
   numbered compilation series (e.g. "Now That's What I Call Music!") can
   now be added and monitored as its own artist page — every entry becomes

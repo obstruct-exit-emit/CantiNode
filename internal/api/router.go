@@ -18,6 +18,8 @@ import (
 	"github.com/cantinode/cantinode/internal/autosearch"
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/coverart"
+	"github.com/cantinode/cantinode/internal/discography"
+	"github.com/cantinode/cantinode/internal/discoveryrefresh"
 	"github.com/cantinode/cantinode/internal/download"
 	"github.com/cantinode/cantinode/internal/health"
 	"github.com/cantinode/cantinode/internal/imagecache"
@@ -49,6 +51,7 @@ type server struct {
 	mb           *musicbrainz.Client
 	audiodb      *audiodb.Client
 	coverart     *coverart.Client
+	discography  *discography.Service
 
 	musicScanMu    sync.Mutex
 	musicScanState musicScanState
@@ -59,9 +62,10 @@ type server struct {
 
 // Background bundles the services main runs on periodic loops.
 type Background struct {
-	Health     *health.Service
-	Importer   *importer.Service
-	Autosearch *autosearch.Service
+	Health           *health.Service
+	Importer         *importer.Service
+	Autosearch       *autosearch.Service
+	DiscoveryRefresh *discoveryrefresh.Service
 }
 
 // NewRouter builds the API handler and returns the background services the
@@ -85,6 +89,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// independent clients would each keep their own throttle state,
 	// doubling the effective request rate against TheAudioDB.
 	audiodbClient := audiodb.NewClient(musicSettings.AudioDBAPIKey)
+	discographySvc := discography.New(mb, musicStore)
 
 	s := &server{
 		cfg:          cfg,
@@ -101,6 +106,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		mb:           mb,
 		audiodb:      audiodbClient,
 		coverart:     coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient),
+		discography:  discographySvc,
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist
@@ -237,8 +243,9 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 
 	imp := importer.New(downloads, musicScanner, musicStore, cfg)
 	auto := autosearch.New(musicStore, indexers, downloads, store)
+	discoveryRefresh := discoveryrefresh.New(musicStore, discographySvc)
 
-	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto}
+	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto, DiscoveryRefresh: discoveryRefresh}
 }
 
 // handleHealth returns the cached result of the last background health run

@@ -145,9 +145,12 @@ func run(dataDir string) error {
 
 	// Background loops: the periodic health check, the importer polling
 	// in-flight grabs to copy a finished one into the library and scan it in
-	// (see internal/importer), and autosearch sweeping monitored artists'
+	// (see internal/importer), autosearch sweeping monitored artists'
 	// wanted albums to search and grab automatically (see
-	// internal/autosearch). Metadata refresh is still triggered from the API
+	// internal/autosearch), and discoveryrefresh re-caching every monitored
+	// artist's/series' own discography so a new release lands in Missing on
+	// its own (see internal/discoveryrefresh). Full metadata refresh
+	// (bio/photo, version/tracklist caching) is still triggered from the API
 	// (monitor, "Refresh metadata"), not on a schedule.
 	bgCtx, cancelBg := context.WithCancel(context.Background())
 	defer cancelBg()
@@ -159,6 +162,9 @@ func run(dataDir string) error {
 	go bg.Health.RunPeriodic(bgCtx, timings.HealthInterval())
 	go bg.Importer.RunPeriodic(bgCtx, importer.PollInterval)
 	go bg.Autosearch.RunPeriodic(bgCtx, timings.WantedSearchNextRun)
+	go bg.DiscoveryRefresh.RunPeriodic(bgCtx, func(now time.Time) time.Time {
+		return now.Add(timings.DiscographyRefreshInterval())
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr(),

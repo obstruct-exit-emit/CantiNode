@@ -268,6 +268,75 @@ func TestScanRootFolderMatchesDirectMBID(t *testing.T) {
 	}
 }
 
+// TestScanRootFolderDeclinesDirectMatchWhenReleaseGroupTagDisagrees is the
+// regression test for a real bug found live: a file (Birdy's "Skinny
+// Love" cover on a Cities 97 Sampler volume) whose own
+// MUSICBRAINZ_RELEASEGROUPID tag correctly named the compilation, but
+// whose MUSICBRAINZ_TRACKID pointed at a recording MusicBrainz only links
+// to Birdy's own single/album (sampleRecording's own release group,
+// "rg-mbid") — silently matched at full confidence to the wrong album.
+// matchFileDirect must decline the fast path instead, leaving the file
+// unmatched for manual/auto-match review.
+func TestScanRootFolderDeclinesDirectMatchWhenReleaseGroupTagDisagrees(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-mbid": sampleRecording("rec-mbid", 0), // release group "rg-mbid"
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":                      "Skinny Love",
+		"ARTIST":                     "Birdy",
+		"ALBUM":                      "Cities 97 Sampler, Volume 26",
+		"MUSICBRAINZ_TRACKID":        "rec-mbid",
+		"MUSICBRAINZ_RELEASEGROUPID": "compilation-rg-mbid", // does NOT match sampleRecording's "rg-mbid"
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesFound != 1 || result.FilesMatched != 0 {
+		t.Errorf("result = %+v, want 1 found, 0 matched (tags disagree, fast path must decline)", result)
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 0 {
+		t.Fatalf("matched = %+v, want none — a mismatched recording ID must not silently match the wrong album", matched)
+	}
+}
+
+// TestScanRootFolderDirectMatchStillWorksWhenReleaseGroupTagAgrees is
+// TestScanRootFolderDeclinesDirectMatchWhenReleaseGroupTagDisagrees's
+// control: a file whose MUSICBRAINZ_RELEASEGROUPID genuinely names one of
+// the recording's own releases must still match exactly as before — the
+// fix must not regress the common, internally-consistent case.
+func TestScanRootFolderDirectMatchStillWorksWhenReleaseGroupTagAgrees(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-mbid": sampleRecording("rec-mbid", 0), // release group "rg-mbid"
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":                      "Alpha and Omega",
+		"ARTIST":                     "Boards of Canada",
+		"MUSICBRAINZ_TRACKID":        "rec-mbid",
+		"MUSICBRAINZ_RELEASEGROUPID": "rg-mbid", // matches sampleRecording's own release group
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesFound != 1 || result.FilesMatched != 1 {
+		t.Errorf("result = %+v, want 1 found and 1 matched (tags agree)", result)
+	}
+}
+
 // TestMatchFileDirectFilesCompilationTrackUnderReleaseArtist is the
 // regression test for a real bug found live: a Various Artists
 // compilation ripped with each file's own correct MusicBrainz recording ID

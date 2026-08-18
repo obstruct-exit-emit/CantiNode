@@ -91,15 +91,51 @@ func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *mu
 	rec.ArtistCredit = full.ArtistCredit
 }
 
+// embeddedTagsAgree reports whether tags' own MusicBrainzReleaseGroupID
+// (when present) names the release group of at least one of rec's own
+// known releases — the sanity check matchFileDirect runs before trusting
+// an embedded recording ID absolutely. An empty tag means there's nothing
+// to check (nothing else the file asserts to contradict it); a non-empty
+// tag that matches none of rec's releases is the red flag: the file's own
+// tags disagree with each other about what this recording actually is.
+//
+// Found live: a real compilation track (Birdy's "Skinny Love" cover on a
+// Cities 97 Sampler volume) whose MusicBrainzReleaseGroupID tag correctly
+// named the compilation, but whose MusicBrainzRecordingID pointed at a
+// recording MusicBrainz only links to Birdy's own single/album — a real,
+// fairly common MusicBrainz data-duplication pattern (a compilation often
+// gets its own, disconnected recording entry rather than reusing the
+// "official" one). Trusting the recording ID there silently matched the
+// file to the wrong album at full confidence.
+func embeddedTagsAgree(tags *tagreader.Tags, rec *musicbrainz.Recording) bool {
+	if tags.MusicBrainzReleaseGroupID == "" {
+		return true
+	}
+	for _, rel := range rec.Releases {
+		if rel.ReleaseGroup.ID == tags.MusicBrainzReleaseGroupID {
+			return true
+		}
+	}
+	return false
+}
+
 // matchFileDirect looks tf up directly by the MusicBrainz recording ID
 // already embedded in its own tags — confidence 1.0. Bypasses all
 // folder-level reasoning (see folder_match.go): the file's own tags are
-// already as authoritative as MusicBrainz gets. Precondition:
+// already as authoritative as MusicBrainz gets, so long as they actually
+// agree with each other (see embeddedTagsAgree). Precondition:
 // tags.MusicBrainzRecordingID != "".
 func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags) (bool, error) {
 	rec, err := s.mb.LookupRecording(ctx, tags.MusicBrainzRecordingID)
 	if err != nil {
 		return false, fmt.Errorf("lookup recording %s: %w", tags.MusicBrainzRecordingID, err)
+	}
+	if !embeddedTagsAgree(tags, rec) {
+		// Decline the fast path rather than confidently matching to the
+		// wrong album — left unmatched for the review flow (manual match /
+		// auto-match's own Suggest-matches), which resolves this correctly
+		// since it doesn't blindly trust the same mismatched recording ID.
+		return false, nil
 	}
 	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
 	s.correctArtistCreditForCompilation(ctx, rec, tags.MusicBrainzAlbumID)

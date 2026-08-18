@@ -237,6 +237,7 @@ export interface TimingSettings {
   wantedSearchMode: "" | "daily" | "interval";
   wantedSearchIntervalMinutes: number;
   wantedSearchTimeOfDay: string; // "HH:MM", 24-hour, server-local time
+  discographyRefreshIntervalMinutes: number;
 }
 
 // UserAccount is one login; the default user is protected from removal.

@@ -156,7 +156,8 @@ const (
 //
 // internal/importer's download-progress polling isn't tunable here — it's
 // keyed to how fast a download actually finishes, not a preference — but
-// the health check and internal/autosearch's wanted-list sweep both are.
+// the health check, internal/autosearch's wanted-list sweep, and
+// internal/discoveryrefresh's discography sweep all are.
 type TimingSettings struct {
 	// HealthIntervalMinutes: background health check cadence (default 15).
 	HealthIntervalMinutes int `yaml:"health_interval_minutes,omitempty" json:"healthIntervalMinutes"`
@@ -176,6 +177,15 @@ type TimingSettings struct {
 	// fires at when WantedSearchMode is "daily" (default "03:00" — a quiet
 	// overnight hour, not tied to when you're actually using the app).
 	WantedSearchTimeOfDay string `yaml:"wanted_search_time_of_day,omitempty" json:"wantedSearchTimeOfDay"`
+
+	// DiscographyRefreshIntervalMinutes: how often every monitored artist's
+	// (and tracked series') own discography is re-cached from MusicBrainz,
+	// so a new release lands in Missing without a manual "Refresh
+	// metadata" click (default 1440 = 24h, matching Lidarr's own default
+	// "Refresh Artist" task interval). A plain interval, not the fancier
+	// daily-at-time-of-day mode WantedSearchMode has — no evidence yet
+	// this needs that extra complexity.
+	DiscographyRefreshIntervalMinutes int `yaml:"discography_refresh_interval_minutes,omitempty" json:"discographyRefreshIntervalMinutes"`
 }
 
 func (t TimingSettings) HealthInterval() time.Duration {
@@ -191,6 +201,16 @@ func (t TimingSettings) HealthInterval() time.Duration {
 func (t TimingSettings) WantedSearchInterval() time.Duration {
 	if t.WantedSearchIntervalMinutes > 0 {
 		return time.Duration(t.WantedSearchIntervalMinutes) * time.Minute
+	}
+	return 24 * time.Hour
+}
+
+// DiscographyRefreshInterval is internal/discoveryrefresh's own sweep
+// cadence — a plain interval, no daily/interval mode split (see
+// DiscographyRefreshIntervalMinutes's own doc comment).
+func (t TimingSettings) DiscographyRefreshInterval() time.Duration {
+	if t.DiscographyRefreshIntervalMinutes > 0 {
+		return time.Duration(t.DiscographyRefreshIntervalMinutes) * time.Minute
 	}
 	return 24 * time.Hour
 }
@@ -521,6 +541,7 @@ func (c *Config) SetTimings(t TimingSettings) error {
 	}
 	t.HealthIntervalMinutes = clamp(t.HealthIntervalMinutes, 5, 1440)
 	t.WantedSearchIntervalMinutes = clamp(t.WantedSearchIntervalMinutes, 15, 1440)
+	t.DiscographyRefreshIntervalMinutes = clamp(t.DiscographyRefreshIntervalMinutes, 15, 1440)
 	if t.WantedSearchMode != WantedSearchModeInterval {
 		t.WantedSearchMode = "" // anything but "interval" normalizes to the default ("daily")
 	}

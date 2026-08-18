@@ -308,28 +308,15 @@ func (s *server) handleAddMusicSeries(w http.ResponseWriter, r *http.Request) {
 
 // cacheSeriesDiscography stores series' release-group membership as
 // artistID's own discography — the series-add counterpart to
-// cacheArtistDiscography, reusing the same ReplaceArtistReleaseGroups/
-// SetArtistSynced primitives directly rather than routing through
-// cacheArtistDiscography/cacheFullArtistMetadata (both call
-// BrowseArtistReleaseGroups/TheAudioDB/genre-tag caching that don't apply
-// to a series). Still hands off to cacheDiscographyVersions for
-// per-release-group version/tracklist pre-warming — that part is
-// genuinely kind-agnostic already.
+// cacheArtistDiscography. Delegates to internal/discography (shared with
+// the periodic discoveryrefresh sweep), then hands off to
+// cacheDiscographyVersions for per-release-group version/tracklist
+// pre-warming — that part is genuinely kind-agnostic and stays here since
+// discography.Service deliberately never does it (see Refresh's own doc
+// comment on why the scheduled sweep must stay cheap).
 func (s *server) cacheSeriesDiscography(ctx context.Context, artistID int64, series *musicbrainz.Series) error {
-	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(series.Relations))
-	for _, rel := range series.Relations {
-		groups = append(groups, musiclibrary.ReleaseGroupCache{
-			ReleaseGroupMBID: rel.ReleaseGroupMBID,
-			Title:            rel.Title,
-			PrimaryType:      rel.PrimaryType,
-			SecondaryTypes:   rel.SecondaryTypes,
-			FirstReleaseDate: rel.FirstReleaseDate,
-		})
-	}
-	if err := s.musicStore.ReplaceArtistReleaseGroups(artistID, groups); err != nil {
-		return err
-	}
-	if err := s.musicStore.SetArtistSynced(artistID, time.Now().UTC()); err != nil {
+	groups, err := s.discography.RefreshSeries(ctx, artistID, series)
+	if err != nil {
 		return err
 	}
 	go s.cacheDiscographyVersions(context.Background(), groups)
@@ -457,41 +444,10 @@ func (s *server) cacheFullArtistMetadata(ctx context.Context, artistID int64, mb
 // truncated-at-25 list a plain artist lookup returns) plus the
 // genres/tags/rating that came back with the same lookup for free — the
 // baseline every "add or refresh an artist" path needs, and the one
-// handleQuickAddMusicArtist stops at.
+// handleQuickAddMusicArtist stops at. Delegates to internal/discography,
+// shared with the periodic discoveryrefresh sweep.
 func (s *server) cacheArtistDiscography(ctx context.Context, artistID int64, mbArtist *musicbrainz.Artist) ([]musiclibrary.ReleaseGroupCache, error) {
-	releaseGroups, err := s.mb.BrowseArtistReleaseGroups(ctx, mbArtist.ID)
-	if err != nil {
-		return nil, err
-	}
-	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(releaseGroups))
-	for _, rg := range releaseGroups {
-		groups = append(groups, musiclibrary.ReleaseGroupCache{
-			ReleaseGroupMBID: rg.ID,
-			Title:            rg.Title,
-			PrimaryType:      rg.PrimaryType,
-			SecondaryTypes:   rg.SecondaryTypes,
-			FirstReleaseDate: rg.FirstReleaseDate,
-		})
-	}
-	if err := s.musicStore.ReplaceArtistReleaseGroups(artistID, groups); err != nil {
-		return nil, err
-	}
-	if err := s.musicStore.SetArtistSynced(artistID, time.Now().UTC()); err != nil {
-		return nil, err
-	}
-
-	genres := make([]string, 0, len(mbArtist.Genres))
-	for _, g := range mbArtist.Genres {
-		genres = append(genres, g.Name)
-	}
-	tags := make([]string, 0, len(mbArtist.Tags))
-	for _, t := range mbArtist.Tags {
-		tags = append(tags, t.Name)
-	}
-	if err := s.musicStore.SetArtistMusicBrainzMetadata(artistID, genres, tags, mbArtist.Rating.Value, mbArtist.Rating.VotesCount); err != nil {
-		return nil, err
-	}
-	return groups, nil
+	return s.discography.RefreshArtist(ctx, artistID, mbArtist)
 }
 
 func (s *server) handleListMissingMusicReleaseGroups(w http.ResponseWriter, r *http.Request) {

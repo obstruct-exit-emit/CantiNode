@@ -289,7 +289,7 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
 
   const field = (
     label: string,
-    key: "healthIntervalMinutes" | "wantedSearchIntervalMinutes",
+    key: "healthIntervalMinutes" | "wantedSearchIntervalMinutes" | "discographyRefreshIntervalMinutes",
     hint: string,
     range: string,
   ) => (
@@ -327,16 +327,18 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
   return (
     <>
       <p className="muted">
-        How often the background health check runs, and how the wanted list
-        is swept for monitored artists (search + grab the best release, same
-        as a manual "Search releases" click) — once a day at a set time, or
-        every so many hours. Scan and organize stay triggered by you (from
-        the artist/album page or Activity), not on a timer. Blank uses the
-        default; out-of-range values are clamped. Changes apply on the next
-        server start.
+        How often the background health check runs, how the wanted list is
+        swept for monitored artists (search + grab the best release, same
+        as a manual "Search releases" click), and how often every monitored
+        artist's/series' own discography is re-checked against MusicBrainz
+        for new releases (landing in Missing — never auto-wanted). Scan and
+        organize stay triggered by you (from the artist/album page or
+        Activity), not on a timer. Blank uses the default; out-of-range
+        values are clamped. Changes apply on the next server start.
       </p>
       <div className="settings-form">
         {field("Health checks (minutes)", "healthIntervalMinutes", "default 15", "5–1440")}
+        {field("Discography refresh (minutes)", "discographyRefreshIntervalMinutes", "default 1440 (24h)", "15–1440")}
         <label>
           Wanted-list sweep
           <span className="view-toggle">

@@ -35,7 +35,13 @@ album's card there opens **Search releases** (scored candidates to
 hand-pick a **Grab** from) and **Stop wanting**. A **monitored** artist's
 wanted albums are additionally swept and grabbed automatically on a
 schedule (see [Acquisition](acquisition.md)) — monitoring is what opts an
-artist into that, independent of which specific albums are wanted.
+artist into that, independent of which specific albums are wanted. A
+monitored artist's discography is also periodically re-checked against
+MusicBrainz on its own schedule (see
+[Background timings](configuration.md#background-timings)), so a
+newly-released album shows up in Missing without you having to click
+**Refresh metadata** yourself — landing in Missing only, same as any
+other gap, never auto-wanted.
 
 An album's own page shows its cover and tracklist, each track's matched
 file(s) with per-file **organize**, **write tags**, and **delete** actions,
@@ -83,10 +89,11 @@ Behaves exactly like a monitored real artist otherwise: discography lands
 in Missing (nothing auto-wanted), **Refresh metadata** re-syncs the
 series for new entries (no bio/photo to refresh — a series has neither),
 and **Remove artist** removes it the same way. A new numbered entry
-released after the series was added only shows up in Missing once you
-click Refresh metadata — same manual-only convention a real artist's own
-new releases already follow, no separate background timer for a series
-either.
+released after the series was added shows up in Missing on its own —
+picked up by the same periodic discography refresh (see
+[Background timings](configuration.md#background-timings)) a real
+monitored artist's new releases already get, not just on a manual
+Refresh metadata click.
 
 ## Existing-file import (unmatched files)
 

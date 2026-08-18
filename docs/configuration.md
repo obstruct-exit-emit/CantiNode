@@ -39,6 +39,10 @@ timings:                                # background cadences — omit for defau
   wanted_search_time_of_day: "03:00"    # daily mode's fire time (24h, server-local)
   wanted_search_interval_minutes: 1440  # interval mode's cadence (15–1440,
                                          #   default 1440 = 24h)
+  discography_refresh_interval_minutes: 1440  # how often every monitored
+                                         #   artist's/series' discography is
+                                         #   re-checked for new releases
+                                         #   (15–1440, default 1440 = 24h)
 path_mappings:                   # remote client paths → local ones
   - remote: /storage_1           # as the download client reports them
     local: /mnt/media            # where this server sees the same files
@@ -61,16 +65,20 @@ client-reported path before import touches disk.
 
 ## Background timings
 
-**Settings → General → Advanced: background timings** tunes two loops:
-the health check, and the **wanted-list sweep** (`internal/autosearch`,
-which searches and grabs for every monitored artist's wanted albums).
-Manual search/grab, scan, and organize are still triggered by you and
-unaffected by either setting; see [Acquisition](acquisition.md). Blank
-uses the default; entered values are clamped to the range shown in the
-settings form so a typo can't misconfigure it. Changes apply on the next
-server start.
+**Settings → General → Advanced: background timings** tunes three loops:
+the health check, the **wanted-list sweep** (`internal/autosearch`, which
+searches and grabs for every monitored artist's wanted albums), and the
+**discography refresh** (`internal/discoveryrefresh`, which re-caches
+every monitored artist's/series' own discography from MusicBrainz so a
+new release lands in Missing without a manual "Refresh metadata" click —
+never auto-wanted). Manual search/grab, scan, and organize are still
+triggered by you and unaffected by any of these; see
+[Acquisition](acquisition.md). Blank uses the default; entered values are
+clamped to the range shown in the settings form so a typo can't
+misconfigure it. Changes apply on the next server start.
 
-The sweep has two mutually-exclusive modes, not both active at once:
+The wanted-list sweep has two mutually-exclusive modes, not both active
+at once:
 
 - **Daily** (the default) — fires once a day at a set time (default
   `03:00`, server-local, 24-hour). The next fire time is computed fresh
@@ -80,6 +88,14 @@ The sweep has two mutually-exclusive modes, not both active at once:
 
 Switching modes doesn't discard the other mode's own saved value — the
 time-of-day survives switching to interval mode and back, and vice versa.
+
+The discography refresh is a plain interval only (15–1440 minutes,
+default 1440 = 24h, matching Lidarr's own default artist-refresh
+cadence) — no daily-at-time-of-day mode. It deliberately only re-checks
+*what's in the discography* (one MusicBrainz request per artist in the
+common case); bio/photo and per-release-group version/tracklist caching
+stay on the existing manual-refresh/backfill paths, so this stays cheap
+enough to run across a whole monitored-artist library unconditionally.
 
 Completed Download Handling (copying a finished grab into the library and
 scanning it in) isn't tunable here — it polls as fast as a download can
