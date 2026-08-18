@@ -647,6 +647,20 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A direct-MBID file could sit unmatched forever if its embedded
+  recording was missing from a batched lookup.** Reported live: a
+  perfectly valid, catalog-present recording ("Train" - "I Am", off a
+  "Cities 97 Sampler" volume) came back completely absent from an
+  18-recording `rid:(...)` batch search that correctly returned the
+  other 17 — confirmed directly against the real MusicBrainz API: the
+  same ID returns zero results from the search endpoint but resolves
+  fine from the authoritative per-ID lookup endpoint. The batch-lookup
+  speedup (above) was treating any ID missing from the batch response as
+  "doesn't exist," the same outcome as a real 404 — silently leaving a
+  perfectly valid file unmatched. `matchDirectEntries` now gives a batch
+  miss one more authoritative shot via the single-lookup path
+  (`matchFileDirect`) before giving up, at the cost of one extra request
+  only for the rare miss.
 - **Some Various Artists compilation tracks still filed under their own
   real performer instead of the shared "Various Artists" artist.**
   Reported live: Gary Moore and Rachel Platten tracks off different

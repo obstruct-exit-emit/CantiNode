@@ -122,6 +122,13 @@ type folderTestServer struct {
 	// fails.
 	recordingBatchFails bool
 
+	// recordingBatchOmit, when set, excludes these IDs from the batch
+	// rid:(...) endpoint's results even though recordingLookups has them —
+	// simulates a real MusicBrainz search-index gap confirmed live: a
+	// perfectly valid, resolvable-by-single-lookup recording missing from
+	// an otherwise-successful multi-ID search response.
+	recordingBatchOmit map[string]bool
+
 	mu     sync.Mutex
 	counts map[string]int
 }
@@ -165,6 +172,9 @@ func (f *folderTestServer) handle(w http.ResponseWriter, r *http.Request) {
 			}
 			var recs []mbRecording
 			for _, id := range ids {
+				if f.recordingBatchOmit[id] {
+					continue
+				}
 				if rec, ok := f.recordingLookups[id]; ok {
 					recs = append(recs, rec)
 				}
@@ -343,6 +353,45 @@ func TestScanRootFolderBatchesDirectRecordingLookups(t *testing.T) {
 	}
 	if got := fs.countOf("recording-lookup"); got != 0 {
 		t.Errorf("recording-lookup (single-ID) count = %d, want 0 — the batched path shouldn't fall back to per-file lookups here", got)
+	}
+}
+
+// TestScanRootFolderFallsBackToPerFileLookupWhenBatchOmitsOneRecording is
+// the regression test for a real bug found live: MusicBrainz's search
+// index (what the batch rid:(...) endpoint queries) can have real gaps
+// relative to its own authoritative per-ID lookup endpoint — a genuine,
+// fully valid, in-catalog recording (confirmed live against the real API)
+// came back completely absent from an 18-ID batch search that correctly
+// returned the other 17. Treating a batch miss as "doesn't exist" would
+// have wrongly left a real file unmatched forever; matchDirectEntries must
+// instead give it one authoritative shot via the single-lookup path
+// (matchFileDirect) before giving up.
+func TestScanRootFolderFallsBackToPerFileLookupWhenBatchOmitsOneRecording(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.recordingLookups["rec-1"] = sampleRecording("rec-1", 0)
+	fs.recordingLookups["rec-2"] = sampleRecording("rec-2", 0)
+	fs.recordingBatchOmit = map[string]bool{"rec-2": true}
+
+	s, rf := newFolderTestScanner(t, fs)
+	for i, id := range []string{"rec-1", "rec-2"} {
+		buildFLACFile(t, rf.Path, fmt.Sprintf("%02d.flac", i+1), map[string]string{
+			"ARTIST": "Boards of Canada", "TITLE": "Alpha and Omega",
+			"MUSICBRAINZ_TRACKID": id,
+		})
+	}
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 2 {
+		t.Fatalf("FilesMatched = %d, want 2 — a recording missing from the batch search results must still get a real single-lookup shot, not be treated as gone (result=%+v)", result.FilesMatched, result)
+	}
+	if got := fs.countOf("recording-batch"); got != 1 {
+		t.Errorf("recording-batch count = %d, want exactly 1 (the original batch attempt)", got)
+	}
+	if got := fs.countOf("recording-lookup"); got != 1 {
+		t.Errorf("recording-lookup (single-ID) count = %d, want exactly 1 — only the one recording missing from the batch should fall back, not both", got)
 	}
 }
 

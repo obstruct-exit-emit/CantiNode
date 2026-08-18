@@ -90,28 +90,47 @@ func (s *Scanner) matchDirectEntries(ctx context.Context, direct []folderEntry, 
 	recs, err := s.batchLookupDirect(ctx, direct)
 	if err != nil {
 		s.logger.Warn("batch recording lookup failed, falling back to per-file lookups", "error", err)
-		var fallbackRemaining []folderEntry
-		for _, e := range direct {
-			matched, err := s.matchFileDirect(ctx, e.tf, e.tags)
-			if errors.Is(err, errDirectMatchInconsistent) {
-				fallbackRemaining = append(fallbackRemaining, e)
-				continue
-			}
-			s.recordFileResult(result, e.tf, matched, err)
-		}
-		return fallbackRemaining
+		return s.matchDirectEntriesPerFile(ctx, direct, result)
 	}
 
 	var remaining []folderEntry
 	for _, e := range direct {
 		rec, ok := recs[e.tags.MusicBrainzRecordingID]
 		if !ok {
-			// Not present in the batch results — a deleted/merged MBID,
-			// the same outcome LookupRecording's own 404 gives today.
-			s.recordFileResult(result, e.tf, false, fmt.Errorf("recording %s not found", e.tags.MusicBrainzRecordingID))
+			// Missing from the batch search results does NOT mean the
+			// recording doesn't exist — confirmed live: MusicBrainz's
+			// search index can have real gaps relative to its own
+			// authoritative per-ID lookup endpoint (a valid recording,
+			// fully resolvable via LookupRecording, came back absent from
+			// an 18-ID rid:(...) search that correctly returned the other
+			// 17). Give it one real shot via the single-lookup path
+			// before treating it as gone.
+			remaining = append(remaining, s.matchDirectEntriesPerFile(ctx, []folderEntry{e}, result)...)
 			continue
 		}
 		matched, err := s.resolveDirectMatch(ctx, e.tf, e.tags, &rec)
+		if errors.Is(err, errDirectMatchInconsistent) {
+			remaining = append(remaining, e)
+			continue
+		}
+		s.recordFileResult(result, e.tf, matched, err)
+	}
+	return remaining
+}
+
+// matchDirectEntriesPerFile is matchDirectEntries' own per-file fallback:
+// today's matchFileDirect single-lookup path, run for each of entries.
+// Used both when the batch call itself fails outright (the whole direct
+// slice falls back) and when one specific ID comes back missing from an
+// otherwise-successful batch (see matchDirectEntries' own doc comment on
+// why a batch miss still deserves one authoritative single-lookup shot).
+// Returns the entries that should fall through to whole-folder consensus
+// (errDirectMatchInconsistent) — matchDirectEntries' own callers pass that
+// straight back to matchFolder's own remaining.
+func (s *Scanner) matchDirectEntriesPerFile(ctx context.Context, entries []folderEntry, result *ScanResult) []folderEntry {
+	var remaining []folderEntry
+	for _, e := range entries {
+		matched, err := s.matchFileDirect(ctx, e.tf, e.tags)
 		if errors.Is(err, errDirectMatchInconsistent) {
 			remaining = append(remaining, e)
 			continue
