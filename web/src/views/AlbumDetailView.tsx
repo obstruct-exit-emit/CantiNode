@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
+  getApiKey,
   musicAlbumCoverUrl,
   type MusicAlbum,
   type MusicTrack,
@@ -11,6 +12,23 @@ import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import { formatBytes } from "../format";
+
+// commonBasePath returns the deepest directory every one of paths shares —
+// e.g. two discs' worth of files under .../Moonglow (2CD)/CD1/... and
+// .../Moonglow (2CD)/CD2/... share .../Moonglow (2CD). Compared segment by
+// segment (split on "/"), not as a raw string prefix, so it never cuts a
+// path off mid-directory-name. Empty for no paths at all.
+function commonBasePath(paths: string[]): string {
+  if (paths.length === 0) return "";
+  const dirs = paths.map((p) => p.split("/").slice(0, -1));
+  let common = dirs[0];
+  for (const d of dirs.slice(1)) {
+    let i = 0;
+    while (i < common.length && i < d.length && common[i] === d[i]) i++;
+    common = common.slice(0, i);
+  }
+  return common.join("/");
+}
 
 // Full-page album detail: header with cover art, release info, and
 // album-scoped Scan/Organize/Write tags/Remove actions (unlike the artist
@@ -52,6 +70,11 @@ export default function AlbumDetailView({
   }, [id, onError]);
 
   useEffect(reload, [reload]);
+
+  const basePath = useMemo(
+    () => commonBasePath(Object.values(files).flat().map((f) => f.path)),
+    [files],
+  );
 
   if (!album) return <DetailSkeleton />;
 
@@ -143,6 +166,29 @@ export default function AlbumDetailView({
           <p className="muted">
             {album.primaryType || "Album"} · {tracks.length} track{tracks.length === 1 ? "" : "s"}
           </p>
+          {basePath && <p className="muted file-path">📁 {basePath}</p>}
+          {album.releaseGroupMbid && (
+            <div className="settings-actions">
+              <a
+                className="toggle"
+                href={`https://musicbrainz.org/release-group/${album.releaseGroupMbid}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open this album on MusicBrainz"
+              >
+                MusicBrainz ↗
+              </a>
+              <a
+                className="toggle"
+                href={`/api/v1/music/album/${album.id}/audiodb-link?apikey=${encodeURIComponent(getApiKey())}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Open this album on TheAudioDB (if it has one)"
+              >
+                TheAudioDB ↗
+              </a>
+            </div>
+          )}
           <div className="settings-actions">
             <button disabled={headerBusy} onClick={scan} title="Scan this album's own folder for new or changed files">
               Scan files
@@ -227,8 +273,7 @@ export default function AlbumDetailView({
                   </div>
                   {tfiles.map((f) => (
                     <div className="row nested" key={f.id}>
-                      <span className="file-path muted">📄 {f.path}</span>
-                      <span className="muted">
+                      <span className="muted" title={f.path}>
                         {f.format} · {formatBytes(f.sizeBytes)}
                       </span>
                     </div>

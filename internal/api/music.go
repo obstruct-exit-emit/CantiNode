@@ -963,6 +963,44 @@ func (s *server) handleMusicAlbumCover(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleAudioDBAlbumLink redirects to an album's own page on
+// theaudiodb.com — the album page's "TheAudioDB" link icon. Unlike
+// MusicBrainz (whose browsable URLs are MBID-based, so the frontend
+// builds those links directly with no backend involvement — see
+// musicbrainz.org/release-group/{mbid}), TheAudioDB's own site URLs use
+// its internal numeric album id, which CantiNode has no other reason to
+// look up or persist anywhere. Rather than storing it (a schema change
+// and a backfill sweep for a value nothing else needs), this looks it up
+// live, on demand, only the moment someone actually clicks the icon —
+// never on a plain page load. 404s when TheAudioDB has no entry for this
+// release group at all, or no idAlbum on the entry it does have.
+func (s *server) handleAudioDBAlbumLink(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	album, err := s.musicStore.GetAlbum(id)
+	if err != nil {
+		w.WriteHeader(musicNotFoundStatus(err))
+		return
+	}
+	if album.ReleaseGroupMBID == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	meta, err := s.audiodb.LookupAlbumByReleaseGroupMBID(r.Context(), album.ReleaseGroupMBID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if meta == nil || meta.IDAlbum == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "https://www.theaudiodb.com/album/"+meta.IDAlbum, http.StatusFound)
+}
+
 // handleReleaseGroupCover serves a release group's front cover art via its
 // cached representative release — the Missing/Wanted grid's counterpart to
 // handleMusicAlbumCover, for an album with no owned files (and so no

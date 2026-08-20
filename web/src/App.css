@@ -257,27 +257,37 @@ button.link {
   font-weight: 500;
 }
 
-button.toggle {
+/* Bare .toggle (not scoped to button.toggle) so an <a> styled the same
+   way — e.g. AlbumDetailView's MusicBrainz/TheAudioDB links — picks up
+   matching styling too, not just <button>. display/cursor/text-decoration/
+   border-radius are redundant on a real button (already set by the base
+   button{} rule above) but necessary for an anchor, which has none of
+   that by default. */
+.toggle {
+  display: inline-block;
   background: transparent;
   border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--muted);
   font-size: 0.78rem;
   padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  text-decoration: none;
   transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 
-button.toggle:hover:not(:disabled) {
+.toggle:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--text);
   filter: none;
 }
 
-button.toggle.on {
+.toggle.on {
   border-color: var(--ok);
   color: var(--ok);
 }
 
-button.toggle.on:hover:not(:disabled) {
+.toggle.on:hover:not(:disabled) {
   border-color: var(--ok);
   color: var(--ok);
   background: var(--ok-soft);

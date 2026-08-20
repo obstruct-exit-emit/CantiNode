@@ -125,11 +125,15 @@ func (c *Client) LookupArtistByMBID(ctx context.Context, mbid string) (*ArtistMe
 	return &ArtistMeta{Bio: a.Biography, ImageURL: imageURL}, nil
 }
 
-// AlbumMeta is the cover art CantiNode can source from TheAudioDB for a
-// release group — see internal/coverart, which tries this first and falls
-// back to Cover Art Archive when TheAudioDB doesn't have it.
+// AlbumMeta is what CantiNode uses from TheAudioDB for a release group:
+// ThumbURL for cover art (see internal/coverart, which tries this first
+// and falls back to Cover Art Archive when TheAudioDB doesn't have it),
+// and IDAlbum — TheAudioDB's own internal numeric album id, not the MBID —
+// for linking out to the album's own page on theaudiodb.com (which, unlike
+// MusicBrainz, doesn't use MBIDs in its browsable URLs at all).
 type AlbumMeta struct {
 	ThumbURL string
+	IDAlbum  string
 }
 
 type albumLookupResponse struct {
@@ -142,16 +146,20 @@ type albumLookupResponse struct {
 
 type audioDBAlbum struct {
 	AlbumThumb string `json:"strAlbumThumb"`
+	IDAlbum    string `json:"idAlbum"`
 }
 
-// LookupAlbumByReleaseGroupMBID fetches releaseGroupMBID's cover art from
+// LookupAlbumByReleaseGroupMBID fetches releaseGroupMBID's own entry from
 // TheAudioDB — keyed by release GROUP (the "album" as a whole), not a
 // specific release/edition, which is the granularity TheAudioDB's own
 // schema uses (confirmed live: /album-mb.php?i= takes a release-group
 // MBID and returns strMusicBrainzID matching it back). Returns (nil, nil)
-// — not an error — when TheAudioDB has nothing for it, same convention as
-// LookupArtistByMBID, so internal/coverart can fall back to Cover Art
-// Archive without treating a miss as a failure.
+// — not an error — when TheAudioDB has nothing for it at all, same
+// convention as LookupArtistByMBID, so internal/coverart can fall back to
+// Cover Art Archive without treating a miss as a failure. A returned
+// AlbumMeta's own ThumbURL/IDAlbum may individually still be empty (an
+// entry can exist with one populated and not the other) — callers check
+// whichever field they need.
 func (c *Client) LookupAlbumByReleaseGroupMBID(ctx context.Context, releaseGroupMBID string) (*AlbumMeta, error) {
 	body, err := c.get(ctx, "/album-mb.php", url.Values{"i": {releaseGroupMBID}})
 	if err != nil {
@@ -162,10 +170,10 @@ func (c *Client) LookupAlbumByReleaseGroupMBID(ctx context.Context, releaseGroup
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("decode album %s: %w", releaseGroupMBID, err)
 	}
-	if len(resp.Album) == 0 || resp.Album[0].AlbumThumb == "" {
+	if len(resp.Album) == 0 {
 		return nil, nil
 	}
-	return &AlbumMeta{ThumbURL: resp.Album[0].AlbumThumb}, nil
+	return &AlbumMeta{ThumbURL: resp.Album[0].AlbumThumb, IDAlbum: resp.Album[0].IDAlbum}, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {

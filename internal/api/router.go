@@ -185,6 +185,10 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// header, so covers ride the API key via ?apikey= — handled by s.auth
 	// already accepting the query form (see apiKeyMatches).
 	mux.HandleFunc("GET /api/v1/music/album/{id}/cover", s.auth(s.handleMusicAlbumCover))
+	// Not requireAdmin/plain auth header only: opened as a plain browser
+	// navigation (target="_blank"), same ?apikey= reasoning as the cover
+	// route above.
+	mux.HandleFunc("GET /api/v1/music/album/{id}/audiodb-link", s.auth(s.handleAudioDBAlbumLink))
 	mux.HandleFunc("GET /api/v1/music/album/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicAlbum))
 	mux.HandleFunc("POST /api/v1/music/album/{id}/organize", s.auth(s.handleOrganizeMusicAlbum))
 	mux.HandleFunc("POST /api/v1/music/album/{id}/write-tags", s.auth(s.handleWriteMusicTagsForAlbum))

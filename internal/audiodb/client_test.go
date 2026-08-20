@@ -129,6 +129,9 @@ func TestLookupAlbumByReleaseGroupMBIDReturnsThumb(t *testing.T) {
 	if meta.ThumbURL != "https://r2.theaudiodb.com/images/media/album/thumb/wuysyy1550959319.jpg" {
 		t.Errorf("ThumbURL = %q", meta.ThumbURL)
 	}
+	if meta.IDAlbum != "2314525" {
+		t.Errorf("IDAlbum = %q, want 2314525", meta.IDAlbum)
+	}
 }
 
 func TestLookupAlbumByReleaseGroupMBIDNotFoundReturnsNilNotError(t *testing.T) {
@@ -146,7 +149,14 @@ func TestLookupAlbumByReleaseGroupMBIDNotFoundReturnsNilNotError(t *testing.T) {
 	}
 }
 
-func TestLookupAlbumByReleaseGroupMBIDEmptyThumbReturnsNil(t *testing.T) {
+// TestLookupAlbumByReleaseGroupMBIDReturnsEntryEvenWithoutThumb proves an
+// entry with idAlbum but no cover art still comes back as a real result
+// (not treated as "not found") — internal/coverart only ever needs
+// ThumbURL and already checks it's non-empty before using it, but a
+// caller that only wants IDAlbum (linking out to the album's own
+// theaudiodb.com page) shouldn't lose that just because this particular
+// entry has no thumb.
+func TestLookupAlbumByReleaseGroupMBIDReturnsEntryEvenWithoutThumb(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"album": [{"idAlbum": "1", "strAlbum": "X", "strAlbumThumb": ""}]}`))
@@ -156,8 +166,14 @@ func TestLookupAlbumByReleaseGroupMBIDEmptyThumbReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LookupAlbumByReleaseGroupMBID: %v", err)
 	}
-	if meta != nil {
-		t.Errorf("meta = %+v, want nil when TheAudioDB has the album but no thumb", meta)
+	if meta == nil {
+		t.Fatal("meta = nil, want a result — TheAudioDB does have this album, just no thumb")
+	}
+	if meta.ThumbURL != "" {
+		t.Errorf("ThumbURL = %q, want empty", meta.ThumbURL)
+	}
+	if meta.IDAlbum != "1" {
+		t.Errorf("IDAlbum = %q, want 1", meta.IDAlbum)
 	}
 }
 

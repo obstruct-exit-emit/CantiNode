@@ -11,6 +11,21 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **The album page shows one shared base folder path instead of every
+  track's own full path, plus MusicBrainz/TheAudioDB links.** Each
+  track's file row used to repeat its complete absolute path — noisy for
+  an already-organized library where every path is predictable; now the
+  album header shows the one folder every track's file lives under (the
+  deepest shared directory, computed client-side — correctly collapses a
+  multi-disc album's CD1/CD2 subfolders to their shared parent), and each
+  track row is just format/size (full path still available as a hover
+  tooltip). Also added "MusicBrainz ↗"/"TheAudioDB ↗" links next to the
+  track count: MusicBrainz's is a plain client-side link (its URLs are
+  MBID-based, already in hand); TheAudioDB's is a new backend redirect
+  endpoint (`GET .../album/{id}/audiodb-link`) since TheAudioDB's own
+  site URLs use its internal numeric album id, not the MBID — looked up
+  live only the moment someone actually clicks the link, not stored or
+  fetched on every page load.
 - **"Write tags" is now a bulk, album- and artist-scoped action, matching
   Organize.** The album/artist pages' per-file organize/write-tags/delete
   buttons cluttered every track row for something that's almost always
