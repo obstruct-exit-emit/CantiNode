@@ -1528,6 +1528,22 @@ in progress. Highlights from the hardening period, newest first:
   covering clients that ignore the delete-files flag.
 
 ### Changed
+- **FLAC tag writing also moved to go.senan.xyz/taglib, the library
+  already used for every format but MP3 (also just migrated — see
+  Fixed above) and FLAC itself.** Unlike MP3, this wasn't a bug fix:
+  the old hand-rolled `writeFLACVorbisComment` never had either of
+  MP3's problems (Vorbis comments have no encoding-byte ambiguity to
+  get wrong, and it already merged fields instead of replacing the
+  whole tag), confirmed live before switching — a GENRE/COMPOSER pair
+  and a seeded embedded-picture block all survived a taglib write
+  untouched, same as the old writer. Purely a consistency move: one
+  code path and one dependency handling every supported format instead
+  of two. The one confirmed behavior change is cosmetic — taglib
+  normalizes a FLAC's padding metadata block to a fixed size on write,
+  where the old writer left whatever padding was already there alone.
+  `internal/tagwriter/flac.go` and its dependencies
+  (`github.com/go-flac/go-flac`, `github.com/go-flac/flacvorbis`) are
+  removed outright.
 - **Monitoring or refreshing an artist gets its own 5-minute timeout**
   (`handleMonitorMusicArtist`/`handleRefreshMusicArtist`), up from the 60s
   shared with every other single-request metadata endpoint — now that

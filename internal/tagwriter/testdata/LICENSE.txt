@@ -1,13 +1,12 @@
-sample.m4a, sample.ogg, and sample.mp3 are copied unmodified from
-github.com/dhowden/tag's own test fixtures (testdata/without_tags/);
-sample.dsf and sample_tagged.mp3 from the same project's
-testdata/with_tags/ (dhowden/tag has no without_tags DSF fixture, and the
-existing tags on both are useful for testing that writing one field
-leaves the others alone). dhowden/tag is already a direct dependency of
-this project — these are real, minimal, valid containers of the exact
-formats writeTagLib needs to round-trip against, which would otherwise be
-impractical to hand-build byte-for-byte the way the FLAC fixtures
-elsewhere in this package are.
+sample.m4a, sample.ogg, sample.mp3, and sample.flac are copied unmodified
+from github.com/dhowden/tag's own test fixtures (testdata/without_tags/);
+sample.dsf, sample_tagged.mp3, and sample_tagged.flac from the same
+project's testdata/with_tags/ (dhowden/tag has no without_tags DSF
+fixture, and the existing tags on all three are useful for testing that
+writing one field leaves the others alone). dhowden/tag is already a
+direct dependency of this project — these are real, minimal, valid
+containers of the exact formats writeTagLib needs to round-trip against,
+which would otherwise be impractical to hand-build byte-for-byte.
 
 dhowden/tag license (BSD-2-Clause style):
 

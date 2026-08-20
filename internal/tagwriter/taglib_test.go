@@ -155,6 +155,49 @@ func TestWriteTagLibMP3PreservesUntrackedFields(t *testing.T) {
 	}
 }
 
+// TestWriteTagLibFLAC covers the format that used to be hand-rolled
+// (flac.go, removed) — see tagwriter.go's package doc comment for why it
+// moved here alongside MP3.
+func TestWriteTagLibFLAC(t *testing.T) {
+	path := copyFixture(t, "sample.flac")
+	tags := fullTags()
+	if err := Write(path, tags); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	assertTags(t, path, tags)
+}
+
+// TestWriteTagLibFLACPreservesUntrackedFields is
+// TestWriteTagLibPreservesUntrackedFields for FLAC specifically —
+// confirming the migration off the old hand-rolled writer (which already
+// merged correctly) didn't regress that behavior. sample_tagged.flac
+// ships with GENRE/COMPOSER already set.
+func TestWriteTagLibFLACPreservesUntrackedFields(t *testing.T) {
+	path := copyFixture(t, "sample_tagged.flac")
+	before, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read fixture tags: %v", err)
+	}
+	if before[taglibpkg.Genre] == nil {
+		t.Fatal("fixture sample_tagged.flac is expected to already have a GENRE tag — test assumption broken")
+	}
+
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	after, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(after[taglibpkg.Genre]) == 0 || after[taglibpkg.Genre][0] != before[taglibpkg.Genre][0] {
+		t.Errorf("GENRE = %v, want untouched (%v)", after[taglibpkg.Genre], before[taglibpkg.Genre])
+	}
+	if len(after[taglibpkg.Composer]) == 0 {
+		t.Errorf("COMPOSER should survive untouched, got %v", after[taglibpkg.Composer])
+	}
+}
+
 func TestWriteTagLibOGG(t *testing.T) {
 	path := copyFixture(t, "sample.ogg")
 	tags := fullTags()

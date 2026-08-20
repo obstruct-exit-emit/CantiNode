@@ -6,27 +6,20 @@ import (
 	taglib "go.senan.xyz/taglib"
 )
 
-// writeTagLib handles every format too risky or too complex to hand-roll
-// safely the way writeFLACVorbisComment does — most importantly MP4/M4A,
-// where the metadata atom sits before the audio data (mdat) and resizing
-// it means correctly rewriting every track's stco/co64 chunk offset
-// table, or the file's audio data silently points at the wrong bytes.
-// go.senan.xyz/taglib wraps upstream TagLib (compiled to WASM, run via
-// wazero — no cgo, matching the rest of this project) to get that
-// correctness for free rather than re-deriving it under time pressure.
-// Passing 0 (no WriteOption) merges these fields into the file's existing
-// tags rather than replacing the whole tag set — matching
-// writeFLACVorbisComment's own "leave everything else alone" behavior.
-// MP3 also routes through here (not hand-rolled, despite ID3v2 being a
-// low-risk container the same way FLAC is) after two real bugs in a
-// hand-rolled writer surfaced live: mislabeling non-ASCII text as
-// ISO-8859-1 while writing raw UTF-8 bytes underneath, and replacing the
-// entire ID3v2 tag on every write instead of merging like every path
-// here does. TagLib writes an MP3's MusicBrainz IDs as a UFID frame
-// (MusicBrainzTrackID, owner "http://musicbrainz.org") plus TXXX frames
-// for the rest — confirmed live against a real file — the same shapes
-// Picard uses and tagreader.go already parses, so switching MP3 to this
-// path changed nothing on the read side.
+// writeTagLib is the only tag-writing implementation this package has —
+// see the package doc comment for why MP3 and FLAC don't get their own
+// hand-rolled paths despite being simple enough to make that tempting;
+// MP4/M4A is the format that actually forces this dependency, needing
+// correctly rewritten nested atom offset tables (stco/co64) when the
+// metadata atom's size changes, or the file's audio data silently points
+// at the wrong bytes. go.senan.xyz/taglib wraps upstream TagLib (compiled
+// to WASM, run via wazero — no cgo, matching the rest of this project) to
+// get that correctness for free rather than re-deriving it under time
+// pressure. Passing 0 (no WriteOption) merges these fields into the
+// file's existing tags rather than replacing the whole tag set, for
+// every format this function handles — confirmed live for both MP3 (a
+// GENRE/COMPOSER/embedded-art set survives a write untouched) and FLAC
+// (same, plus a seeded METADATA_BLOCK_PICTURE).
 func writeTagLib(path string, tags Tags) error {
 	set := map[string][]string{}
 	setField(set, taglib.Title, tags.Title)
@@ -55,9 +48,7 @@ func writeTagLib(path string, tags Tags) error {
 // stale one behind, verified against a real file: WriteTags without the
 // Clear option only touches keys present in the map, so a genuinely empty
 // slice is how a single field gets cleared without disturbing anything
-// else already in the file (GENRE, COMMENT, REPLAYGAIN_*, ...) — the same
-// "leave everything else alone" behavior writeFLACVorbisComment's own
-// setVorbisField already gives FLAC.
+// else already in the file (GENRE, COMMENT, REPLAYGAIN_*, ...).
 func setField(set map[string][]string, key, value string) {
 	if value == "" {
 		set[key] = []string{}
