@@ -11,6 +11,14 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **The album page's stat row now shows which specific edition/pressing
+  is owned — e.g. "2×CD · Limited Edition Artbook".** Sourced entirely
+  from `release_group_versions`, already cached by the existing
+  discography-version sync (media summary + disambiguation for every
+  known release of a release group); the frontend just finds the one
+  entry matching the album's own release MBID via the versions endpoint
+  that already existed for the matching UI's version picker. No backend
+  changes, no new network cost — a plain local DB read either way.
 - **The album page now shows a TheAudioDB description, cached the same
   way as every other piece of TheAudioDB/MusicBrainz metadata.** New
   `albums.description`/`description_fetched_at` columns (migration 029)

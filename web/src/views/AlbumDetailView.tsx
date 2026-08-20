@@ -57,6 +57,13 @@ function albumQuality(files: MusicTrackFile[]): Quality | null {
   return lossless ? "lossless" : "lossy";
 }
 
+// titleCase renders a MusicBrainz disambiguation ("limited edition
+// artbook", always lowercase free text) as a proper label ("Limited
+// Edition Artbook").
+function titleCase(s: string): string {
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // Full-page album detail: header with cover art, release info, and
 // album-scoped Scan/Organize/Write tags/Remove actions (unlike the artist
 // page's versions, these never touch a sibling album's files), then its
@@ -81,6 +88,7 @@ export default function AlbumDetailView({
   const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null);
   const [notice, setNotice] = useState("");
   const [description, setDescription] = useState("");
+  const [versionLabel, setVersionLabel] = useState("");
 
   const reload = useCallback(() => {
     Promise.all([api.getMusicAlbum(id), api.listMusicTracks(id)])
@@ -115,6 +123,31 @@ export default function AlbumDetailView({
       .getMusicAlbumDescription(album.id)
       .then((r) => setDescription(r.description))
       .catch(() => {});
+  }, [album]);
+
+  // Version (edition/pressing) label — no extra caching of its own needed
+  // here: listReleaseGroupVersions already reads straight from the
+  // release_group_versions table the discography sync eagerly warmed, so
+  // this is already a cheap local DB read server-side, not a live
+  // MusicBrainz call. Finds the one cached version matching this album's
+  // own specific release (album.mbid), not just the release group.
+  useEffect(() => {
+    if (!album || !album.releaseGroupMbid || !album.mbid) {
+      setVersionLabel("");
+      return;
+    }
+    api
+      .listReleaseGroupVersions(album.releaseGroupMbid)
+      .then((versions) => {
+        const v = versions.find((v) => v.releaseMbid === album.mbid);
+        if (!v) {
+          setVersionLabel("");
+          return;
+        }
+        const parts = [v.mediaSummary, v.disambiguation && titleCase(v.disambiguation)].filter(Boolean);
+        setVersionLabel(parts.join(" · "));
+      })
+      .catch(() => setVersionLabel(""));
   }, [album]);
 
   const allFiles = useMemo(() => Object.values(files).flat(), [files]);
@@ -217,6 +250,12 @@ export default function AlbumDetailView({
               <div className="detail-stat">
                 <span className="detail-stat-label">Path</span>
                 <span className="detail-stat-value" title={basePath}>{basePath}</span>
+              </div>
+            )}
+            {versionLabel && (
+              <div className="detail-stat">
+                <span className="detail-stat-label">Version</span>
+                <span className="detail-stat-value" title={versionLabel}>{versionLabel}</span>
               </div>
             )}
             {quality && (
