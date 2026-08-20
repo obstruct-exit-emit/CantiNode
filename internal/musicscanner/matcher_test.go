@@ -153,6 +153,49 @@ func sampleCompilationTrackRecording(id, performerName string) mbRecording {
 	return rec
 }
 
+// sampleSoloLiveAlbumRecording is sampleSamplerTrackRecording's own
+// counterpart for the case releaseNeedsArtistCreditCheck's broadening
+// deliberately treats as a harmless no-op: an ordinary single-artist live
+// album (SecondaryTypes ["Live"], same shape MusicBrainz gives the real
+// "Cities 97 Sampler" case above) whose release-level artist-credit is the
+// *same* artist as the recording's own — confirmed live against a real
+// example (Mike Doughty, "Smofe + Smang: Live in Minneapolis") after a
+// live report worried the broadening might misfile an ordinary solo live
+// album. It doesn't: correctArtistCreditForCompilation still substitutes
+// rec.ArtistCredit, but to an identical value, so filing is unaffected.
+func sampleSoloLiveAlbumRecording(id, artistName string) mbRecording {
+	rec := mbRecording{ID: id, Title: "Some Song", Length: 202000}
+	rec.ArtistCredit = []struct {
+		Name   string `json:"name"`
+		Artist struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			SortName string `json:"sort-name"`
+		} `json:"artist"`
+	}{{Name: artistName, Artist: struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		SortName string `json:"sort-name"`
+	}{ID: "solo-artist-mbid-" + artistName, Name: artistName, SortName: artistName}}}
+	rec.Releases = []struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Date         string `json:"date"`
+		ReleaseGroup struct {
+			ID             string   `json:"id"`
+			Title          string   `json:"title"`
+			PrimaryType    string   `json:"primary-type"`
+			SecondaryTypes []string `json:"secondary-types,omitempty"`
+		} `json:"release-group"`
+	}{{ID: "solo-live-release-mbid", Title: "Live in Minneapolis", Date: "2002", ReleaseGroup: struct {
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		PrimaryType    string   `json:"primary-type"`
+		SecondaryTypes []string `json:"secondary-types,omitempty"`
+	}{ID: "solo-live-rg-mbid", Title: "Live in Minneapolis", PrimaryType: "Album", SecondaryTypes: []string{"Live"}}}}
+	return rec
+}
+
 // sampleSamplerTrackRecording is sampleCompilationTrackRecording's
 // counterpart for the real live case that prompted broadening
 // releaseNeedsArtistCreditCheck beyond MusicBrainz's own "Compilation"
@@ -608,6 +651,68 @@ func TestMatchFileDirectFilesLiveTaggedSamplerTrackUnderReleaseArtist(t *testing
 	}
 	if track.ArtistCredit != "Gary Moore" {
 		t.Errorf("Track.ArtistCredit = %q, want the real performer Gary Moore preserved for display", track.ArtistCredit)
+	}
+}
+
+// TestMatchFileDirectSoloLiveAlbumStaysUnderItsOwnArtist is the no-op
+// counterpart to the sampler test above: a live report worried that
+// broadening releaseNeedsArtistCreditCheck to trigger on any
+// SecondaryTypes (not just "Compilation") might misfile an ordinary
+// single-artist live album under something else. Confirmed live against a
+// real example (Mike Doughty's "Smofe + Smang: Live in Minneapolis",
+// SecondaryTypes ["Live"]) that it doesn't: the release's own
+// artist-credit is the same solo artist as the recording's, so
+// correctArtistCreditForCompilation's substitution is a genuine no-op —
+// this locks that in as a permanent regression test rather than relying on
+// a one-off live check.
+func TestMatchFileDirectSoloLiveAlbumStaysUnderItsOwnArtist(t *testing.T) {
+	lookupResponses := map[string]mbRecording{
+		"rec-solo-live":          sampleSoloLiveAlbumRecording("rec-solo-live", "Mike Doughty"),
+		"solo-live-release-mbid": sampleReleaseArtistCredit("solo-live-release-mbid", "Mike Doughty"),
+	}
+	s, rf := newTestScanner(t, lookupResponses, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":               "Some Song",
+		"ARTIST":              "Mike Doughty",
+		"MUSICBRAINZ_TRACKID": "rec-solo-live",
+	})
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("result = %+v, want 1 matched", result)
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 {
+		t.Fatalf("len(matched) = %d, want 1", len(matched))
+	}
+	track, err := s.db.GetTrack(*matched[0].TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetAlbum(track.AlbumID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist, err := s.db.GetArtist(album.ArtistID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artist.Name != "Mike Doughty" {
+		t.Errorf("filed under artist %q, want the solo artist unaffected by the Live-tag broadening", artist.Name)
+	}
+	// No separate display credit needed on an ordinary solo album — see
+	// applyMatch's own trackArtistCredit-vs-artist.Name convention.
+	if track.ArtistCredit != "" {
+		t.Errorf("Track.ArtistCredit = %q, want empty (identical to the album's own artist)", track.ArtistCredit)
 	}
 }
 
