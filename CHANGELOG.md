@@ -714,6 +714,16 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Organize left a multi-disc album's entire old folder tree behind,
+  empty but never cleaned up.** Docs promised "Emptied folders are swept
+  up..." for Organize, but that cleanup was only ever implemented for
+  MoveArtist (`mover.go`'s `removeEmptyParents`) — `OrganizeFile` itself
+  was a bare `os.Rename` with no cleanup at all. Found live organizing a
+  real 2-disc album: its old `Album (2CD)/Album (2CD)/CD1/`+`CD2/`
+  structure survived completely, fully empty, after every file moved out.
+  `OrganizeFile` now calls the same `removeEmptyParents` MoveArtist
+  already used, walking up from each file's old directory and removing
+  every now-empty ancestor up to (never including) the root folder.
 - **A missing album cover stayed missing forever, even after Cover Art
   Archive later got the artwork.** Found live: a "Cities 97 Sampler"
   volume's cover was genuinely unavailable when first checked (Aug 16),

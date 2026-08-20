@@ -135,6 +135,59 @@ func TestOrganizeFileMovesAndRecordsPath(t *testing.T) {
 	}
 }
 
+// TestOrganizeFileSweepsUpEmptyOldFolderTree is the regression test for a
+// real bug found live: OrganizeFile was documented ("Emptied folders are
+// swept up...") but never actually implemented that cleanup — only
+// MoveArtist (mover.go's removeEmptyParents) had it. A real multi-disc
+// album organize (a nested "Old Album (2CD)/Old Album (2CD)/CD1/..."
+// layout, mirroring the actual live structure this was found in) left its
+// entire multi-level old folder tree behind, empty but never removed,
+// once every file had moved out.
+func TestOrganizeFileSweepsUpEmptyOldFolderTree(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldTreeRoot := filepath.Join(rf.Path, "Boards of Canada - Geogaddi (2CD)")
+	srcDir := filepath.Join(oldTreeRoot, "Boards of Canada - Geogaddi (2CD)", "CD1")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srcPath := filepath.Join(srcDir, "unsorted.flac")
+	if err := os.WriteFile(srcPath, []byte("fake audio data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, srcPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.OrganizeFile(tf.ID); err != nil {
+		t.Fatalf("OrganizeFile: %v", err)
+	}
+
+	if _, err := os.Stat(oldTreeRoot); !os.IsNotExist(err) {
+		t.Errorf("old folder tree %s should have been fully swept up, stat err = %v", oldTreeRoot, err)
+	}
+	if _, err := os.Stat(rf.Path); err != nil {
+		t.Errorf("root folder itself should survive the sweep: %v", err)
+	}
+}
+
 func TestOrganizeFileRefusesToOverwrite(t *testing.T) {
 	s, rf := setupOrganizeScanner(t)
 

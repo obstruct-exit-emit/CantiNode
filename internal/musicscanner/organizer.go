@@ -92,7 +92,14 @@ func (s *Scanner) PlanOrganizePath(trackFileID int64) (string, error) {
 // PlanOrganizePath) and records the new path. A no-op (returns the
 // current path, no error) if the file is already there. Refuses to
 // overwrite an existing file at the destination — the caller finds out
-// via the returned error rather than silently losing data.
+// via the returned error rather than silently losing data. Sweeps up the
+// file's old directory (and any now-empty ancestors, up to but never
+// including the root folder itself) after a successful move — found live:
+// this was documented ("Emptied folders are swept up...") but never
+// actually implemented for Organize specifically, only for MoveArtist
+// (see removeEmptyParents, mover.go) — a real multi-disc album organize
+// left its entire old CD1/CD2 folder tree behind, empty but never
+// cleaned up, once every file had moved out of it.
 func (s *Scanner) OrganizeFile(trackFileID int64) (string, error) {
 	newPath, err := s.PlanOrganizePath(trackFileID)
 	if err != nil {
@@ -111,10 +118,15 @@ func (s *Scanner) OrganizeFile(trackFileID int64) (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("stat destination %s: %w", newPath, err)
 	}
+	rootFolder, err := s.db.GetRootFolder(tf.RootFolderID)
+	if err != nil {
+		return "", fmt.Errorf("get root folder: %w", err)
+	}
 
 	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
 		return "", fmt.Errorf("create destination directory: %w", err)
 	}
+	oldDir := filepath.Dir(tf.Path)
 	if err := os.Rename(tf.Path, newPath); err != nil {
 		return "", fmt.Errorf("move %s to %s: %w", tf.Path, newPath, err)
 	}
@@ -122,6 +134,7 @@ func (s *Scanner) OrganizeFile(trackFileID int64) (string, error) {
 	if err := s.db.SetTrackFileOrganized(trackFileID, newPath, time.Now().UTC()); err != nil {
 		return "", fmt.Errorf("record organized path: %w", err)
 	}
+	removeEmptyParents(oldDir, rootFolder.Path)
 	return newPath, nil
 }
 
