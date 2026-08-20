@@ -78,15 +78,27 @@ type releaseCreditCache map[string][]musicbrainz.ArtistCredit
 // (folder_match.go) already does the equivalent substitution for its own
 // whole-folder path (see recordingForReleaseTrack); this is the same fix
 // for the per-file paths, which bypass that entirely (matchFileDirect's
-// own doc comment on skipping folder-level reasoning). Best-effort: a
-// failed lookup just leaves rec as-is, same as before this existed —
-// never worth failing an otherwise-successful match over a filing nicety.
-// Callers must capture the track's own real credit (for display) before
-// calling this — it mutates rec.ArtistCredit in place.
-func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *musicbrainz.Recording, preferredReleaseMBID string, cache releaseCreditCache) {
+// own doc comment on skipping folder-level reasoning). Callers must
+// capture the track's own real credit (for display) before calling this —
+// it mutates rec.ArtistCredit in place.
+//
+// Returns a non-nil error only when the correction was actually needed
+// (releaseNeedsArtistCreditCheck) and the fetch to perform it failed — a
+// real bug found live: a transient MusicBrainz hiccup during this one
+// call used to degrade silently to rec's own (wrong, for a compilation)
+// credit, producing a full-confidence match under the wrong artist with
+// no error anywhere to notice — and worse, once matched, that wrong
+// album's mbid permanently "wins" any later correction attempt too (see
+// GetOrCreateAlbum's own ON CONFLICT(mbid) recovery). Callers now treat
+// this error as an auto-route trigger (see errDirectMatchInconsistent),
+// giving the file a real second shot instead of a silent, sticky wrong
+// answer. A release that genuinely needs no correction, or whose fetch
+// succeeds but returns no artist-credit at all (a real, different
+// answer, not a failure), is not an error — see the two returns below.
+func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *musicbrainz.Recording, preferredReleaseMBID string, cache releaseCreditCache) error {
 	release := rec.BestRelease(preferredReleaseMBID)
 	if release.ID == "" {
-		return
+		return nil
 	}
 	// A release group tracked as part of a monitored series gets its
 	// filing artist resolved locally by applyMatch regardless of what this
@@ -97,33 +109,40 @@ func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *mu
 	// also a compilation release, so this early exit matters in practice
 	// for every series-tracked match.
 	if _, isSeries, err := s.db.GetSeriesArtistForReleaseGroup(release.ReleaseGroup.ID); err == nil && isSeries {
-		return
+		return nil
 	}
 	if !releaseNeedsArtistCreditCheck(release.ReleaseGroup) {
-		return
+		return nil
 	}
 	if cache != nil {
 		if credit, ok := cache[release.ID]; ok {
 			if len(credit) > 0 {
 				rec.ArtistCredit = credit
 			}
-			return
+			return nil
 		}
 	}
 	full, err := s.mb.LookupReleaseWithTracklist(ctx, release.ID)
-	if err != nil || len(full.ArtistCredit) == 0 {
+	if err != nil {
+		// Deliberately NOT cached: this release still needs the check, so
+		// the next file in the same folder (or a later scan) should get
+		// its own real attempt, not a remembered failure.
+		return fmt.Errorf("check release %s artist credit: %w", release.ID, err)
+	}
+	if len(full.ArtistCredit) == 0 {
+		// A genuine, successful answer — this release really has no
+		// artist-credit to substitute (rare, but definitive, not a
+		// failure) — cached like the hit case below.
 		if cache != nil {
-			// Remember the miss too — same reasoning as the hit below: an
-			// N-track folder shouldn't retry the same failing/empty
-			// release N times in one pass either.
 			cache[release.ID] = []musicbrainz.ArtistCredit{}
 		}
-		return
+		return nil
 	}
 	rec.ArtistCredit = full.ArtistCredit
 	if cache != nil {
 		cache[release.ID] = full.ArtistCredit
 	}
+	return nil
 }
 
 // embeddedTagsAgree reports whether tags' own MusicBrainzReleaseGroupID
@@ -214,7 +233,13 @@ func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.Track
 		return false, errDirectMatchInconsistent
 	}
 	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
-	s.correctArtistCreditForCompilation(ctx, rec, tags.MusicBrainzAlbumID, cache)
+	if err := s.correctArtistCreditForCompilation(ctx, rec, tags.MusicBrainzAlbumID, cache); err != nil {
+		// Same auto-route as an embedded-tag inconsistency: don't lock in
+		// a possibly-wrong artist credit, give the file a real second shot
+		// via whole-folder consensus instead (see errDirectMatchInconsistent
+		// and correctArtistCreditForCompilation's own doc comment).
+		return false, errDirectMatchInconsistent
+	}
 	if err := s.applyMatch(tf, *rec, 1.0, tags.MusicBrainzAlbumID, tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, trackArtistCredit); err != nil {
 		return false, err
 	}
@@ -252,7 +277,14 @@ func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile
 	}
 
 	trackArtistCredit := joinArtistCredit(best.ArtistCredit)
-	s.correctArtistCreditForCompilation(ctx, &best, "", cache)
+	// No further fallback beyond this one (matchFileFuzzy is itself the
+	// safety valve — see its own doc comment), so unlike resolveDirectMatch
+	// a correction failure here just surfaces as a real scan error rather
+	// than an auto-route: better a file sits in Unmatched for manual
+	// review than silently lock in a possibly-wrong artist credit.
+	if err := s.correctArtistCreditForCompilation(ctx, &best, "", cache); err != nil {
+		return false, fmt.Errorf("check compilation artist credit: %w", err)
+	}
 	if err := s.applyMatch(tf, best, confidence, "", tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, trackArtistCredit); err != nil {
 		return false, err
 	}
@@ -384,7 +416,11 @@ func (s *Scanner) ManualMatch(ctx context.Context, trackFileID int64, recordingM
 	}
 
 	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
-	s.correctArtistCreditForCompilation(ctx, rec, preferredReleaseMBID, nil) // one-off single match — nothing to share a cache across
+	// Best-effort, error deliberately ignored: a human explicitly chose
+	// this exact recording, so a transient hiccup on the filing-artist
+	// correction shouldn't block the match they asked for — they can
+	// always fix the filing manually afterward if it lands wrong.
+	_ = s.correctArtistCreditForCompilation(ctx, rec, preferredReleaseMBID, nil)
 	return s.applyMatch(tf, *rec, 1.0, preferredReleaseMBID, trackNumber, discNumber, musiclibrary.StatusManual, trackArtistCredit)
 }
 

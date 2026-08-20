@@ -428,6 +428,63 @@ func TestScanRootFolderMemoizesReleaseCreditLookupAcrossFolder(t *testing.T) {
 	}
 }
 
+// TestScanRootFolderNeverFilesUnderWrongArtistWhenCorrectionFetchFails is
+// the regression test for a real bug found live: correctArtistCreditForCompilation's
+// own LookupReleaseWithTracklist call failed (a genuine live network
+// hiccup, not a data problem — the real MusicBrainz data for this exact
+// release was confirmed correct via both the batch and single-lookup
+// endpoints after the fact) for one Various Artists compilation track,
+// and the failure silently degraded to filing the file under its own
+// real per-track performer (a full-confidence WRONG match, with no error
+// anywhere to notice) instead of leaving it for a real second attempt.
+// Worse, once matched, that wrong album's own mbid then permanently
+// "won" any later correction attempt too, via GetOrCreateAlbum's own
+// ON CONFLICT(mbid) recovery — the mismatch was completely self-
+// reinforcing. Confirms the fix: a correction-fetch failure (simulated
+// here as the release simply never answering — releaseLookups has no
+// entry for it) makes the direct fast path decline (same auto-route as
+// an embedded-tag inconsistency) rather than silently locking in the
+// wrong artist; with nothing else in this single-file folder able to
+// resolve it either, the file ends up a genuine, visible scan error —
+// never a confident wrong match.
+func TestScanRootFolderNeverFilesUnderWrongArtistWhenCorrectionFetchFails(t *testing.T) {
+	fs := newFolderTestServer()
+	rec := sampleSamplerTrackRecording("rec-1", "Little Feat")
+	fs.recordingLookups["rec-1"] = rec
+	// Deliberately no fs.releaseLookups["sampler-release-mbid"] entry at
+	// all — every LookupReleaseWithTracklist call for it 404s, standing in
+	// for a real transient failure.
+	fuzzyCandidate := rec
+	fuzzyCandidate.Score = 100 // clears matchFileFuzzy's own confidence gate, so it actually reaches the correction check
+	fs.recordingSearch = []mbRecording{fuzzyCandidate} // matchFileFuzzy's own fallback candidate, once folder consensus also can't resolve it
+
+	s, rf := newFolderTestScanner(t, fs)
+	buildFLACFile(t, rf.Path, "01.flac", map[string]string{
+		"ARTIST": "Little Feat", "TITLE": "Some Song",
+		"MUSICBRAINZ_TRACKID": "rec-1",
+		"MUSICBRAINZ_ALBUMID": "sampler-release-mbid",
+	})
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 0 {
+		t.Errorf("FilesMatched = %d, want 0 — must never confidently match under the wrong (per-track) artist when the compilation-credit check itself failed", result.FilesMatched)
+	}
+	if len(result.Errors) == 0 {
+		t.Error("Errors is empty, want at least one — a genuine correction-check failure should surface visibly, not vanish silently")
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 0 {
+		t.Errorf("matched = %+v, want none", matched)
+	}
+}
+
 // TestScanRootFolderFallsBackToPerFileLookupWhenBatchOmitsOneRecording is
 // the regression test for a real bug found live: MusicBrainz's search
 // index (what the batch rid:(...) endpoint queries) can have real gaps

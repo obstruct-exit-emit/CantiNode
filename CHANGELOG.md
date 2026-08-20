@@ -714,6 +714,26 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A Various Artists compilation track could silently, permanently file
+  under its own real per-track performer instead of "Various Artists" —
+  with no error anywhere to notice.** Found live: "Little Feat," off a
+  Cities 97 Sampler volume, had its own separate artist entry despite
+  MusicBrainz's real data for that exact release being fully correct
+  (confirmed via both the batch and single-lookup endpoints after the
+  fact). Root cause: `correctArtistCreditForCompilation`'s own
+  `LookupReleaseWithTracklist` fetch — the one that substitutes the
+  release's real "Various Artists" credit — degraded silently to the
+  recording's own per-track credit on any fetch failure (a transient
+  MusicBrainz hiccup, not a data problem), producing a full-confidence
+  WRONG match with nothing recorded anywhere. Worse, once matched, that
+  wrong album's own `mbid` then permanently "won" any later correction
+  attempt too, via the `ON CONFLICT(mbid)` recovery above — the mistake
+  was self-reinforcing. A genuine correction-fetch failure now makes the
+  direct-match fast path decline (the same auto-route an embedded-tag
+  inconsistency already used) instead of silently locking in the wrong
+  artist, giving the file a real second shot via folder consensus — or,
+  if nothing can resolve it, a real, visible scan error instead of a
+  confident wrong answer.
 - **A batch of tracks across two "Cities 97 Sampler" volumes crashed
   outright with `UNIQUE constraint failed: albums.mbid` instead of
   matching.** Found live in a scan's own error list right after the fixes
