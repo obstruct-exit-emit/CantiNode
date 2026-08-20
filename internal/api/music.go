@@ -1177,6 +1177,40 @@ func (s *server) handleWriteMusicTags(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleWriteMusicTagsForAlbum writes every matched file in an album back
+// to its own tags — the album page's own bulk "Write tags" action, the
+// album-scoped counterpart to handleOrganizeMusicAlbum.
+func (s *server) handleWriteMusicTagsForAlbum(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	written, errs, err := s.musicScanner.WriteTagsForAlbum(id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"written": written, "errors": errs})
+}
+
+// handleWriteMusicTagsForArtist is handleWriteMusicTagsForAlbum scoped to
+// every album an artist owns — the artist page's own bulk "Write tags"
+// action.
+func (s *server) handleWriteMusicTagsForArtist(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	written, errs, err := s.musicScanner.WriteTagsForArtist(id)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"written": written, "errors": errs})
+}
+
 func (s *server) handlePreviewOrganizeMusicArtist(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {

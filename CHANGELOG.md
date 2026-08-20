@@ -11,6 +11,17 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **"Write tags" is now a bulk, album- and artist-scoped action, matching
+  Organize.** The album/artist pages' per-file organize/write-tags/delete
+  buttons cluttered every track row for something that's almost always
+  done for a whole album or artist at once. Organize already had
+  album/artist-scoped versions; write-tags didn't, so it stayed
+  per-file — new `WriteTagsForAlbum`/`WriteTagsForArtist` (best-effort per
+  file, an unmatched file silently skipped, one failure doesn't stop the
+  rest — the same pattern `OrganizeArtist`/`OrganizeAlbum` already use) back
+  new "Write tags" buttons next to each page's own "Organize…". The
+  per-file organize/write-tags/delete buttons are gone from the album
+  page's track rows entirely — each file row is now just path/format/size.
 - **Batched MusicBrainz recording lookups for direct-matched folders.**
   `matchFolder` used to resolve every file's embedded
   `MUSICBRAINZ_TRACKID` with its own `LookupRecording` round trip — a

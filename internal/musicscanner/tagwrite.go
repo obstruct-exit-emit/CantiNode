@@ -3,6 +3,7 @@ package musicscanner
 import (
 	"fmt"
 
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
@@ -66,4 +67,46 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 		return fmt.Errorf("write tags to %s: %w", tf.Path, err)
 	}
 	return nil
+}
+
+// WriteTagsForAlbum runs WriteTags for every matched file belonging to
+// albumID — the album page's own "Write tags" action, now that per-file
+// buttons are gone (write-tags/organize/delete are all bulk, album- or
+// artist-scoped actions; a single stray file is the rare exception, not
+// the common case this UI should optimize for). An unmatched file is
+// silently skipped (nothing to write), the same tolerance
+// PlanOrganizeAlbum already has; any other per-file failure is recorded
+// in errs and does not stop the rest, mirroring applyOrganizePlan's own
+// non-aborting pattern.
+func (s *Scanner) WriteTagsForAlbum(albumID int64) (written int, errs []string, err error) {
+	files, err := s.db.ListTrackFilesByAlbum(albumID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("list track files by album: %w", err)
+	}
+	return s.writeTagsForFiles(files)
+}
+
+// WriteTagsForArtist is WriteTagsForAlbum scoped to every album artistID
+// owns — the artist page's own "Write tags" action.
+func (s *Scanner) WriteTagsForArtist(artistID int64) (written int, errs []string, err error) {
+	files, err := s.db.ListTrackFilesByArtist(artistID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("list track files by artist: %w", err)
+	}
+	return s.writeTagsForFiles(files)
+}
+
+func (s *Scanner) writeTagsForFiles(files []musiclibrary.TrackFile) (written int, errs []string, err error) {
+	errs = []string{}
+	for _, tf := range files {
+		if tf.MatchStatus == musiclibrary.StatusUnmatched {
+			continue
+		}
+		if werr := s.WriteTags(tf.ID); werr != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", tf.Path, werr))
+			continue
+		}
+		written++
+	}
+	return written, errs, nil
 }

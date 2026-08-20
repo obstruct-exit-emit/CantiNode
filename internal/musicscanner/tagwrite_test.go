@@ -103,6 +103,145 @@ func TestWriteTagsUsesPerTrackArtistCreditForVariousArtists(t *testing.T) {
 	}
 }
 
+// TestWriteTagsForAlbumSkipsUnmatchedAndWritesTheRest is the regression
+// test for the album page's new bulk "Write tags" action (replacing the
+// per-file button): every matched file in the album gets its tags
+// written, an unmatched file is silently skipped (nothing to write, not
+// an error), and the returned count reflects only the files actually
+// written.
+func TestWriteTagsForAlbumSkipsUnmatchedAndWritesTheRest(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track1, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track2, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 2, 1, 200000, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path1 := filepath.Join(rf.Path, "01.mp3")
+	os.WriteFile(path1, []byte("fake mp3 audio"), 0o644)
+	tf1, err := s.db.UpsertTrackFileByPath(rf.ID, path1, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf1.ID, &track1.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	path2 := filepath.Join(rf.Path, "02.mp3")
+	os.WriteFile(path2, []byte("fake mp3 audio"), 0o644)
+	tf2, err := s.db.UpsertTrackFileByPath(rf.ID, path2, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf2.ID, &track2.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	// A third, unmatched file in the same album — SetTrackFileMatch never
+	// called, so it stays StatusUnmatched.
+	path3 := filepath.Join(rf.Path, "03.mp3")
+	os.WriteFile(path3, []byte("fake mp3 audio"), 0o644)
+	if _, err := s.db.UpsertTrackFileByPath(rf.ID, path3, 1, "mp3", 0, 0, "{}"); err != nil {
+		t.Fatal(err)
+	}
+
+	written, errs, err := s.WriteTagsForAlbum(album.ID)
+	if err != nil {
+		t.Fatalf("WriteTagsForAlbum: %v", err)
+	}
+	if written != 2 {
+		t.Errorf("written = %d, want 2 (the unmatched file should be skipped, not counted or errored)", written)
+	}
+	if len(errs) != 0 {
+		t.Errorf("errs = %v, want none", errs)
+	}
+
+	got1, err := tagreader.Read(path1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got1.Title != "Alpha and Omega" {
+		t.Errorf("path1 Title = %q, want Alpha and Omega", got1.Title)
+	}
+	got2, err := tagreader.Read(path2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got2.Title != "Music Is Math" {
+		t.Errorf("path2 Title = %q, want Music Is Math", got2.Title)
+	}
+}
+
+// TestWriteTagsForArtistCoversEveryAlbum proves the artist-scoped bulk
+// action spans every album the artist owns, not just one.
+func TestWriteTagsForArtistCoversEveryAlbum(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album1, err := s.db.GetOrCreateAlbum(artist.ID, "al1-mbid", "rg1-mbid", "Geogaddi", "2002", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album2, err := s.db.GetOrCreateAlbum(artist.ID, "al2-mbid", "rg2-mbid", "Music Has the Right to Children", "1998", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track1, err := s.db.GetOrCreateTrack(album1.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track2, err := s.db.GetOrCreateTrack(album2.ID, "t2-mbid", "Roygbiv", 1, 1, 200000, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path1 := filepath.Join(rf.Path, "01.mp3")
+	os.WriteFile(path1, []byte("fake mp3 audio"), 0o644)
+	tf1, err := s.db.UpsertTrackFileByPath(rf.ID, path1, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf1.ID, &track1.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	path2 := filepath.Join(rf.Path, "02.mp3")
+	os.WriteFile(path2, []byte("fake mp3 audio"), 0o644)
+	tf2, err := s.db.UpsertTrackFileByPath(rf.ID, path2, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf2.ID, &track2.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	written, errs, err := s.WriteTagsForArtist(artist.ID)
+	if err != nil {
+		t.Fatalf("WriteTagsForArtist: %v", err)
+	}
+	if written != 2 {
+		t.Errorf("written = %d, want 2 (one file from each of the artist's two albums)", written)
+	}
+	if len(errs) != 0 {
+		t.Errorf("errs = %v, want none", errs)
+	}
+}
+
 func TestWriteTagsRequiresMatch(t *testing.T) {
 	s, rf := setupOrganizeScanner(t)
 

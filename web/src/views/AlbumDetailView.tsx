@@ -11,29 +11,13 @@ import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import { formatBytes } from "../format";
-import { useUi } from "../ui";
-
-// tagWritableFormats mirrors internal/tagwriter.IsSupported's own format
-// list — kept here rather than round-tripping to the API just to ask,
-// since it's small and rarely changes. Gates the "write tags" button so
-// clicking it on an unsupported format (WMA, AIFF, ...) isn't the only
-// way to discover that; keep this in sync if IsSupported's list ever
-// changes.
-//
-// This is matched against a track_file's own reported format (see
-// internal/tagreader.Tags.Format), not its extension — "oga" and "opus"
-// are deliberately absent even though tagwriter writes both: dhowden/tag
-// (the reader) identifies every Ogg-container file as "ogg" regardless of
-// its actual extension, so a .oga or .opus file's own format is always
-// reported as "ogg", never "oga"/"opus". Listing them here would be dead,
-// untestable code.
-const tagWritableFormats = new Set(["mp3", "flac", "m4a", "m4b", "m4p", "ogg", "dsf", "wav"]);
 
 // Full-page album detail: header with cover art, release info, and
-// album-scoped Scan/Organize/Remove actions (unlike the artist page's
-// versions, these never touch a sibling album's files), then its tracks —
-// each with the file(s) matched to it (path, format, organize/write-tags/
-// delete actions), mirroring the book page's Files section.
+// album-scoped Scan/Organize/Write tags/Remove actions (unlike the artist
+// page's versions, these never touch a sibling album's files), then its
+// tracks with the file(s) matched to each — path/format/size only, no
+// per-file actions: organize/write-tags/delete are all bulk, album- or
+// artist-scoped actions now, not something to repeat per file.
 export default function AlbumDetailView({
   id,
   onError,
@@ -43,11 +27,9 @@ export default function AlbumDetailView({
   onError: (message: string) => void;
   onBack: () => void;
 }) {
-  const { confirmDlg } = useUi();
   const [album, setAlbum] = useState<MusicAlbum | null>(null);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [files, setFiles] = useState<Record<number, MusicTrackFile[]>>({});
-  const [busyId, setBusyId] = useState<number | null>(null);
   const [headerBusy, setHeaderBusy] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -127,59 +109,16 @@ export default function AlbumDetailView({
       .finally(() => setHeaderBusy(false));
   };
 
-  const organizeFile = async (f: MusicTrackFile) => {
-    setBusyId(f.id);
+  const writeTags = () => {
+    setHeaderBusy(true);
     setNotice("");
-    try {
-      const preview = await api.previewOrganizeTrackFile(f.id);
-      const ok = await confirmDlg({
-        title: "Organize file",
-        message: `Move this file to match the naming template?\n\n${f.path}\n  → ${preview.path}`,
-        confirmLabel: "Organize",
-      });
-      if (!ok) return;
-      await api.organizeTrackFile(f.id);
-      setNotice("✓ File organized.");
-      reload();
-    } catch (err) {
-      onError(String(err instanceof Error ? err.message : err));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const writeTags = async (f: MusicTrackFile) => {
-    setBusyId(f.id);
-    setNotice("");
-    try {
-      await api.writeMusicTags(f.id);
-      setNotice("✓ Tags written to file.");
-    } catch (err) {
-      onError(String(err instanceof Error ? err.message : err));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const removeFile = async (f: MusicTrackFile) => {
-    const ok = await confirmDlg({
-      title: "Delete file",
-      message: `Delete this file from disk?\n\n${f.path}`,
-      confirmLabel: "Delete file",
-      danger: true,
-    });
-    if (!ok) return;
-    setBusyId(f.id);
-    setNotice("");
-    try {
-      await api.deleteTrackFile(f.id);
-      setNotice("✓ File deleted.");
-      reload();
-    } catch (err) {
-      onError(String(err instanceof Error ? err.message : err));
-    } finally {
-      setBusyId(null);
-    }
+    api
+      .writeMusicTagsForAlbum(album.id)
+      .then((r) => {
+        setNotice(`✓ Wrote tags to ${r.written} file(s)${r.errors.length ? `, ${r.errors.length} failed` : ""}.`);
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setHeaderBusy(false));
   };
 
   const year = album.releaseDate ? album.releaseDate.slice(0, 4) : "";
@@ -210,6 +149,9 @@ export default function AlbumDetailView({
             </button>
             <button disabled={headerBusy} onClick={previewOrganize} title="Preview naming-template moves for this album's files only">
               Organize…
+            </button>
+            <button disabled={headerBusy} onClick={writeTags} title="Write this album's matched metadata back into every file's own tags">
+              Write tags
             </button>
             <button
               className={showUpgrade ? "toggle on" : ""}
@@ -286,36 +228,8 @@ export default function AlbumDetailView({
                   {tfiles.map((f) => (
                     <div className="row nested" key={f.id}>
                       <span className="file-path muted">📄 {f.path}</span>
-                      <span className="row-actions">
-                        <span className="muted">
-                          {f.format} · {formatBytes(f.sizeBytes)}
-                        </span>
-                        <button
-                          className="toggle"
-                          disabled={busyId !== null}
-                          title="Move this file to match the naming template"
-                          onClick={() => organizeFile(f)}
-                        >
-                          organize
-                        </button>
-                        {tagWritableFormats.has(f.format.toLowerCase()) && (
-                          <button
-                            className="toggle"
-                            disabled={busyId !== null}
-                            title="Write this track's metadata back into the file's own tags"
-                            onClick={() => writeTags(f)}
-                          >
-                            write tags
-                          </button>
-                        )}
-                        <button
-                          className="danger"
-                          disabled={busyId !== null}
-                          title="Delete this file from disk and forget it"
-                          onClick={() => removeFile(f)}
-                        >
-                          delete
-                        </button>
+                      <span className="muted">
+                        {f.format} · {formatBytes(f.sizeBytes)}
                       </span>
                     </div>
                   ))}

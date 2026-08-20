@@ -731,6 +731,11 @@ export const api = {
       `/api/v1/music/album/${id}/organize`,
       { method: "POST" },
     ),
+  writeMusicTagsForAlbum: (id: number) =>
+    request<{ written: number; errors: string[] }>(
+      `/api/v1/music/album/${id}/write-tags`,
+      { method: "POST" },
+    ),
   scanMusicAlbum: (id: number) =>
     request<MusicScanResult>(`/api/v1/music/album/${id}/scan`, { method: "POST" }),
   searchAlbumUpgrade: (id: number) =>
@@ -766,12 +771,6 @@ export const api = {
     ),
   clearTrackFileMatch: (id: number) =>
     request<void>(`/api/v1/music/trackfile/${id}/match`, { method: "DELETE" }),
-  previewOrganizeTrackFile: (id: number) =>
-    request<{ path: string }>(`/api/v1/music/trackfile/${id}/organize/preview`),
-  organizeTrackFile: (id: number) =>
-    request<{ path: string }>(`/api/v1/music/trackfile/${id}/organize`, { method: "POST" }),
-  writeMusicTags: (id: number) =>
-    request<void>(`/api/v1/music/trackfile/${id}/write-tags`, { method: "POST" }),
   deleteTrackFile: (id: number) =>
     request<void>(`/api/v1/music/trackfile/${id}`, { method: "DELETE" }),
   previewOrganizeMusicArtist: (id: number) =>
@@ -779,6 +778,11 @@ export const api = {
   organizeMusicArtist: (id: number) =>
     request<{ moves: RenameMove[]; errors: string[] }>(
       `/api/v1/music/artist/${id}/organize`,
+      { method: "POST" },
+    ),
+  writeMusicTagsForArtist: (id: number) =>
+    request<{ written: number; errors: string[] }>(
+      `/api/v1/music/artist/${id}/write-tags`,
       { method: "POST" },
     ),
   previewMoveMusicArtist: (id: number, rootFolderId: number) =>

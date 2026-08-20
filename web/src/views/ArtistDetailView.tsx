@@ -257,6 +257,18 @@ export default function ArtistDetailView({
       .finally(() => setBusy(false));
   };
 
+  const writeTags = () => {
+    setBusy(true);
+    setNotice("");
+    api
+      .writeMusicTagsForArtist(artist.id)
+      .then((r) => {
+        setNotice(`Wrote tags to ${r.written} file(s)${r.errors.length ? `, ${r.errors.length} failed` : ""}.`);
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setBusy(false));
+  };
+
   // previewMove loads what a move to the just-picked root folder would do
   // (which files, total size) — the "warning" step: nothing moves until
   // the user reviews this and explicitly approves via applyMove.
@@ -380,6 +392,9 @@ export default function ArtistDetailView({
             </button>
             <button disabled={busy} onClick={previewOrganize} title="Preview naming-template moves for this artist's files only">
               Organize…
+            </button>
+            <button disabled={busy} onClick={writeTags} title="Write this artist's matched metadata back into every owned file's own tags">
+              Write tags
             </button>
             {rootFolders.length > 1 && (
               <select
