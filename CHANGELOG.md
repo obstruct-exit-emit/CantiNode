@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Four new naming-template tokens: `{TrackArtist}`, `{ArtistSortName}`,
+  `{ReleaseType}`, and `{Date}`.** All sourced from data already loaded
+  for every organize, so no new fetches. `{TrackArtist}` is the track's
+  own performer credit rather than the album artist — the two differ on
+  a Various Artists compilation, so a template like
+  `{Artist}/{TrackArtist} - {Title}.{Ext}` can file every track under
+  "Various Artists" while still naming the real performer; falls back to
+  the album artist when a track has no distinct credit (mirroring how
+  the album page already displays it). `{ArtistSortName}` is the
+  artist's MusicBrainz sort name (e.g. "Beatles, The"), for folders that
+  sort by real name instead of a leading "The"; falls back to the
+  artist's plain name when no sort name is on record. `{ReleaseType}` is
+  the album's MusicBrainz primary type (Album/EP/Single/Compilation/...),
+  for splitting a library by type; falls back to "Album" when unset.
+  `{Date}` is the album's full release date, unlike `{Year}`'s truncated
+  4-digit year.
 - **The artist page also gets MusicBrainz/TheAudioDB link icons, the
   same pair the album page has.** MusicBrainz is a plain client-side link
   (`musicbrainz.org/artist/{mbid}`, or `/series/{mbid}` for a tracked

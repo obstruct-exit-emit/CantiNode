@@ -39,6 +39,49 @@ func TestFormatPath(t *testing.T) {
 	}
 }
 
+func TestFormatPathNewTokens(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "The Beatles", SortName: "Beatles, The"}
+	album := musiclibrary.Album{Title: "Help!", ReleaseDate: "1965-08-06", PrimaryType: "Album"}
+	track := musiclibrary.Track{Title: "Yesterday", TrackNumber: 13, DiscNumber: 1}
+
+	got := FormatPath("{ArtistSortName}/{ReleaseType}/{Album} [{Date}]/{TrackNumber} - {Title}.{Ext}", artist, album, track, ".flac")
+	want := filepath.FromSlash("Beatles, The/Album/Help! [1965-08-06]/13 - Yesterday.flac")
+	if got != want {
+		t.Errorf("FormatPath = %q, want %q", got, want)
+	}
+}
+
+func TestFormatPathTrackArtistFallsBackToAlbumArtist(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Various Artists"}
+	album := musiclibrary.Album{Title: "Cities 97 Sampler"}
+	track := musiclibrary.Track{Title: "Roll to Me", TrackNumber: 1, DiscNumber: 1, ArtistCredit: "Del Amitri"}
+
+	got := FormatPath("{Artist}/{TrackArtist} - {Title}.{Ext}", artist, album, track, ".mp3")
+	want := filepath.FromSlash("Various Artists/Del Amitri - Roll to Me.mp3")
+	if got != want {
+		t.Errorf("FormatPath = %q, want %q", got, want)
+	}
+
+	track.ArtistCredit = ""
+	got = FormatPath("{Artist}/{TrackArtist} - {Title}.{Ext}", artist, album, track, ".mp3")
+	want = filepath.FromSlash("Various Artists/Various Artists - Roll to Me.mp3")
+	if got != want {
+		t.Errorf("FormatPath (empty ArtistCredit) = %q, want %q", got, want)
+	}
+}
+
+func TestFormatPathMissingSortNameAndReleaseTypeFallBack(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Boards of Canada"}
+	album := musiclibrary.Album{Title: "Geogaddi"}
+	track := musiclibrary.Track{Title: "Alpha and Omega", TrackNumber: 3, DiscNumber: 1}
+
+	got := FormatPath("{ArtistSortName}/{ReleaseType}/{Title}.{Ext}", artist, album, track, ".flac")
+	want := filepath.FromSlash("Boards of Canada/Album/Alpha and Omega.flac")
+	if got != want {
+		t.Errorf("FormatPath = %q, want %q", got, want)
+	}
+}
+
 func TestFormatPathSanitizesIllegalCharacters(t *testing.T) {
 	artist := musiclibrary.Artist{Name: `AC/DC`}
 	album := musiclibrary.Album{Title: "Greatest Hits", ReleaseDate: "1990"}

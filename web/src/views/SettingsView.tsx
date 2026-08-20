@@ -2080,15 +2080,27 @@ function NamingCard({
           {field(
             "File template",
             "musicFile",
-            "Renders one full path (folders included) from a matched track's artist/album/title: {Artist} {Album} {Year} {TrackNumber} {DiscNumber} {Title} {Ext}",
+            "Renders one full path (folders included) from a matched track's artist/album/title: {Artist} {ArtistSortName} {Album} {ReleaseType} {Year} {Date} {TrackNumber} {DiscNumber} {Title} {TrackArtist} {Ext}",
           )}
           <p className="muted field-note">
-            Tokens: <code>{"{Artist}"}</code> <code>{"{Album}"}</code>{" "}
-            <code>{"{Year}"}</code> <code>{"{TrackNumber}"}</code>{" "}
+            Tokens: <code>{"{Artist}"}</code>{" "}
+            <code>{"{ArtistSortName}"}</code> <code>{"{Album}"}</code>{" "}
+            <code>{"{ReleaseType}"}</code> <code>{"{Year}"}</code>{" "}
+            <code>{"{Date}"}</code> <code>{"{TrackNumber}"}</code>{" "}
             <code>{"{DiscNumber}"}</code> <code>{"{Title}"}</code>{" "}
-            <code>{"{Ext}"}</code>. "/" separators create subfolders. Tokens
-            without a value drop out cleanly; an emptied field reverts to
-            the default.
+            <code>{"{TrackArtist}"}</code> <code>{"{Ext}"}</code>. "/"
+            separators create subfolders. Tokens without a value drop out
+            cleanly; an emptied field reverts to the default.
+          </p>
+          <p className="muted field-note">
+            <code>{"{ArtistSortName}"}</code> is the artist's sort name
+            (e.g. "Beatles, The"); <code>{"{ReleaseType}"}</code> is the
+            release type (Album/EP/Single/Compilation/...);{" "}
+            <code>{"{Date}"}</code> is the full release date, unlike{" "}
+            <code>{"{Year}"}</code>'s 4-digit year; and{" "}
+            <code>{"{TrackArtist}"}</code> is the track's own performer,
+            which differs from <code>{"{Artist}"}</code> (the album
+            artist) on a Various Artists compilation.
           </p>
           <p className="muted field-note">
             Example: <code>{settings.musicExample}</code>

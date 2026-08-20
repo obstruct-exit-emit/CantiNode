@@ -136,15 +136,26 @@ The same page has a **Clear image cache** button — see
 
 ## Naming template
 
-Tokens: `{Artist}`, `{Album}`, `{Year}`, `{TrackNumber}`, `{DiscNumber}`,
-`{Title}`, `{Ext}`. One template renders the whole path (folder separators
-included) in a single pass, so `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}`
-produces both the folder structure and the filename together — add
-`{DiscNumber}` for a multi-disc album (e.g.
+Tokens: `{Artist}`, `{ArtistSortName}`, `{Album}`, `{ReleaseType}`, `{Year}`,
+`{Date}`, `{TrackNumber}`, `{DiscNumber}`, `{Title}`, `{TrackArtist}`,
+`{Ext}`. One template renders the whole path (folder separators included) in
+a single pass, so `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}` produces
+both the folder structure and the filename together — add `{DiscNumber}` for
+a multi-disc album (e.g.
 `{Artist}/{Album}/Disc {DiscNumber}/{TrackNumber} - {Title}.{Ext}`) or
 `{Year}` to fold the release year into a folder or filename (e.g.
-`{Artist}/{Album} ({Year})/...`). Tokens without a value drop out cleanly;
-an emptied template reverts to the default.
+`{Artist}/{Album} ({Year})/...`). `{Date}` is the same idea as `{Year}` but
+the full release date instead of a 4-digit year. `{ArtistSortName}` is the
+artist's sort name (e.g. "Beatles, The"), useful for alphabetizing folders
+by an artist's real name rather than a leading "The". `{ReleaseType}` is the
+album's MusicBrainz primary type (Album/EP/Single/Compilation/...), useful
+for splitting a library by type, e.g. `{Artist}/{ReleaseType}/{Album}/...`.
+`{TrackArtist}` is the track's own performer credit rather than the album
+artist — the two differ on a Various Artists compilation, where every track
+shares the same (Various Artists) `{Artist}` but has its own real performer;
+falls back to `{Artist}`'s own value when a track has no distinct credit.
+Tokens without a value drop out cleanly; an emptied template reverts to the
+default.
 
 ## Authentication
 

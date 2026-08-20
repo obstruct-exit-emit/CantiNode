@@ -37,17 +37,46 @@ func sanitizePathComponent(s string) string {
 // own "/" separators (there to create subfolders) are left alone.
 func FormatPath(format string, artist musiclibrary.Artist, album musiclibrary.Album, track musiclibrary.Track, ext string) string {
 	year := "0000"
+	date := "0000-00-00"
 	if len(album.ReleaseDate) >= 4 {
 		year = album.ReleaseDate[:4]
+		date = album.ReleaseDate
+	}
+
+	// trackArtist is the track's own real performer where it differs from
+	// the album artist (the point of a Various Artists compilation) —
+	// ArtistCredit is deliberately left empty by the matcher whenever it
+	// would just repeat the album artist (see Track's own doc comment),
+	// so falling back to artist.Name here reproduces exactly what the
+	// track was actually credited to either way.
+	trackArtist := track.ArtistCredit
+	if trackArtist == "" {
+		trackArtist = artist.Name
+	}
+	// sortName falls back the same way — an artist synced before
+	// MusicBrainz's inc=... started requesting sort-name, or one with a
+	// genuinely blank sort-name upstream, must still resolve to something
+	// usable rather than collapsing this path component to empty.
+	sortName := artist.SortName
+	if sortName == "" {
+		sortName = artist.Name
+	}
+	releaseType := album.PrimaryType
+	if releaseType == "" {
+		releaseType = "Album"
 	}
 
 	replacer := strings.NewReplacer(
 		"{Artist}", sanitizePathComponent(artist.Name),
+		"{ArtistSortName}", sanitizePathComponent(sortName),
 		"{Album}", sanitizePathComponent(album.Title),
+		"{ReleaseType}", sanitizePathComponent(releaseType),
 		"{Year}", year,
+		"{Date}", date,
 		"{TrackNumber}", fmt.Sprintf("%02d", track.TrackNumber),
 		"{DiscNumber}", strconv.Itoa(track.DiscNumber),
 		"{Title}", sanitizePathComponent(track.Title),
+		"{TrackArtist}", sanitizePathComponent(trackArtist),
 		"{Ext}", strings.TrimPrefix(ext, "."),
 	)
 	return filepath.FromSlash(replacer.Replace(format))
