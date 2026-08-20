@@ -36,38 +36,42 @@ type Album struct {
 // release.ReleaseGroup.ID always is set), but falls back to the old
 // mbid-keyed lookup defensively rather than risk duplicate rows if it
 // ever is.
+//
+// mbid itself also carries its own, separate database-wide UNIQUE
+// constraint (a specific physical release can only ever belong to one
+// album row, however it's reached) — found live: two tracks of the very
+// same logical release-group can independently resolve, via
+// Recording.BestRelease, to two different specific release editions (or,
+// rarer, briefly to a different filing artist before a per-track
+// correction applies) whose mbid one of them already claims. A plain
+// check-then-insert can't see that until the insert itself fails, so the
+// insert goes through ON CONFLICT(mbid) DO NOTHING — atomic, no separate
+// race window — and the row is always read back by mbid afterward,
+// whether this call just inserted it or another one already had.
 func (s *Store) GetOrCreateAlbum(artistID int64, mbid, releaseGroupMBID, title, releaseDate, primaryType string) (*Album, error) {
-	var existing *Album
-	var err error
 	if releaseGroupMBID != "" {
-		existing, err = s.getAlbumByReleaseGroupMBID(artistID, releaseGroupMBID)
-	} else {
-		existing, err = s.getAlbumByMBID(mbid)
-	}
-	if err == nil {
-		return existing, nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return nil, err
+		existing, err := s.getAlbumByReleaseGroupMBID(artistID, releaseGroupMBID)
+		if err == nil {
+			return existing, nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
 	}
 
 	now := time.Now().UTC()
-	res, err := s.db.Exec(
+	if _, err := s.db.Exec(
 		`INSERT INTO albums (artist_id, mbid, release_group_mbid, title, release_date, primary_type, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		artistID, mbid, releaseGroupMBID, title, releaseDate, primaryType, now, now)
-	if err != nil {
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(mbid) DO NOTHING`,
+		artistID, mbid, releaseGroupMBID, title, releaseDate, primaryType, now, now); err != nil {
 		return nil, fmt.Errorf("insert album: %w", err)
 	}
-	id, err := res.LastInsertId()
+	album, err := s.getAlbumByMBID(mbid)
 	if err != nil {
-		return nil, fmt.Errorf("last insert id: %w", err)
+		return nil, fmt.Errorf("get album after insert: %w", err)
 	}
-	return &Album{
-		ID: id, ArtistID: artistID, MBID: mbid, ReleaseGroupMBID: releaseGroupMBID,
-		Title: title, ReleaseDate: releaseDate, PrimaryType: primaryType,
-		CreatedAt: now, UpdatedAt: now,
-	}, nil
+	return album, nil
 }
 
 func (s *Store) getAlbumByMBID(mbid string) (*Album, error) {

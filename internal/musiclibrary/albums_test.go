@@ -66,6 +66,44 @@ func TestGetOrCreateAlbumDedupesByReleaseGroupNotRelease(t *testing.T) {
 	}
 }
 
+// TestGetOrCreateAlbumRecoversFromMBIDCollisionAcrossReleaseGroups is the
+// regression test for a real bug found live: two tracks of the same
+// physical release resolved (via musicbrainz.Recording.BestRelease) to
+// different release-group MBIDs — a genuine MusicBrainz data quirk, the
+// same class of issue the Birdy/duplicate-recording case earlier already
+// showed this catalog has — so the second call's getAlbumByReleaseGroupMBID
+// check never found the row the first call created, and the plain insert
+// crashed the whole match with a raw "UNIQUE constraint failed:
+// albums.mbid" error instead of just reusing the album that mbid already
+// belongs to.
+func TestGetOrCreateAlbumRecoversFromMBIDCollisionAcrossReleaseGroups(t *testing.T) {
+	db := newTestStore(t)
+
+	artist, err := db.GetOrCreateArtist("va-mbid", "Various Artists", "Various Artists")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+
+	a1, err := db.GetOrCreateAlbum(artist.ID, "shared-release-mbid", "rg-one", "Cities 97 Sampler, Volume 7", "1995", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum (first track): %v", err)
+	}
+
+	// Same physical release (mbid), but a different release-group MBID —
+	// getAlbumByReleaseGroupMBID(artist.ID, "rg-two") finds nothing, so
+	// this must fall through to the insert path and collide on mbid.
+	a2, err := db.GetOrCreateAlbum(artist.ID, "shared-release-mbid", "rg-two", "Cities 97 Sampler, Volume 7", "1995", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum (second track, colliding mbid): %v", err)
+	}
+	if a2.ID != a1.ID {
+		t.Errorf("second call created a new row instead of reusing the one that already owns this mbid: ID = %d, want %d", a2.ID, a1.ID)
+	}
+	if a2.ReleaseGroupMBID != "rg-one" {
+		t.Errorf("ReleaseGroupMBID = %q, want the first call's rg-one preserved as-is", a2.ReleaseGroupMBID)
+	}
+}
+
 func TestGetAlbumNotFound(t *testing.T) {
 	db := newTestStore(t)
 	if _, err := db.GetAlbum(999); err != ErrNotFound {

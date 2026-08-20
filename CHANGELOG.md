@@ -647,6 +647,21 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A batch of tracks across two "Cities 97 Sampler" volumes crashed
+  outright with `UNIQUE constraint failed: albums.mbid` instead of
+  matching.** Found live in a scan's own error list right after the fixes
+  above. `GetOrCreateAlbum` only ever checked for an existing row scoped
+  by `(artist_id, release_group_mbid)` — but the `mbid` column carries its
+  own, separate, database-wide UNIQUE constraint it never checked first.
+  Two tracks of the same physical release can resolve, via
+  `Recording.BestRelease`, to different release-group MBIDs (the same
+  class of real MusicBrainz data quirk the earlier Birdy/duplicate-
+  recording fix already found in this catalog) — so the second track's
+  lookup found nothing and its plain insert collided on the raw `mbid`
+  column. The insert now goes through `ON CONFLICT(mbid) DO NOTHING`,
+  atomically, and always reads the row back afterward — whichever call
+  claimed that mbid first, every later one just reuses it instead of
+  crashing.
 - **A Various Artists compilation folder's tracks left Unmatched one at a
   time, several seconds apart, instead of together.** Reported live while
   watching an actual scan — visible even after the batched-recording-
