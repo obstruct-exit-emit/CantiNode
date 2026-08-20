@@ -30,6 +30,33 @@ function commonBasePath(paths: string[]): string {
   return common.join("/");
 }
 
+// losslessFormats is a container-level classification, not true codec
+// sniffing — MusicTrackFile.format (from internal/tagreader.Tags.Format)
+// identifies the container/extension, not what's actually encoded inside
+// it. m4a/ogg are treated as lossy since that's what they overwhelmingly
+// are in practice (AAC, Vorbis) even though both containers can technically
+// hold a lossless codec (ALAC, FLAC-in-Ogg) too rare to be worth a
+// false-lossless label for the common case.
+const losslessFormats = new Set(["flac", "wav", "dsf"]);
+
+type Quality = "lossless" | "lossy" | "mixed";
+
+// albumQuality summarizes every owned file's format into one label — a
+// mixed result (some tracks lossless, some not) is real and worth
+// surfacing as its own state, not silently rounded to either extreme.
+// null when there's nothing owned yet to judge.
+function albumQuality(files: MusicTrackFile[]): Quality | null {
+  if (files.length === 0) return null;
+  let lossless = false;
+  let lossy = false;
+  for (const f of files) {
+    if (losslessFormats.has(f.format.toLowerCase())) lossless = true;
+    else lossy = true;
+  }
+  if (lossless && lossy) return "mixed";
+  return lossless ? "lossless" : "lossy";
+}
+
 // Full-page album detail: header with cover art, release info, and
 // album-scoped Scan/Organize/Write tags/Remove actions (unlike the artist
 // page's versions, these never touch a sibling album's files), then its
@@ -71,10 +98,10 @@ export default function AlbumDetailView({
 
   useEffect(reload, [reload]);
 
-  const basePath = useMemo(
-    () => commonBasePath(Object.values(files).flat().map((f) => f.path)),
-    [files],
-  );
+  const allFiles = useMemo(() => Object.values(files).flat(), [files]);
+  const basePath = useMemo(() => commonBasePath(allFiles.map((f) => f.path)), [allFiles]);
+  const quality = useMemo(() => albumQuality(allFiles), [allFiles]);
+  const totalBytes = useMemo(() => allFiles.reduce((sum, f) => sum + f.sizeBytes, 0), [allFiles]);
 
   if (!album) return <DetailSkeleton />;
 
@@ -166,9 +193,30 @@ export default function AlbumDetailView({
           <p className="muted">
             {album.primaryType || "Album"} · {tracks.length} track{tracks.length === 1 ? "" : "s"}
           </p>
-          {basePath && <p className="muted file-path">📁 {basePath}</p>}
+          <div className="detail-stats">
+            {basePath && (
+              <div className="detail-stat">
+                <span className="detail-stat-label">Path</span>
+                <span className="detail-stat-value" title={basePath}>{basePath}</span>
+              </div>
+            )}
+            {quality && (
+              <div className="detail-stat">
+                <span className="detail-stat-label">Quality</span>
+                <span className={`detail-stat-value quality-${quality}`}>
+                  {quality === "lossless" ? "Lossless" : quality === "mixed" ? "Mixed" : "Lossy"}
+                </span>
+              </div>
+            )}
+            {totalBytes > 0 && (
+              <div className="detail-stat">
+                <span className="detail-stat-label">Size</span>
+                <span className="detail-stat-value">{formatBytes(totalBytes)}</span>
+              </div>
+            )}
+          </div>
           {album.releaseGroupMbid && (
-            <div className="settings-actions">
+            <div className="settings-actions detail-links">
               <a
                 className="toggle"
                 href={`https://musicbrainz.org/release-group/${album.releaseGroupMbid}`}

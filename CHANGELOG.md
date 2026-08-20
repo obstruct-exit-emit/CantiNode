@@ -26,6 +26,17 @@ in progress. Highlights from the hardening period, newest first:
   site URLs use its internal numeric album id, not the MBID — looked up
   live only the moment someone actually clicks the link, not stored or
   fetched on every page load.
+- **The album page's header got a labeled stat row (Path/Quality/Size),
+  loosely inspired by the *arr family's own movie/show detail pages —
+  not copied 1:1, kept in CantiNode's own dark/purple visual language.**
+  The bare folder emoji next to the path is gone; Path now sits in its
+  own small-label-over-value stat alongside two new ones: Quality
+  (Lossless/Lossy/Mixed, classified from the owned files' own formats —
+  container-level, not true codec sniffing, so an M4A/OGG file is
+  assumed to hold the common lossy codec rather than the rarer lossless
+  one the same container can technically carry) and Size (total bytes
+  owned). The MusicBrainz/TheAudioDB link row also got its own margin so
+  it no longer sits flush against the action buttons below it.
 - **"Write tags" is now a bulk, album- and artist-scoped action, matching
   Organize.** The album/artist pages' per-file organize/write-tags/delete
   buttons cluttered every track row for something that's almost always

@@ -1435,6 +1435,59 @@ button.link.back:hover {
   overflow: hidden;
 }
 
+/* Labeled stat row (Path/Quality/Size/…) on the album detail page — each
+   stat stacks a small muted label over its value, in a wrapping row with
+   its own breathing room above/below, distinct from the plain descriptive
+   text line above it and the link/action button rows below. */
+.detail-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  margin: 0.65rem 0;
+}
+
+.detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  max-width: 28rem;
+}
+
+.detail-stat-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.detail-stat-value {
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-lossless {
+  color: var(--ok);
+}
+
+.quality-mixed {
+  color: var(--warn);
+}
+
+.quality-lossy {
+  color: var(--muted);
+}
+
+/* Own top margin so the MusicBrainz/TheAudioDB link row doesn't sit
+   flush against the stat row above or the Scan/Organize/… action row
+   below it. */
+.detail-links {
+  margin-top: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
 @media (max-width: 600px) {
   .detail-head {
     flex-direction: column;
