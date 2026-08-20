@@ -3,17 +3,30 @@
 // recording — the "fix the actual file, not just CantiNode's database"
 // half of organizing a library.
 //
-// MP3 (ID3v2) and FLAC (Vorbis comments) are hand-rolled against their
-// own well-understood, low-risk container formats. Everything else routes
-// through go.senan.xyz/taglib (upstream TagLib compiled to WASM, run via
-// wazero — no cgo) instead of being hand-rolled the same way: MP4/M4A in
+// FLAC (Vorbis comments) is hand-rolled against its own well-understood,
+// low-risk container format — metadata blocks are independent of the
+// audio stream, so a mistake there can't corrupt playback. Every other
+// format, MP3 included, routes through go.senan.xyz/taglib (upstream
+// TagLib compiled to WASM, run via wazero — no cgo) instead: MP4/M4A in
 // particular needs correctly rewriting nested atom offset tables
 // (stco/co64) when the metadata atom's size changes, or the file's audio
-// data silently points at the wrong bytes — a mistake there corrupts the
-// file outright, unlike FLAC (metadata blocks are independent of the
-// audio stream) or ID3v2 (the tag is a simple prefix block). Letting a
-// mature, extensively-used library own that correctness beats re-deriving
-// it from scratch.
+// data silently points at the wrong bytes. Letting a mature,
+// extensively-used library own that correctness beats re-deriving it from
+// scratch.
+//
+// MP3 used to be hand-rolled too (ID3v2 is, in principle, as low-risk as
+// Vorbis comments — the tag is a simple prefix block). It moved to
+// taglib after two real bugs surfaced live in the same week: the
+// hand-rolled writer mislabeled non-ASCII text as ISO-8859-1 while
+// writing raw UTF-8 bytes underneath (mojibake on any accented name), and
+// it replaced the *entire* ID3v2 tag on every write, silently discarding
+// any frame it didn't itself manage (embedded cover art, genre,
+// comments...) — unlike FLAC and every taglib-routed format, which only
+// ever touch the specific fields being set. TagLib writes MP3's
+// MusicBrainz IDs using the same UFID/TXXX-frame shapes Picard uses — the
+// exact convention tagreader.go already parses — so this wasn't a
+// behavior change for anything tagreader reads back, only a correctness
+// fix for what gets written.
 //
 // Every format tagreader can actually read tags from is covered — MP3,
 // FLAC, the MP4/M4A family, OGG/Vorbis, Opus-in-Ogg, DSF, and WAV.
@@ -55,11 +68,9 @@ type Tags struct {
 // Returns ErrUnsupportedFormat for any extension IsSupported doesn't list.
 func Write(path string, tags Tags) error {
 	switch extOf(path) {
-	case "mp3":
-		return writeID3v2(path, tags)
 	case "flac":
 		return writeFLACVorbisComment(path, tags)
-	case "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav":
+	case "mp3", "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav":
 		return writeTagLib(path, tags)
 	default:
 		return ErrUnsupportedFormat

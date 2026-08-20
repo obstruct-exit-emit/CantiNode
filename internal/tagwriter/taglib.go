@@ -7,16 +7,26 @@ import (
 )
 
 // writeTagLib handles every format too risky or too complex to hand-roll
-// safely the way writeID3v2/writeFLACVorbisComment do — most importantly
-// MP4/M4A, where the metadata atom sits before the audio data (mdat) and
-// resizing it means correctly rewriting every track's stco/co64 chunk
-// offset table, or the file's audio data silently points at the wrong
-// bytes. go.senan.xyz/taglib wraps upstream TagLib (compiled to WASM, run
-// via wazero — no cgo, matching the rest of this project) to get that
+// safely the way writeFLACVorbisComment does — most importantly MP4/M4A,
+// where the metadata atom sits before the audio data (mdat) and resizing
+// it means correctly rewriting every track's stco/co64 chunk offset
+// table, or the file's audio data silently points at the wrong bytes.
+// go.senan.xyz/taglib wraps upstream TagLib (compiled to WASM, run via
+// wazero — no cgo, matching the rest of this project) to get that
 // correctness for free rather than re-deriving it under time pressure.
 // Passing 0 (no WriteOption) merges these fields into the file's existing
 // tags rather than replacing the whole tag set — matching
 // writeFLACVorbisComment's own "leave everything else alone" behavior.
+// MP3 also routes through here (not hand-rolled, despite ID3v2 being a
+// low-risk container the same way FLAC is) after two real bugs in a
+// hand-rolled writer surfaced live: mislabeling non-ASCII text as
+// ISO-8859-1 while writing raw UTF-8 bytes underneath, and replacing the
+// entire ID3v2 tag on every write instead of merging like every path
+// here does. TagLib writes an MP3's MusicBrainz IDs as a UFID frame
+// (MusicBrainzTrackID, owner "http://musicbrainz.org") plus TXXX frames
+// for the rest — confirmed live against a real file — the same shapes
+// Picard uses and tagreader.go already parses, so switching MP3 to this
+// path changed nothing on the read side.
 func writeTagLib(path string, tags Tags) error {
 	set := map[string][]string{}
 	setField(set, taglib.Title, tags.Title)

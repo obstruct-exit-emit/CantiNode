@@ -89,6 +89,72 @@ func TestWriteTagLibM4A(t *testing.T) {
 	assertTags(t, path, tags)
 }
 
+// TestWriteTagLibMP3 covers the format that used to be hand-rolled
+// (id3v2.go, removed) — see tagwriter.go's package doc comment for why
+// it moved here.
+func TestWriteTagLibMP3(t *testing.T) {
+	path := copyFixture(t, "sample.mp3")
+	tags := fullTags()
+	if err := Write(path, tags); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	assertTags(t, path, tags)
+}
+
+// TestWriteTagLibMP3NonASCIIText is the regression test for the bug that
+// motivated moving MP3 off its old hand-rolled ID3v2 writer: a guest
+// vocalist credit ("Avantasia, Hansi Kürsch, ... Jørn Lande, ...") came
+// back as mojibake ("Hansi KÃ¼rsch", "JÃ¸rn Lande") after a round trip
+// through that writer, which always labeled the ID3v2 encoding byte as
+// ISO-8859-1 while writing raw UTF-8 bytes underneath. TagLib picks the
+// correct encoding on its own.
+func TestWriteTagLibMP3NonASCIIText(t *testing.T) {
+	path := copyFixture(t, "sample.mp3")
+	artist := "Avantasia, Hansi Kürsch, Ronnie Atkins, Jørn Lande, Mille Petrozza"
+	if err := Write(path, Tags{Title: "Book of Shallows", Artist: artist, Album: "Moonglow"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := tagreader.Read(path)
+	if err != nil {
+		t.Fatalf("Read back: %v", err)
+	}
+	if got.Artist != artist {
+		t.Errorf("Artist = %q, want %q", got.Artist, artist)
+	}
+}
+
+// TestWriteTagLibMP3PreservesUntrackedFields is TestWriteTagLibPreservesUntrackedFields
+// for MP3 specifically — the other bug that motivated the same move: the
+// old hand-rolled writer replaced the *entire* ID3v2 tag on every write,
+// silently discarding any frame it didn't itself manage (genre, comments,
+// embedded art, ...). sample_tagged.mp3 ships with GENRE/COMMENT/COMPOSER
+// already set.
+func TestWriteTagLibMP3PreservesUntrackedFields(t *testing.T) {
+	path := copyFixture(t, "sample_tagged.mp3")
+	before, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read fixture tags: %v", err)
+	}
+	if before[taglibpkg.Genre] == nil {
+		t.Fatal("fixture sample_tagged.mp3 is expected to already have a GENRE tag — test assumption broken")
+	}
+
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	after, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(after[taglibpkg.Genre]) == 0 || after[taglibpkg.Genre][0] != before[taglibpkg.Genre][0] {
+		t.Errorf("GENRE = %v, want untouched (%v)", after[taglibpkg.Genre], before[taglibpkg.Genre])
+	}
+	if len(after[taglibpkg.Composer]) == 0 {
+		t.Errorf("COMPOSER should survive untouched, got %v", after[taglibpkg.Composer])
+	}
+}
+
 func TestWriteTagLibOGG(t *testing.T) {
 	path := copyFixture(t, "sample.ogg")
 	tags := fullTags()
