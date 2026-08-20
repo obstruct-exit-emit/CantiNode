@@ -36,6 +36,12 @@ type folderEntry struct {
 // that prompted this (a compilation track whose recording ID pointed at
 // an unrelated release).
 func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result *ScanResult) {
+	// Shared across every file this call processes — see
+	// releaseCreditCache's own doc comment for why: every track of a
+	// Various Artists compilation resolves to the same release, so without
+	// this an N-track folder paid N identical network fetches.
+	creditCache := make(releaseCreditCache)
+
 	var direct []folderEntry
 	var remaining []folderEntry
 	for _, e := range entries {
@@ -45,7 +51,7 @@ func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result
 		}
 		remaining = append(remaining, e)
 	}
-	remaining = append(remaining, s.matchDirectEntries(ctx, direct, result)...)
+	remaining = append(remaining, s.matchDirectEntries(ctx, direct, result, creditCache)...)
 	if len(remaining) == 0 {
 		return
 	}
@@ -62,7 +68,7 @@ func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result
 		// pre-existing per-file algorithm, no worse than before this
 		// feature existed.
 		for _, e := range remaining {
-			matched, ferr := s.matchFileFuzzy(ctx, e.tf, e.tags)
+			matched, ferr := s.matchFileFuzzy(ctx, e.tf, e.tags, creditCache)
 			s.recordFileResult(result, e.tf, matched, ferr)
 		}
 		return
@@ -82,7 +88,7 @@ func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result
 // outright, in which case every direct entry falls back to today's
 // per-file matchFileDirect loop instead — never worse than before this
 // batching existed.
-func (s *Scanner) matchDirectEntries(ctx context.Context, direct []folderEntry, result *ScanResult) []folderEntry {
+func (s *Scanner) matchDirectEntries(ctx context.Context, direct []folderEntry, result *ScanResult, cache releaseCreditCache) []folderEntry {
 	if len(direct) == 0 {
 		return nil
 	}
@@ -90,7 +96,7 @@ func (s *Scanner) matchDirectEntries(ctx context.Context, direct []folderEntry, 
 	recs, err := s.batchLookupDirect(ctx, direct)
 	if err != nil {
 		s.logger.Warn("batch recording lookup failed, falling back to per-file lookups", "error", err)
-		return s.matchDirectEntriesPerFile(ctx, direct, result)
+		return s.matchDirectEntriesPerFile(ctx, direct, result, cache)
 	}
 
 	var remaining []folderEntry
@@ -105,10 +111,10 @@ func (s *Scanner) matchDirectEntries(ctx context.Context, direct []folderEntry, 
 			// an 18-ID rid:(...) search that correctly returned the other
 			// 17). Give it one real shot via the single-lookup path
 			// before treating it as gone.
-			remaining = append(remaining, s.matchDirectEntriesPerFile(ctx, []folderEntry{e}, result)...)
+			remaining = append(remaining, s.matchDirectEntriesPerFile(ctx, []folderEntry{e}, result, cache)...)
 			continue
 		}
-		matched, err := s.resolveDirectMatch(ctx, e.tf, e.tags, &rec)
+		matched, err := s.resolveDirectMatch(ctx, e.tf, e.tags, &rec, cache)
 		if errors.Is(err, errDirectMatchInconsistent) {
 			remaining = append(remaining, e)
 			continue
@@ -127,10 +133,10 @@ func (s *Scanner) matchDirectEntries(ctx context.Context, direct []folderEntry, 
 // Returns the entries that should fall through to whole-folder consensus
 // (errDirectMatchInconsistent) — matchDirectEntries' own callers pass that
 // straight back to matchFolder's own remaining.
-func (s *Scanner) matchDirectEntriesPerFile(ctx context.Context, entries []folderEntry, result *ScanResult) []folderEntry {
+func (s *Scanner) matchDirectEntriesPerFile(ctx context.Context, entries []folderEntry, result *ScanResult, cache releaseCreditCache) []folderEntry {
 	var remaining []folderEntry
 	for _, e := range entries {
-		matched, err := s.matchFileDirect(ctx, e.tf, e.tags)
+		matched, err := s.matchFileDirect(ctx, e.tf, e.tags, cache)
 		if errors.Is(err, errDirectMatchInconsistent) {
 			remaining = append(remaining, e)
 			continue

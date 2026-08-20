@@ -647,6 +647,18 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A Various Artists compilation folder's tracks left Unmatched one at a
+  time, several seconds apart, instead of together.** Reported live while
+  watching an actual scan — visible even after the batched-recording-
+  lookup speedup above, since that only batches the recording IDs
+  themselves. Root cause: every track in a compilation resolves to the
+  exact same release, but `correctArtistCreditForCompilation`'s own
+  `LookupReleaseWithTracklist` fetch (needed to get the release's real
+  "Various Artists" credit) ran once per track with no cache at all — an
+  N-track folder paid N identical network fetches for data that's the
+  same on every one. `matchFolder` now shares one `releaseCreditCache`
+  across every file it processes, so a release is only ever fetched once
+  per folder no matter how many tracks resolve to it.
 - **A direct-MBID file could sit unmatched forever if its embedded
   recording was missing from a batched lookup.** Reported live: a
   perfectly valid, catalog-present recording ("Train" - "I Am", off a

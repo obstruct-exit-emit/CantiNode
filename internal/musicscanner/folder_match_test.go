@@ -356,6 +356,78 @@ func TestScanRootFolderBatchesDirectRecordingLookups(t *testing.T) {
 	}
 }
 
+// TestScanRootFolderMemoizesReleaseCreditLookupAcrossFolder is the
+// regression test for a real bug found live: watching an actual scan, a
+// Various Artists compilation folder's tracks visibly left Unmatched one
+// at a time, several seconds apart, instead of together — even after the
+// batched recording lookup fix above. Root cause: every track resolves to
+// the SAME release, but correctArtistCreditForCompilation's own
+// LookupReleaseWithTracklist fetch for that release wasn't batched or
+// cached at all — an N-track folder paid N identical network fetches for
+// data that's the same on every one. Asserts the fix (releaseCreditCache):
+// 3 tracks resolving to the same release only pay for that release's
+// tracklist fetch once.
+func TestScanRootFolderMemoizesReleaseCreditLookupAcrossFolder(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.recordingLookups["rec-1"] = sampleSamplerTrackRecording("rec-1", "Artist One")
+	fs.recordingLookups["rec-2"] = sampleSamplerTrackRecording("rec-2", "Artist Two")
+	fs.recordingLookups["rec-3"] = sampleSamplerTrackRecording("rec-3", "Artist Three")
+	// sampleSamplerTrackRecording hardcodes every recording's own best
+	// release to this same id — exactly the real-world shape (a whole
+	// compilation's tracks all belong to the one release).
+	fs.releaseLookups["sampler-release-mbid"] = mbReleaseWithTracklist{
+		ID:    "sampler-release-mbid",
+		Title: "Cities 97 Sampler Volume 27",
+		ArtistCredit: []mbArtistCredit{
+			{Name: "Various Artists", Artist: mbArtistRef{ID: "va-mbid", Name: "Various Artists", SortName: "Various Artists"}},
+		},
+	}
+
+	s, rf := newFolderTestScanner(t, fs)
+	for i, id := range []string{"rec-1", "rec-2", "rec-3"} {
+		buildFLACFile(t, rf.Path, fmt.Sprintf("%02d.flac", i+1), map[string]string{
+			"ARTIST": "Doesn't Matter", "TITLE": "Some Song",
+			"MUSICBRAINZ_TRACKID": id,
+		})
+	}
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 3 {
+		t.Fatalf("FilesMatched = %d, want 3 (result=%+v)", result.FilesMatched, result)
+	}
+	if got := fs.countOf("release-lookup"); got != 1 {
+		t.Errorf("release-lookup count = %d, want exactly 1 — all 3 tracks resolve to the same release, so its tracklist should only be fetched once per folder, not once per track", got)
+	}
+
+	matched, err := s.db.ListTrackFilesByStatus(musiclibrary.StatusMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 3 {
+		t.Fatalf("matched = %+v, want 3", matched)
+	}
+	for _, m := range matched {
+		track, err := s.db.GetTrack(*m.TrackID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		album, err := s.db.GetAlbum(track.AlbumID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artist, err := s.db.GetArtist(album.ArtistID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if artist.Name != "Various Artists" {
+			t.Errorf("track %q filed under artist %q, want Various Artists", track.Title, artist.Name)
+		}
+	}
+}
+
 // TestScanRootFolderFallsBackToPerFileLookupWhenBatchOmitsOneRecording is
 // the regression test for a real bug found live: MusicBrainz's search
 // index (what the batch rid:(...) endpoint queries) can have real gaps

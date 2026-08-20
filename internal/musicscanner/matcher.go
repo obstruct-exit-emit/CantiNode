@@ -50,6 +50,19 @@ func releaseNeedsArtistCreditCheck(rg musicbrainz.ReleaseGroup) bool {
 	return rg.PrimaryType != "Album" || len(rg.SecondaryTypes) > 0
 }
 
+// releaseCreditCache memoizes correctArtistCreditForCompilation's own
+// LookupReleaseWithTracklist fetch, keyed by release ID, across every file
+// matchFolder processes in one call — found live, watching a real scan: a
+// Various Artists compilation's tracks all resolve to the exact same
+// release, so without this an N-track folder paid N identical network
+// fetches for data that's the same on every single one (the actual cause
+// of tracks visibly leaving Unmatched one by one, seconds apart, instead
+// of together). nil is a valid value — every write/read below is
+// nil-safe — for a caller with no folder-scoped batch to share a cache
+// across (ManualMatch, a one-off single-file match with nothing to
+// memoize against).
+type releaseCreditCache map[string][]musicbrainz.ArtistCredit
+
 // correctArtistCreditForCompilation mutates rec's own ArtistCredit to its
 // resolved release's ArtistCredit, when that release is a compilation —
 // the fix for a real bug reported live: a per-file match (matchFileDirect's
@@ -70,7 +83,7 @@ func releaseNeedsArtistCreditCheck(rg musicbrainz.ReleaseGroup) bool {
 // never worth failing an otherwise-successful match over a filing nicety.
 // Callers must capture the track's own real credit (for display) before
 // calling this — it mutates rec.ArtistCredit in place.
-func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *musicbrainz.Recording, preferredReleaseMBID string) {
+func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *musicbrainz.Recording, preferredReleaseMBID string, cache releaseCreditCache) {
 	release := rec.BestRelease(preferredReleaseMBID)
 	if release.ID == "" {
 		return
@@ -89,11 +102,28 @@ func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *mu
 	if !releaseNeedsArtistCreditCheck(release.ReleaseGroup) {
 		return
 	}
+	if cache != nil {
+		if credit, ok := cache[release.ID]; ok {
+			if len(credit) > 0 {
+				rec.ArtistCredit = credit
+			}
+			return
+		}
+	}
 	full, err := s.mb.LookupReleaseWithTracklist(ctx, release.ID)
 	if err != nil || len(full.ArtistCredit) == 0 {
+		if cache != nil {
+			// Remember the miss too — same reasoning as the hit below: an
+			// N-track folder shouldn't retry the same failing/empty
+			// release N times in one pass either.
+			cache[release.ID] = []musicbrainz.ArtistCredit{}
+		}
 		return
 	}
 	rec.ArtistCredit = full.ArtistCredit
+	if cache != nil {
+		cache[release.ID] = full.ArtistCredit
+	}
 }
 
 // embeddedTagsAgree reports whether tags' own MusicBrainzReleaseGroupID
@@ -160,12 +190,12 @@ var errDirectMatchInconsistent = errors.New("embedded recording ID is inconsiste
 // caller with no batch of its own to fetch alongside this one (matchFolder's
 // batched path calls resolveDirectMatch directly instead, on a rec already
 // fetched via BatchLookupRecordings — see its own doc comment).
-func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags) (bool, error) {
+func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags, cache releaseCreditCache) (bool, error) {
 	rec, err := s.mb.LookupRecording(ctx, tags.MusicBrainzRecordingID)
 	if err != nil {
 		return false, fmt.Errorf("lookup recording %s: %w", tags.MusicBrainzRecordingID, err)
 	}
-	return s.resolveDirectMatch(ctx, tf, tags, rec)
+	return s.resolveDirectMatch(ctx, tf, tags, rec, cache)
 }
 
 // resolveDirectMatch is matchFileDirect's own logic minus the lookup
@@ -173,8 +203,10 @@ func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFil
 // titleAgrees) plus applyMatch, given a recording already in hand — shared
 // by matchFileDirect's single-lookup path and matchFolder's batched path
 // (folder_match.go), so both apply exactly the same safety checks to a
-// recording however it was fetched.
-func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags, rec *musicbrainz.Recording) (bool, error) {
+// recording however it was fetched. cache is releaseCreditCache — see its
+// own doc comment; pass the same one folder-processing-wide, or nil for a
+// standalone caller.
+func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags, rec *musicbrainz.Recording, cache releaseCreditCache) (bool, error) {
 	if !embeddedTagsAgree(tags, rec) || !titleAgrees(tags, rec) {
 		// Decline the fast path rather than confidently matching to the
 		// wrong album/song — matchFolder catches this sentinel and gives
@@ -182,7 +214,7 @@ func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.Track
 		return false, errDirectMatchInconsistent
 	}
 	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
-	s.correctArtistCreditForCompilation(ctx, rec, tags.MusicBrainzAlbumID)
+	s.correctArtistCreditForCompilation(ctx, rec, tags.MusicBrainzAlbumID, cache)
 	if err := s.applyMatch(tf, *rec, 1.0, tags.MusicBrainzAlbumID, tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, trackArtistCredit); err != nil {
 		return false, err
 	}
@@ -198,7 +230,9 @@ func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.Track
 // every file independently, which is how one album folder could end up
 // split across several different release matches; it's still correct for
 // a single isolated file, just no longer folder-grouping-aware itself.
-func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags) (bool, error) {
+// cache is releaseCreditCache — see its own doc comment; pass the same one
+// folder-processing-wide, or nil for a standalone caller.
+func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags, cache releaseCreditCache) (bool, error) {
 	if tags.Artist == "" && tags.Title == "" {
 		return false, nil
 	}
@@ -218,7 +252,7 @@ func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile
 	}
 
 	trackArtistCredit := joinArtistCredit(best.ArtistCredit)
-	s.correctArtistCreditForCompilation(ctx, &best, "")
+	s.correctArtistCreditForCompilation(ctx, &best, "", cache)
 	if err := s.applyMatch(tf, best, confidence, "", tags.TrackNumber, tags.DiscNumber, musiclibrary.StatusMatched, trackArtistCredit); err != nil {
 		return false, err
 	}
@@ -350,7 +384,7 @@ func (s *Scanner) ManualMatch(ctx context.Context, trackFileID int64, recordingM
 	}
 
 	trackArtistCredit := joinArtistCredit(rec.ArtistCredit)
-	s.correctArtistCreditForCompilation(ctx, rec, preferredReleaseMBID)
+	s.correctArtistCreditForCompilation(ctx, rec, preferredReleaseMBID, nil) // one-off single match — nothing to share a cache across
 	return s.applyMatch(tf, *rec, 1.0, preferredReleaseMBID, trackNumber, discNumber, musiclibrary.StatusManual, trackArtistCredit)
 }
 
