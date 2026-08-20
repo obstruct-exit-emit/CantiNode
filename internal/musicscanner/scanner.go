@@ -108,7 +108,12 @@ func (r *ScanResult) merge(other ScanResult) {
 	r.Errors = append(r.Errors, other.Errors...)
 }
 
-// ScanAll scans every configured root folder in turn.
+// ScanAll scans every configured root folder in turn. One root folder
+// failing (most commonly: a network-mounted root that's transiently
+// unreachable — see ScanRootFolder's own doc comment) is recorded in
+// result.Errors and does not stop the rest — a library with several root
+// folders shouldn't have its always-available local ones go unscanned
+// just because one network share happened to be down at the time.
 func (s *Scanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 	folders, err := s.db.ListRootFolders()
 	if err != nil {
@@ -122,7 +127,8 @@ func (s *Scanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 	for _, rf := range folders {
 		r, err := s.ScanRootFolder(ctx, rf)
 		if err != nil {
-			return result, fmt.Errorf("scan root folder %s: %w", rf.Path, err)
+			result.Errors = append(result.Errors, fmt.Sprintf("root folder %s: %v", rf.Path, err))
+			continue
 		}
 		result.merge(*r)
 	}
@@ -147,6 +153,29 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 	// null when empty — internal/api returns a ScanResult straight
 	// through to the frontend.
 	result := &ScanResult{Errors: []string{}}
+
+	// Checked up front, before the walk even starts: a root folder can be
+	// a network mount (CIFS/NFS/etc.) that's transiently unreachable — a
+	// NAS reboot, a network blip, a share not yet re-established after a
+	// host reboot. filepath.WalkDir's callback below is invoked with a
+	// non-nil err for the root itself when that happens; returning nil
+	// from it (to keep the walk resilient to a single bad subfolder deep
+	// inside a tree that's otherwise fine — see the callback below) makes
+	// WalkDir return successfully overall having visited nothing at all.
+	// Proceeding to DeleteTrackFilesMissing with an empty seenPaths in
+	// that case would prune every track_files row for this root folder,
+	// even though every file is still physically present and only the
+	// mount is briefly down. Bailing out here — before any walking or
+	// pruning — is what actually prevents that; distinguishing "root
+	// inaccessible" from "some individual file/subfolder inside it is
+	// unreadable" from inside the callback would be far more fragile.
+	if info, err := os.Stat(rf.Path); err != nil || !info.IsDir() {
+		if err == nil {
+			err = fmt.Errorf("not a directory")
+		}
+		return result, fmt.Errorf("root folder %s is not accessible, refusing to scan (would wrongly prune every tracked file): %w", rf.Path, err)
+	}
+
 	var seenPaths []string
 	groups := map[string][]folderEntry{}
 

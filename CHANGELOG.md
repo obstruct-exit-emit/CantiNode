@@ -730,6 +730,27 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A root folder that's a network mount (CIFS/NFS/etc.), briefly
+  unreachable during a scan, would have every one of its tracked files
+  silently wiped from the database — even though every file was still
+  physically present.** Found while auditing "do we have everything
+  imported?" against a real network-mounted root folder (which turned
+  out fine — its 628 tracked files matched its 628 real files on disk
+  exactly), but reading the code that answers that question surfaced a
+  real, serious latent bug in it. `ScanRootFolder`'s `filepath.WalkDir`
+  callback swallowed *any* walk error — including the root path itself
+  being inaccessible — into `result.Errors` and returned `nil` to keep
+  going, which is the right call for a single bad subfolder deep in an
+  otherwise-fine tree, but meant `WalkDir` returned successfully overall
+  having visited nothing at all when the *root itself* couldn't be
+  read. `seenPaths` stayed empty, and `DeleteTrackFilesMissing` then
+  pruned every `track_files` row for that root folder, believing every
+  file had been deleted. `ScanRootFolder` now checks the root path is
+  actually accessible before walking or pruning anything, refusing the
+  scan outright (with a clear error) rather than risk it. `ScanAll` no
+  longer aborts entirely the moment one root folder fails this check
+  either — a temporarily-down network share no longer prevents an
+  always-available local root folder from still getting scanned.
 - **Refreshing the page while a match approval was still in flight could
   silently leave it unmatched, with no error shown anywhere.** Reported
   live: "if I refresh after approving a match it stops importing."

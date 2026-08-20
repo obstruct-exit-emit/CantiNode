@@ -1268,3 +1268,58 @@ func TestScanRootFolderRemovesDeletedFiles(t *testing.T) {
 		t.Errorf("len(remaining) = %d, want 0", len(remaining))
 	}
 }
+
+// TestScanRootFolderRefusesToPruneWhenRootIsInaccessible is the
+// regression test for a real, serious bug found live: a root folder's
+// path can be a network mount (CIFS/NFS/etc.) that goes transiently
+// unreachable — a NAS reboot, a network blip, an unmounted share not yet
+// re-established after a host reboot. filepath.WalkDir's callback is
+// invoked with a non-nil err for the root itself when that happens, and
+// the old code swallowed that error (appended to result.Errors, returned
+// nil to keep walking) rather than treating it as fatal for this root's
+// scan — so WalkDir returned successfully overall having visited zero
+// files, seenPaths stayed empty, and DeleteTrackFilesMissing then pruned
+// *every* track_files row for that root folder, even though every file
+// was still physically present and only the mount was briefly down.
+// ScanRootFolder must now refuse to scan (and, critically, refuse to
+// prune) a root whose own path isn't currently accessible.
+func TestScanRootFolderRefusesToPruneWhenRootIsInaccessible(t *testing.T) {
+	s, rf := newTestScanner(t, nil, nil)
+	ctx := t.Context()
+
+	buildFLACFile(t, rf.Path, "song.flac", map[string]string{"TITLE": "Untitled"})
+	if _, err := s.ScanRootFolder(ctx, rf); err != nil {
+		t.Fatalf("first scan: %v", err)
+	}
+	before, err := s.db.ListTrackFilesByRootFolder(rf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != 1 {
+		t.Fatalf("len(before) = %d, want 1 (seed scan didn't take)", len(before))
+	}
+
+	// Simulate the root folder's own directory vanishing out from under
+	// it (an unmounted network share), as opposed to a real file inside
+	// it being individually deleted (already covered by
+	// TestScanRootFolderRemovesDeletedFiles).
+	if err := os.RemoveAll(rf.Path); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err == nil {
+		t.Error("ScanRootFolder with an inaccessible root returned no error, want one")
+	}
+	if result.FilesRemoved != 0 {
+		t.Errorf("FilesRemoved = %d, want 0 -- must not prune when the root itself couldn't be walked", result.FilesRemoved)
+	}
+
+	after, err := s.db.ListTrackFilesByRootFolder(rf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 1 {
+		t.Errorf("len(after) = %d, want 1 -- the tracked file must survive a transiently-inaccessible root", len(after))
+	}
+}
