@@ -23,12 +23,33 @@ const metadataTimeout = 60 * time.Second
 // leaves too little headroom here.
 const artistRefreshTimeout = 5 * time.Minute
 
-func (s *server) metadataCtx(r *http.Request) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(r.Context(), metadataTimeout)
+// metadataCtx and artistRefreshCtx deliberately take no *http.Request and
+// do NOT derive from a handler's own r.Context() — found live: a client
+// disconnect (a page refresh, most commonly) cancels that context
+// immediately, and Go's net/http propagates the cancellation into any
+// request already in flight. Approving a match (or a batch of them — the
+// unmatched-files page's "Approve all" fires every suggestion's request
+// in parallel) can legitimately take a while per request: each one's
+// MusicBrainz lookup queues behind the shared ~1.1s-per-request rate
+// limiter, so a batch of even a dozen files takes many seconds
+// server-side. A user refreshing partway through — an easy, unremarkable
+// thing to do while waiting — canceled every still-queued match's context
+// and killed it, leaving those files silently unmatched with no error
+// surfaced anywhere (the browser's own fetch was already gone, so nothing
+// was left to show one to). Once the server has accepted a request enough
+// to start doing real work, that work should finish (or hit its own
+// timeout) regardless of whether the browser that asked for it is still
+// around to see the response — the same reasoning handleTriggerMusicScan's
+// own goroutine already uses context.Background() for. No *http.Request
+// parameter, rather than one that's silently unused, so a future change
+// can't accidentally reintroduce r.Context() here without it being an
+// obvious signature change.
+func (s *server) metadataCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), metadataTimeout)
 }
 
-func (s *server) artistRefreshCtx(r *http.Request) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(r.Context(), artistRefreshTimeout)
+func (s *server) artistRefreshCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), artistRefreshTimeout)
 }
 
 func pathID(r *http.Request) (int64, bool) {

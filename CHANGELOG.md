@@ -730,6 +730,27 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Refreshing the page while a match approval was still in flight could
+  silently leave it unmatched, with no error shown anywhere.** Reported
+  live: "if I refresh after approving a match it stops importing."
+  Root cause: `handleManualMatchTrackFile` (and every other metadata
+  endpoint using the shared `metadataCtx`/`artistRefreshCtx` helpers)
+  derived its context from the HTTP handler's own `r.Context()`, which
+  Go cancels the instant the client disconnects — and a page refresh
+  disconnects the browser's in-flight fetch. A single approval's
+  MusicBrainz lookup can take over a second once it queues behind the
+  shared ~1.1s-per-request rate limiter, and the unmatched-files page's
+  "Approve all" fires every suggestion's request in parallel, so a batch
+  of a dozen files can take many seconds server-side — an easy window
+  for an impatient refresh to land in. `metadataCtx`/`artistRefreshCtx`
+  now derive from `context.Background()` instead (the same fix
+  `handleTriggerMusicScan`'s own background goroutine already needed
+  this for), so once the server has accepted a request it finishes the
+  work regardless of whether the browser is still around for the
+  response. Confirmed live: firing a manual-match request with the
+  client connection forced to disconnect after 300ms (well before a
+  MusicBrainz lookup normally completes) still left the file correctly
+  matched a few seconds later.
 - **Writing tags to an MP3 mangled any non-ASCII character in the value,
   and silently discarded any tag CantiNode doesn't itself manage
   (embedded cover art, genre, comments, ...) on every write.** Found live

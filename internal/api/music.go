@@ -151,7 +151,7 @@ func (s *server) handleSearchMusicArtists(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "query is required")
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	artists, err := s.mb.SearchArtists(ctx, name)
 	if err != nil {
@@ -173,7 +173,7 @@ func (s *server) handleMonitorMusicArtist(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "mbid is required")
 		return
 	}
-	ctx, cancel := s.artistRefreshCtx(r)
+	ctx, cancel := s.artistRefreshCtx()
 	defer cancel()
 
 	mbArtist, err := s.mb.LookupArtist(ctx, req.MBID)
@@ -230,7 +230,7 @@ func (s *server) handleQuickAddMusicArtist(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "mbid is required")
 		return
 	}
-	ctx, cancel := s.artistRefreshCtx(r)
+	ctx, cancel := s.artistRefreshCtx()
 	defer cancel()
 
 	mbArtist, err := s.mb.LookupArtist(ctx, req.MBID)
@@ -306,7 +306,7 @@ func (s *server) handleAddMusicSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := s.artistRefreshCtx(r)
+	ctx, cancel := s.artistRefreshCtx()
 	defer cancel()
 
 	series, err := s.mb.LookupSeries(ctx, mbid)
@@ -398,7 +398,7 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 		writeMusicStoreError(w, err)
 		return
 	}
-	ctx, cancel := s.artistRefreshCtx(r)
+	ctx, cancel := s.artistRefreshCtx()
 	defer cancel()
 	refresh := s.metadataBackfill.RefreshArtist
 	if a.Kind == "series" {
@@ -609,7 +609,7 @@ func (s *server) handleGetReleaseGroupTracklist(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "invalid release group mbid")
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	out, err := s.fetchAndCacheTracklist(ctx, mbid)
 	if err != nil {
@@ -635,7 +635,7 @@ func (s *server) handleListReleaseGroupVersions(w http.ResponseWriter, r *http.R
 		return
 	}
 	if !hasRealVersionMetadata(versions) {
-		ctx, cancel := s.metadataCtx(r)
+		ctx, cancel := s.metadataCtx()
 		defer cancel()
 		versions, err = s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid)
 		if err != nil {
@@ -1099,7 +1099,7 @@ func (s *server) handleReleaseGroupCover(w http.ResponseWriter, r *http.Request)
 	}
 	v, err := s.musicStore.GetRepresentativeReleaseVersion(mbid)
 	if errors.Is(err, musiclibrary.ErrNotFound) {
-		ctx, cancel := s.metadataCtx(r)
+		ctx, cancel := s.metadataCtx()
 		defer cancel()
 		if _, cerr := s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid); cerr != nil {
 			writeError(w, http.StatusBadGateway, cerr.Error())
@@ -1153,7 +1153,7 @@ func (s *server) handleListUnmatchedTrackFiles(w http.ResponseWriter, r *http.Re
 
 func (s *server) handleSearchMusicBrainzRecordings(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	results, err := s.musicScanner.SearchMusicBrainz(ctx, q.Get("artist"), q.Get("album"), q.Get("title"))
 	if err != nil {
@@ -1187,7 +1187,7 @@ func (s *server) handleSuggestTrackFileMatches(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "fileIds and releaseGroupMbid are required")
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	var release *musicbrainz.ReleaseWithTracklist
 	var err error
@@ -1218,7 +1218,7 @@ func (s *server) handleManualMatchTrackFile(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "recordingMbid is required")
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	if err := s.musicScanner.ManualMatch(ctx, id, req.RecordingMBID, req.ReleaseMBID); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -1619,7 +1619,7 @@ func (s *server) handleScanMusicAlbum(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	result, err := s.musicScanner.ScanAlbumFolder(ctx, id)
 	if err != nil {
@@ -1749,7 +1749,7 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 		writeMusicStoreError(w, err)
 		return
 	}
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	query := artist.Name + " " + wanted.Title
 	prefs := release.PreferencesFor(s.store, "music")
@@ -1863,7 +1863,7 @@ func (s *server) handleSearchAlbumUpgrade(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ctx, cancel := s.metadataCtx(r)
+	ctx, cancel := s.metadataCtx()
 	defer cancel()
 	query := artist.Name + " " + album.Title
 	candidates, errs, err := candidatesearch.Search(ctx, s.indexers, s.downloads, query, album.Title, "music", upgradePrefs, artist.SearchRelevanceName())
