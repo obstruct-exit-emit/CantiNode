@@ -714,6 +714,17 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A missing album cover stayed missing forever, even after Cover Art
+  Archive later got the artwork.** Found live: a "Cities 97 Sampler"
+  volume's cover was genuinely unavailable when first checked (Aug 16),
+  cached as a permanent "no cover art" sentinel — but Cover Art Archive's
+  own catalog isn't static (community members add art to a release after
+  the fact), and the art was actually there by the time this was
+  reported, live-confirmed via a direct request. Sentinels now expire
+  after 30 days (`noCoverRecheckAfter`); one older than that gets a real
+  live recheck on the next request instead of serving the stale miss
+  forever, and a still-genuine miss simply rewrites the sentinel,
+  resetting its own clock for another 30 days.
 - **A Various Artists compilation track could silently, permanently file
   under its own real per-track performer instead of "Various Artists" —
   with no error anywhere to notice.** Found live: "Little Feat," off a

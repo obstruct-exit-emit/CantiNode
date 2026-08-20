@@ -29,8 +29,20 @@ import (
 var ErrNoCoverArt = errors.New("coverart: no cover art for this release")
 
 // noCoverSentinelExt marks a release Cover Art Archive has confirmed has
-// no front cover — an empty file, its extension is the whole signal.
+// no front cover — an empty file, its extension is the whole signal (its
+// mtime is the other one — see noCoverRecheckAfter).
 const noCoverSentinelExt = ".nocover"
+
+// noCoverRecheckAfter bounds how long a "no cover art" sentinel is trusted
+// before hasNoCoverSentinel treats it as stale and GetFrontCover tries
+// again live — found live: Cover Art Archive's own catalog isn't static,
+// community members add art to a release after the fact, so a real 404
+// from months ago isn't a permanent answer the way, say, "this MBID
+// doesn't exist" would be. Deliberately not zero (that would mean never
+// caching a miss at all, hammering both providers on every single page
+// view for a release that stays genuinely uncovered) and not too short
+// (30 days keeps this a rare, not routine, re-check).
+const noCoverRecheckAfter = 30 * 24 * time.Hour
 
 const defaultBaseURL = "https://coverartarchive.org"
 
@@ -143,9 +155,18 @@ func (c *Client) checkCache(releaseMBID string) (path, contentType string, ok bo
 	return "", "", false
 }
 
+// hasNoCoverSentinel reports whether releaseMBID has a still-fresh "no
+// cover art" sentinel — false for a missing one (obviously) but also for
+// one older than noCoverRecheckAfter, so GetFrontCover gives it a real
+// live re-check instead of trusting a stale miss forever. A sentinel that
+// gets rewritten (fetchFromCoverArtArchive overwrites it on every fresh
+// 404) naturally resets its own clock for another noCoverRecheckAfter.
 func (c *Client) hasNoCoverSentinel(releaseMBID string) bool {
-	_, err := os.Stat(filepath.Join(c.cacheDir, releaseMBID+noCoverSentinelExt))
-	return err == nil
+	info, err := os.Stat(filepath.Join(c.cacheDir, releaseMBID+noCoverSentinelExt))
+	if err != nil {
+		return false
+	}
+	return time.Since(info.ModTime()) < noCoverRecheckAfter
 }
 
 var extToContentType = map[string]string{

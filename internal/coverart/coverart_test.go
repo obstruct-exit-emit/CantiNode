@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cantinode/cantinode/internal/audiodb"
 )
@@ -80,6 +81,56 @@ func TestGetFrontCoverCaches404AsNoCoverArt(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Errorf("requests = %d, want 1 (second call should hit the sentinel cache)", requests)
+	}
+}
+
+// TestGetFrontCoverRechecksStaleNoCoverSentinel is the regression test for
+// a real bug found live: a "no cover art" sentinel was cached permanently,
+// but Cover Art Archive's own catalog isn't static — a real release
+// (found live: a "Cities 97 Sampler" volume) had no cover art when first
+// checked and had one added later, yet CantiNode kept serving the stale
+// 404 forever with no way to notice. A sentinel older than
+// noCoverRecheckAfter must be treated as stale and rechecked live.
+func TestGetFrontCoverRechecksStaleNoCoverSentinel(t *testing.T) {
+	var requests int
+	var has404 = true
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if has404 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("fake jpeg bytes"))
+	})
+
+	if _, _, err := c.GetFrontCover(t.Context(), "", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("first call err = %v, want ErrNoCoverArt", err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+
+	// Backdate the sentinel past noCoverRecheckAfter — standing in for
+	// "30 days have passed" without an actual 30-day-long test.
+	sentinel := filepath.Join(c.cacheDir, "release-mbid"+noCoverSentinelExt)
+	stale := time.Now().Add(-noCoverRecheckAfter - time.Hour)
+	if err := os.Chtimes(sentinel, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cover Art Archive now genuinely has the art — the real-world case
+	// this fix exists for.
+	has404 = false
+	path, _, err := c.GetFrontCover(t.Context(), "", "release-mbid")
+	if err != nil {
+		t.Fatalf("GetFrontCover after the sentinel went stale: %v", err)
+	}
+	if requests != 2 {
+		t.Errorf("requests = %d, want 2 — a stale sentinel must trigger a real recheck, not keep serving the old miss", requests)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("cached cover file missing: %v", err)
 	}
 }
 
