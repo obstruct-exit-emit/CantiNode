@@ -11,6 +11,16 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **The artist page also gets MusicBrainz/TheAudioDB link icons, the
+  same pair the album page has.** MusicBrainz is a plain client-side link
+  (`musicbrainz.org/artist/{mbid}`, or `/series/{mbid}` for a tracked
+  series — a series MBID is a real, distinct MusicBrainz entity type with
+  its own browsable page). TheAudioDB needed the same kind of small
+  backend addition as the album version: `handleAudioDBArtistLink`
+  mirrors `handleAudioDBAlbumLink` exactly (a live, on-click-only lookup,
+  nothing stored), and is hidden entirely for a series — TheAudioDB has
+  no concept of one, only real artists. `audiodb.ArtistMeta` widened to
+  carry `IDArtist` alongside its existing Bio/ImageURL.
 - **The album page's stat row now shows which specific edition/pressing
   is owned — e.g. "2×CD · Limited Edition Artbook".** Sourced entirely
   from `release_group_versions`, already cached by the existing

@@ -53,6 +53,9 @@ func TestLookupArtistByMBIDReturnsBioAndThumb(t *testing.T) {
 	if meta.ImageURL != "https://example.com/thumb.jpg" {
 		t.Errorf("ImageURL = %q, want the thumb (preferred over fanart)", meta.ImageURL)
 	}
+	if meta.IDArtist != "111239" {
+		t.Errorf("IDArtist = %q, want 111239", meta.IDArtist)
+	}
 }
 
 const sampleArtistNoThumbJSON = `{

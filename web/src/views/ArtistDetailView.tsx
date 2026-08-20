@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
+  getApiKey,
   musicAlbumCoverUrl,
   musicReleaseGroupCoverUrl,
   proxiedImage,
@@ -375,6 +376,34 @@ export default function ArtistDetailView({
             {wanted.length > 0 ? `, ${wanted.length} wanted` : ""}
           </p>
           {artist.bio && <p className="detail-desc">{artist.bio}</p>}
+          {artist.mbid && (
+            <div className="settings-actions detail-links">
+              <a
+                className="toggle"
+                href={
+                  artist.kind === "series"
+                    ? `https://musicbrainz.org/series/${artist.mbid}`
+                    : `https://musicbrainz.org/artist/${artist.mbid}`
+                }
+                target="_blank"
+                rel="noreferrer"
+                title={`Open this ${artist.kind === "series" ? "series" : "artist"} on MusicBrainz`}
+              >
+                MusicBrainz ↗
+              </a>
+              {artist.kind !== "series" && (
+                <a
+                  className="toggle"
+                  href={`/api/v1/music/artist/${artist.id}/audiodb-link?apikey=${encodeURIComponent(getApiKey())}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open this artist on TheAudioDB (if it has one)"
+                >
+                  TheAudioDB ↗
+                </a>
+              )}
+            </div>
+          )}
           <div className="settings-actions">
             <button
               className={artist.isMonitored ? "toggle on" : "toggle"}

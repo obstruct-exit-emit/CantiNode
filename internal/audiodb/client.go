@@ -73,12 +73,16 @@ func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 	}
 }
 
-// ArtistMeta is the bio/image CantiNode caches for an artist — see
-// database.Artist's Bio/ImageURL columns, populated from this via
-// internal/acquisition.
+// ArtistMeta is what CantiNode uses from TheAudioDB for an artist:
+// Bio/ImageURL cached to database.Artist's own Bio/ImageURL columns via
+// internal/acquisition, and IDArtist — TheAudioDB's own internal numeric
+// artist id, not the MBID — for linking out to the artist's own page on
+// theaudiodb.com, the same non-MBID-based URL scheme AlbumMeta.IDAlbum
+// exists for.
 type ArtistMeta struct {
 	Bio      string
 	ImageURL string
+	IDArtist string
 }
 
 type artistLookupResponse struct {
@@ -95,9 +99,10 @@ type audioDBArtist struct {
 	Biography    string `json:"strBiography"`
 	ArtistThumb  string `json:"strArtistThumb"`
 	ArtistFanart string `json:"strArtistFanart"`
+	IDArtist     string `json:"idArtist"`
 }
 
-// LookupArtistByMBID fetches mbid's biography/image from TheAudioDB.
+// LookupArtistByMBID fetches mbid's biography/image/id from TheAudioDB.
 // Returns (nil, nil) — not an error — when TheAudioDB simply doesn't have
 // this artist (a real, common case: MusicBrainz's catalog is far larger
 // than TheAudioDB's), so callers (internal/acquisition's monitor/refresh
@@ -122,7 +127,7 @@ func (c *Client) LookupArtistByMBID(ctx context.Context, mbid string) (*ArtistMe
 	if imageURL == "" {
 		imageURL = a.ArtistFanart
 	}
-	return &ArtistMeta{Bio: a.Biography, ImageURL: imageURL}, nil
+	return &ArtistMeta{Bio: a.Biography, ImageURL: imageURL, IDArtist: a.IDArtist}, nil
 }
 
 // AlbumMeta is what CantiNode uses from TheAudioDB for a release group:

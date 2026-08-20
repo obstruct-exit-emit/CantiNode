@@ -107,6 +107,41 @@ func (s *server) handleGetMusicArtist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, musicArtistDetail{Artist: *a, OwnedAlbumCount: len(albums), TotalAlbumCount: len(albums) + len(wanted)})
 }
 
+// handleAudioDBArtistLink redirects to an artist's own page on
+// theaudiodb.com — the artist page's "TheAudioDB" link icon, the
+// artist-scoped counterpart to handleAudioDBAlbumLink (see its own doc
+// comment for why this is a live, on-click lookup rather than something
+// stored: TheAudioDB's own site URLs use its internal numeric artist id,
+// not the MBID). 404s for a tracked series (artist.Kind == "series") —
+// TheAudioDB has no concept of a series at all, only real artists — or
+// when TheAudioDB simply has no entry (or no idArtist) for this artist.
+func (s *server) handleAudioDBArtistLink(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	artist, err := s.musicStore.GetArtist(id)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	if artist.Kind == "series" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	meta, err := s.audiodb.LookupArtistByMBID(r.Context(), artist.MBID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if meta == nil || meta.IDArtist == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "https://www.theaudiodb.com/artist/"+meta.IDArtist, http.StatusFound)
+}
+
 // handleSearchMusicArtists proxies a fuzzy artist search to MusicBrainz —
 // lets the "monitor an artist" UI resolve a plain-text name to an MBID
 // before calling handleMonitorMusicArtist.
