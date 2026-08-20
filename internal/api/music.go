@@ -1001,6 +1001,55 @@ func (s *server) handleAudioDBAlbumLink(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "https://www.theaudiodb.com/album/"+meta.IDAlbum, http.StatusFound)
 }
 
+// handleGetMusicAlbumDescription returns an album's own TheAudioDB
+// description — fetched and cached (see musiclibrary.Album's own doc
+// comment on Description/DescriptionFetchedAt) on first request, rather
+// than blocking the main album fetch (handleGetMusicAlbum) on a live
+// TheAudioDB round trip on every page load. The frontend requests this
+// separately, after the rest of the page has already rendered — the same
+// "don't hold up the page for optional extra data" reasoning cover art
+// already uses via its own <img src>.
+func (s *server) handleGetMusicAlbumDescription(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	album, err := s.musicStore.GetAlbum(id)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	if album.DescriptionFetchedAt != nil {
+		writeJSON(w, http.StatusOK, map[string]string{"description": album.Description})
+		return
+	}
+
+	description := ""
+	if album.ReleaseGroupMBID != "" {
+		meta, err := s.audiodb.LookupAlbumByReleaseGroupMBID(r.Context(), album.ReleaseGroupMBID)
+		if err != nil {
+			// Transient failure (network, TheAudioDB down) — cosmetic, not
+			// fatal, same as every other TheAudioDB call in this codebase.
+			// Leaves DescriptionFetchedAt unset so a later view tries
+			// again, rather than caching a false miss.
+			writeJSON(w, http.StatusOK, map[string]string{"description": ""})
+			return
+		}
+		if meta != nil {
+			description = meta.Description
+		}
+	}
+	// Stamped even when TheAudioDB simply has nothing for this album (a
+	// definitive answer, not a failure) so this isn't re-queried on every
+	// subsequent page view — same convention as SetArtistMetadata's own.
+	if err := s.musicStore.SetAlbumDescription(id, description, time.Now().UTC()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"description": description})
+}
+
 // handleReleaseGroupCover serves a release group's front cover art via its
 // cached representative release — the Missing/Wanted grid's counterpart to
 // handleMusicAlbumCover, for an album with no owned files (and so no

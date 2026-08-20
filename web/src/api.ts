@@ -285,6 +285,12 @@ export interface MusicAlbum {
   title: string;
   releaseDate: string;
   primaryType: string;
+  description: string;
+  // Absent (not merely falsy) until the description has actually been
+  // looked up once — see internal/musiclibrary.Album's own doc comment.
+  // Its presence, not description's own emptiness, is what tells the
+  // album page whether it still needs to call getMusicAlbumDescription.
+  descriptionFetchedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -738,6 +744,12 @@ export const api = {
     ),
   scanMusicAlbum: (id: number) =>
     request<MusicScanResult>(`/api/v1/music/album/${id}/scan`, { method: "POST" }),
+  // Only worth calling when the just-loaded MusicAlbum's own
+  // descriptionFetchedAt is unset — see that field's own doc comment.
+  // Once fetched (even to nothing), the plain getMusicAlbum response
+  // already carries the cached description for free.
+  getMusicAlbumDescription: (id: number) =>
+    request<{ description: string }>(`/api/v1/music/album/${id}/description`),
   searchAlbumUpgrade: (id: number) =>
     request<{ releases: ReleaseCandidate[]; errors: string[] }>(`/api/v1/music/album/${id}/upgrade/search`),
   grabAlbumUpgrade: (

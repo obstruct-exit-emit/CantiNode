@@ -80,6 +80,7 @@ export default function AlbumDetailView({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null);
   const [notice, setNotice] = useState("");
+  const [description, setDescription] = useState("");
 
   const reload = useCallback(() => {
     Promise.all([api.getMusicAlbum(id), api.listMusicTracks(id)])
@@ -97,6 +98,24 @@ export default function AlbumDetailView({
   }, [id, onError]);
 
   useEffect(reload, [reload]);
+
+  // Lazily fetches (and, server-side, caches) the description only on an
+  // album's first-ever view — descriptionFetchedAt already set means the
+  // plain getMusicAlbum response above already carried it for free, no
+  // extra request needed. Best-effort: a failure just leaves the
+  // description blank, the same cosmetic-only treatment every other
+  // TheAudioDB call in this app gets.
+  useEffect(() => {
+    if (!album) return;
+    if (album.descriptionFetchedAt !== undefined) {
+      setDescription(album.description);
+      return;
+    }
+    api
+      .getMusicAlbumDescription(album.id)
+      .then((r) => setDescription(r.description))
+      .catch(() => {});
+  }, [album]);
 
   const allFiles = useMemo(() => Object.values(files).flat(), [files]);
   const basePath = useMemo(() => commonBasePath(allFiles.map((f) => f.path)), [allFiles]);
@@ -215,6 +234,7 @@ export default function AlbumDetailView({
               </div>
             )}
           </div>
+          {description && <p className="detail-desc">{description}</p>}
           {album.releaseGroupMbid && (
             <div className="settings-actions detail-links">
               <a

@@ -128,12 +128,15 @@ func (c *Client) LookupArtistByMBID(ctx context.Context, mbid string) (*ArtistMe
 // AlbumMeta is what CantiNode uses from TheAudioDB for a release group:
 // ThumbURL for cover art (see internal/coverart, which tries this first
 // and falls back to Cover Art Archive when TheAudioDB doesn't have it),
-// and IDAlbum — TheAudioDB's own internal numeric album id, not the MBID —
+// IDAlbum — TheAudioDB's own internal numeric album id, not the MBID —
 // for linking out to the album's own page on theaudiodb.com (which, unlike
-// MusicBrainz, doesn't use MBIDs in its browsable URLs at all).
+// MusicBrainz, doesn't use MBIDs in its browsable URLs at all), and
+// Description, the album's own write-up (MusicBrainz's release/
+// release-group data has no equivalent field at all).
 type AlbumMeta struct {
-	ThumbURL string
-	IDAlbum  string
+	ThumbURL    string
+	IDAlbum     string
+	Description string
 }
 
 type albumLookupResponse struct {
@@ -145,8 +148,9 @@ type albumLookupResponse struct {
 }
 
 type audioDBAlbum struct {
-	AlbumThumb string `json:"strAlbumThumb"`
-	IDAlbum    string `json:"idAlbum"`
+	AlbumThumb  string `json:"strAlbumThumb"`
+	IDAlbum     string `json:"idAlbum"`
+	Description string `json:"strDescription"`
 }
 
 // LookupAlbumByReleaseGroupMBID fetches releaseGroupMBID's own entry from
@@ -173,7 +177,11 @@ func (c *Client) LookupAlbumByReleaseGroupMBID(ctx context.Context, releaseGroup
 	if len(resp.Album) == 0 {
 		return nil, nil
 	}
-	return &AlbumMeta{ThumbURL: resp.Album[0].AlbumThumb, IDAlbum: resp.Album[0].IDAlbum}, nil
+	return &AlbumMeta{
+		ThumbURL:    resp.Album[0].AlbumThumb,
+		IDAlbum:     resp.Album[0].IDAlbum,
+		Description: resp.Album[0].Description,
+	}, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {

@@ -1,6 +1,9 @@
 package musiclibrary
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestGetOrCreateAlbumCreatesThenReuses(t *testing.T) {
 	db := newTestStore(t)
@@ -101,6 +104,33 @@ func TestGetOrCreateAlbumRecoversFromMBIDCollisionAcrossReleaseGroups(t *testing
 	}
 	if a2.ReleaseGroupMBID != "rg-one" {
 		t.Errorf("ReleaseGroupMBID = %q, want the first call's rg-one preserved as-is", a2.ReleaseGroupMBID)
+	}
+}
+
+func TestSetAlbumDescription(t *testing.T) {
+	db := newTestStore(t)
+	artist, err := db.GetOrCreateArtist("artist-mbid", "Avantasia", "Avantasia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := db.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Moonglow", "2019", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if album.DescriptionFetchedAt != nil {
+		t.Errorf("DescriptionFetchedAt = %v, want nil before it's ever been fetched", album.DescriptionFetchedAt)
+	}
+
+	now := time.Now().UTC()
+	if err := db.SetAlbumDescription(album.ID, "A metal opera concept album.", now); err != nil {
+		t.Fatalf("SetAlbumDescription: %v", err)
+	}
+	got, err := db.GetAlbum(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != "A metal opera concept album." || got.DescriptionFetchedAt == nil {
+		t.Errorf("got = %+v", got)
 	}
 }
 

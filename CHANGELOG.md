@@ -11,6 +11,18 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **The album page now shows a TheAudioDB description, cached the same
+  way as every other piece of TheAudioDB/MusicBrainz metadata.** New
+  `albums.description`/`description_fetched_at` columns (migration 029)
+  mirror `artists.bio`/`metadata_fetched_at`'s own convention exactly:
+  fetched once, on the album's first-ever page view, then never
+  re-queried — `description_fetched_at` (not description's own emptiness)
+  is what distinguishes "never tried" from "tried, TheAudioDB had
+  nothing." A later view of the same album gets the cached description
+  for free from the plain album fetch, no extra request at all; only a
+  genuinely first-ever view pays for the one-time lookup, via a new
+  `GET .../album/{id}/description` endpoint the frontend calls
+  separately so it never blocks the rest of the page rendering.
 - **The album page shows one shared base folder path instead of every
   track's own full path, plus MusicBrainz/TheAudioDB links.** Each
   track's file row used to repeat its complete absolute path — noisy for

@@ -9,16 +9,27 @@ import (
 
 // Album is a library album (MusicBrainz release), matched to a specific
 // release MBID under ArtistID.
+//
+// Description/DescriptionFetchedAt are cached from internal/audiodb —
+// TheAudioDB, the only provider CantiNode has one from (MusicBrainz's own
+// release/release-group data carries no description-style field) —
+// fetched once, lazily, the first time the album detail page is actually
+// viewed (see internal/api's handleGetMusicAlbumDescription), same
+// cache-forever-after-one-try convention as Artist.Bio/MetadataFetchedAt:
+// DescriptionFetchedAt distinguishes "never tried" (nil) from "tried,
+// TheAudioDB had nothing" (non-nil, Description still "").
 type Album struct {
-	ID               int64     `json:"id"`
-	ArtistID         int64     `json:"artistId"`
-	MBID             string    `json:"mbid"`
-	ReleaseGroupMBID string    `json:"releaseGroupMbid"`
-	Title            string    `json:"title"`
-	ReleaseDate      string    `json:"releaseDate"`
-	PrimaryType      string    `json:"primaryType"`
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
+	ID                   int64      `json:"id"`
+	ArtistID             int64      `json:"artistId"`
+	MBID                 string     `json:"mbid"`
+	ReleaseGroupMBID     string     `json:"releaseGroupMbid"`
+	Title                string     `json:"title"`
+	ReleaseDate          string     `json:"releaseDate"`
+	PrimaryType          string     `json:"primaryType"`
+	Description          string     `json:"description"`
+	DescriptionFetchedAt *time.Time `json:"descriptionFetchedAt,omitempty"`
+	CreatedAt            time.Time  `json:"createdAt"`
+	UpdatedAt            time.Time  `json:"updatedAt"`
 }
 
 // GetOrCreateAlbum returns the existing album for artistID+releaseGroupMBID,
@@ -74,32 +85,44 @@ func (s *Store) GetOrCreateAlbum(artistID int64, mbid, releaseGroupMBID, title, 
 	return album, nil
 }
 
-func (s *Store) getAlbumByMBID(mbid string) (*Album, error) {
+// scanAlbum scans one albumSelect row — shared by every caller below so
+// the description_fetched_at NULL-handling (see Album's own doc comment)
+// lives in exactly one place.
+func scanAlbum(row interface{ Scan(...any) error }) (*Album, error) {
 	var a Album
-	err := s.db.QueryRow(albumSelect+` WHERE mbid = ?`, mbid).
-		Scan(&a.ID, &a.ArtistID, &a.MBID, &a.ReleaseGroupMBID, &a.Title, &a.ReleaseDate, &a.PrimaryType, &a.CreatedAt, &a.UpdatedAt)
+	var descriptionFetchedAt sql.NullTime
+	if err := row.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.ReleaseGroupMBID, &a.Title, &a.ReleaseDate, &a.PrimaryType,
+		&a.Description, &descriptionFetchedAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		return nil, err
+	}
+	if descriptionFetchedAt.Valid {
+		a.DescriptionFetchedAt = &descriptionFetchedAt.Time
+	}
+	return &a, nil
+}
+
+func (s *Store) getAlbumByMBID(mbid string) (*Album, error) {
+	a, err := scanAlbum(s.db.QueryRow(albumSelect+` WHERE mbid = ?`, mbid))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get album by mbid: %w", err)
 	}
-	return &a, nil
+	return a, nil
 }
 
 // getAlbumByReleaseGroupMBID mirrors getAlbumByMBID, scoped to the release
 // group identity GetOrCreateAlbum now uses — see its doc comment.
 func (s *Store) getAlbumByReleaseGroupMBID(artistID int64, releaseGroupMBID string) (*Album, error) {
-	var a Album
-	err := s.db.QueryRow(albumSelect+` WHERE artist_id = ? AND release_group_mbid = ?`, artistID, releaseGroupMBID).
-		Scan(&a.ID, &a.ArtistID, &a.MBID, &a.ReleaseGroupMBID, &a.Title, &a.ReleaseDate, &a.PrimaryType, &a.CreatedAt, &a.UpdatedAt)
+	a, err := scanAlbum(s.db.QueryRow(albumSelect+` WHERE artist_id = ? AND release_group_mbid = ?`, artistID, releaseGroupMBID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get album by release group mbid: %w", err)
 	}
-	return &a, nil
+	return a, nil
 }
 
 // DeleteAlbum deletes id outright — the album page's own "Remove album"
@@ -146,20 +169,30 @@ func (s *Store) ReapOrphanedAlbum(albumID int64) error {
 	return s.DeleteAlbum(albumID)
 }
 
-const albumSelect = `SELECT id, artist_id, mbid, release_group_mbid, title, release_date, primary_type, created_at, updated_at FROM albums`
+const albumSelect = `SELECT id, artist_id, mbid, release_group_mbid, title, release_date, primary_type, description, description_fetched_at, created_at, updated_at FROM albums`
 
 // GetAlbum returns a single album by ID, or ErrNotFound.
 func (s *Store) GetAlbum(id int64) (*Album, error) {
-	var a Album
-	err := s.db.QueryRow(albumSelect+` WHERE id = ?`, id).
-		Scan(&a.ID, &a.ArtistID, &a.MBID, &a.ReleaseGroupMBID, &a.Title, &a.ReleaseDate, &a.PrimaryType, &a.CreatedAt, &a.UpdatedAt)
+	a, err := scanAlbum(s.db.QueryRow(albumSelect+` WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get album: %w", err)
 	}
-	return &a, nil
+	return a, nil
+}
+
+// SetAlbumDescription records id's own TheAudioDB description — see
+// Album.Description's own doc comment for the caching convention.
+func (s *Store) SetAlbumDescription(id int64, description string, fetchedAt time.Time) error {
+	_, err := s.db.Exec(
+		`UPDATE albums SET description = ?, description_fetched_at = ?, updated_at = ? WHERE id = ?`,
+		description, fetchedAt, time.Now().UTC(), id)
+	if err != nil {
+		return fmt.Errorf("set album description: %w", err)
+	}
+	return nil
 }
 
 // ListAlbumsByArtist returns every album with at least one track file,

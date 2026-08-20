@@ -103,7 +103,8 @@ const sampleAlbumJSON = `{
 			"idAlbum": "2314525",
 			"strAlbum": "Moonglow",
 			"strMusicBrainzID": "a9dced89-49cb-4430-ac83-f4973cc71695",
-			"strAlbumThumb": "https://r2.theaudiodb.com/images/media/album/thumb/wuysyy1550959319.jpg"
+			"strAlbumThumb": "https://r2.theaudiodb.com/images/media/album/thumb/wuysyy1550959319.jpg",
+			"strDescription": "Moonglow is the eighth full-length album by Tobias Sammet's metal opera project Avantasia."
 		}
 	]
 }`
@@ -131,6 +132,9 @@ func TestLookupAlbumByReleaseGroupMBIDReturnsThumb(t *testing.T) {
 	}
 	if meta.IDAlbum != "2314525" {
 		t.Errorf("IDAlbum = %q, want 2314525", meta.IDAlbum)
+	}
+	if meta.Description != "Moonglow is the eighth full-length album by Tobias Sammet's metal opera project Avantasia." {
+		t.Errorf("Description = %q", meta.Description)
 	}
 }
 

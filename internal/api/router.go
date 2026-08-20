@@ -189,6 +189,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// navigation (target="_blank"), same ?apikey= reasoning as the cover
 	// route above.
 	mux.HandleFunc("GET /api/v1/music/album/{id}/audiodb-link", s.auth(s.handleAudioDBAlbumLink))
+	mux.HandleFunc("GET /api/v1/music/album/{id}/description", s.auth(s.handleGetMusicAlbumDescription))
 	mux.HandleFunc("GET /api/v1/music/album/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicAlbum))
 	mux.HandleFunc("POST /api/v1/music/album/{id}/organize", s.auth(s.handleOrganizeMusicAlbum))
 	mux.HandleFunc("POST /api/v1/music/album/{id}/write-tags", s.auth(s.handleWriteMusicTagsForAlbum))
