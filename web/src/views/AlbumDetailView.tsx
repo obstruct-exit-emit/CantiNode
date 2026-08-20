@@ -245,34 +245,38 @@ export default function AlbumDetailView({
           <p className="muted">
             {album.primaryType || "Album"} · {tracks.length} track{tracks.length === 1 ? "" : "s"}
           </p>
-          <div className="detail-stats">
-            {basePath && (
+          {(versionLabel || quality || totalBytes > 0) && (
+            <div className="detail-stats">
+              {versionLabel && (
+                <div className="detail-stat">
+                  <span className="detail-stat-label">Version</span>
+                  <span className="detail-stat-value" title={versionLabel}>{versionLabel}</span>
+                </div>
+              )}
+              {quality && (
+                <div className="detail-stat">
+                  <span className="detail-stat-label">Quality</span>
+                  <span className={`detail-stat-value quality-${quality}`}>
+                    {quality === "lossless" ? "Lossless" : quality === "mixed" ? "Mixed" : "Lossy"}
+                  </span>
+                </div>
+              )}
+              {totalBytes > 0 && (
+                <div className="detail-stat">
+                  <span className="detail-stat-label">Size</span>
+                  <span className="detail-stat-value">{formatBytes(totalBytes)}</span>
+                </div>
+              )}
+            </div>
+          )}
+          {basePath && (
+            <div className="detail-stats">
               <div className="detail-stat">
                 <span className="detail-stat-label">Path</span>
                 <span className="detail-stat-value" title={basePath}>{basePath}</span>
               </div>
-            )}
-            {versionLabel && (
-              <div className="detail-stat">
-                <span className="detail-stat-label">Version</span>
-                <span className="detail-stat-value" title={versionLabel}>{versionLabel}</span>
-              </div>
-            )}
-            {quality && (
-              <div className="detail-stat">
-                <span className="detail-stat-label">Quality</span>
-                <span className={`detail-stat-value quality-${quality}`}>
-                  {quality === "lossless" ? "Lossless" : quality === "mixed" ? "Mixed" : "Lossy"}
-                </span>
-              </div>
-            )}
-            {totalBytes > 0 && (
-              <div className="detail-stat">
-                <span className="detail-stat-label">Size</span>
-                <span className="detail-stat-value">{formatBytes(totalBytes)}</span>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
           {description && <p className="detail-desc">{description}</p>}
           {album.releaseGroupMbid && (
             <div className="settings-actions detail-links">
