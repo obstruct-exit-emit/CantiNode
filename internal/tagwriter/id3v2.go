@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"unicode/utf16"
 )
 
 // musicBrainzUFIDProvider matches internal/tagreader's constant of the
@@ -113,12 +114,9 @@ func synchsafeEncode(n int) [4]byte {
 }
 
 // buildID3v2Tag renders tags as a complete ID3v2.3 tag (10-byte header +
-// frames), encoding (ISO-8859-1) chosen for simplicity — every field
-// CantiNode writes (metadata pulled from MusicBrainz) is plain ASCII in
-// practice for the overwhelming majority of releases; genuinely
-// non-Latin metadata is a known gap (UTF-8/UTF-16 frame encoding) rather
-// than silently mangled, since decodeText elsewhere already tolerates
-// whatever's present when reading.
+// frames). Every text frame is ISO-8859-1 when the value is pure ASCII —
+// the overwhelming majority of releases — and UTF-16 (with a BOM,
+// ID3v2.3's other valid text encoding) otherwise, per encodeID3v2Text.
 func buildID3v2Tag(tags Tags) []byte {
 	var frames bytes.Buffer
 
@@ -153,13 +151,30 @@ func writeTextFrame(buf *bytes.Buffer, name, value string) {
 	if value == "" {
 		return
 	}
-	content := append([]byte{0x00}, []byte(value)...) // encoding=ISO-8859-1
+	content := encodeID3v2Text(value)
 	writeFrameHeader(buf, name, len(content))
 	buf.Write(content)
 }
 
+// writeTXXXFrame's description is always one of this file's own hardcoded
+// ASCII literals ("MusicBrainz Artist Id", ...) and value is always an
+// MBID (also always ASCII) at every call site today, so this never
+// actually hits the UTF-16 branch in practice — encodeID3v2Text is still
+// used here rather than hardcoding ISO-8859-1 so that stays true even if
+// a future caller ever passes something else, instead of quietly
+// depending on an assumption this file doesn't enforce.
 func writeTXXXFrame(buf *bytes.Buffer, description, value string) {
 	if value == "" {
+		return
+	}
+	if !isASCIIText(description) || !isASCIIText(value) {
+		var content bytes.Buffer
+		content.WriteByte(0x01) // encoding=UTF-16 (BOM)
+		content.Write(utf16LEWithBOM(description))
+		content.Write([]byte{0x00, 0x00}) // UTF-16 null terminator between the two parts
+		content.Write(utf16LEWithBOM(value))
+		writeFrameHeader(buf, "TXXX", content.Len())
+		buf.Write(content.Bytes())
 		return
 	}
 	var content bytes.Buffer
@@ -169,6 +184,53 @@ func writeTXXXFrame(buf *bytes.Buffer, description, value string) {
 	content.WriteString(value)
 	writeFrameHeader(buf, "TXXX", content.Len())
 	buf.Write(content.Bytes())
+}
+
+// encodeID3v2Text renders value as a complete ID3v2.3 text-frame body
+// (leading encoding byte + encoded text): plain ISO-8859-1 when value is
+// pure ASCII (every byte < 0x80, so its raw UTF-8 bytes are already
+// identical to Latin-1 — the common case, and the most widely compatible
+// encoding for it), UTF-16LE with a byte-order-mark otherwise — the fix
+// for a real bug found live: a guest vocalist's name with a diacritic
+// ("Jørn Lande", "Hansi Kürsch") came back as mojibake ("JÃ¸rn Lande")
+// after a round trip. The encoding byte was already correctly read back
+// as ISO-8859-1 by every reader (this file always wrote 0x00), but the
+// bytes underneath were still raw UTF-8, not actually transcoded — a real
+// ID3v2 reader decoding those bytes AS Latin-1 (exactly what the encoding
+// byte told it to do) turned every multi-byte UTF-8 sequence into two
+// separate Latin-1 characters. ISO-8859-1 can't represent non-Latin
+// scripts at all (Cyrillic, CJK, ...), so this doesn't attempt a lossy
+// Latin-1 transcode for the non-ASCII case — UTF-16 is ID3v2.3's other
+// valid text encoding and losslessly covers everything.
+func encodeID3v2Text(value string) []byte {
+	if isASCIIText(value) {
+		return append([]byte{0x00}, []byte(value)...)
+	}
+	content := []byte{0x01} // encoding=UTF-16 (BOM)
+	return append(content, utf16LEWithBOM(value)...)
+}
+
+// utf16LEWithBOM renders s as UTF-16LE code units prefixed with a
+// byte-order-mark — the actual encoded bytes encodeID3v2Text (and
+// writeTXXXFrame's own UTF-16 branch) write after the leading encoding
+// byte.
+func utf16LEWithBOM(s string) []byte {
+	units := utf16.Encode([]rune(s))
+	out := make([]byte, 2+2*len(units))
+	out[0], out[1] = 0xFF, 0xFE // BOM, little-endian
+	for i, u := range units {
+		binary.LittleEndian.PutUint16(out[2+2*i:], u)
+	}
+	return out
+}
+
+func isASCIIText(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 func writeUFIDFrame(buf *bytes.Buffer, recordingMBID string) {

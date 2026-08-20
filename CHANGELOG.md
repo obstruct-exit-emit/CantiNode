@@ -714,6 +714,24 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Writing tags to an MP3 mangled any non-ASCII character in the
+  value — accented/non-Latin names came back as mojibake on the next
+  read.** Found live testing "Write tags" on a real album: a guest
+  vocalist credit round-tripped as `Avantasia, Hansi KÃ¼rsch, Ronnie
+  Atkins, JÃ¸rn Lande, Mille Petrozza` instead of `... Hansi Kürsch,
+  Ronnie Atkins, Jørn Lande ...` — confirmed the database's own value was
+  correct, isolating the corruption to the write step. Root cause:
+  `writeTextFrame` (`internal/tagwriter/id3v2.go`) always labeled the
+  ID3v2.3 frame's encoding byte as `0x00` (ISO-8859-1) but wrote the
+  value's raw UTF-8 bytes underneath, unchanged — any reader decoding
+  those bytes as Latin-1 (exactly what the encoding byte told it to do)
+  turns every multi-byte UTF-8 sequence into two separate Latin-1
+  characters. Isolated to MP3: FLAC's Vorbis comments are UTF-8-native,
+  and every other supported format goes through go.senan.xyz/taglib,
+  neither of which had this bug. New `encodeID3v2Text` now writes plain
+  ISO-8859-1 only when a value is pure ASCII, and UTF-16 (with a BOM,
+  ID3v2.3's other valid text encoding) otherwise — covering every script,
+  not just Latin-1's own limited range.
 - **Organize left a multi-disc album's entire old folder tree behind,
   empty but never cleaned up.** Docs promised "Emptied folders are swept
   up..." for Organize, but that cleanup was only ever implemented for

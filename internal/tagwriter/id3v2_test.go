@@ -122,6 +122,35 @@ func TestWriteID3v2EmptyFieldsOmitted(t *testing.T) {
 	}
 }
 
+// TestWriteID3v2NonASCIITextRoundTrips catches a real live bug: a guest
+// vocalist credit ("Avantasia, Hansi Kürsch, ... Jørn Lande, ...") came
+// back as mojibake ("Hansi KÃ¼rsch", "JÃ¸rn Lande") after a write/read
+// round trip. writeTextFrame always labeled the ID3v2.3 encoding byte as
+// ISO-8859-1 (0x00) but wrote the value's raw UTF-8 bytes underneath —
+// correct only for pure-ASCII values. tagreader.Read uses dhowden/tag, a
+// real spec-compliant ID3v2 reader, so this exercises the same failure a
+// user's own player/tagger would hit, not just this package's own
+// encoder/decoder agreeing with itself.
+func TestWriteID3v2NonASCIITextRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.mp3")
+	if err := os.WriteFile(path, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artist := "Avantasia, Hansi Kürsch, Ronnie Atkins, Jørn Lande, Mille Petrozza"
+	if err := Write(path, Tags{Title: "Book of Shallows", Artist: artist, Album: "Moonglow"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	got, err := tagreader.Read(path)
+	if err != nil {
+		t.Fatalf("Read back: %v", err)
+	}
+	if got.Artist != artist {
+		t.Errorf("Artist = %q, want %q", got.Artist, artist)
+	}
+}
+
 func mustOpen(t *testing.T, path string) *os.File {
 	t.Helper()
 	f, err := os.Open(path)
