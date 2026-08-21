@@ -11,6 +11,20 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A "Tags" button on each track file (album page) pops up its own
+  embedded tags** — Title, Artist, Album Artist, Album, Track/Disc
+  number, Year, Format, and all four MusicBrainz IDs. New
+  `GET /api/v1/music/trackfile/{id}/tags` reads them live off the file
+  itself rather than the `track_files.tags_json` snapshot from the file's
+  last scan, which goes stale the moment "Write tags" changes what's
+  actually embedded — a live, trustworthy answer to "what does this file
+  actually have on it," the same question this project's own diagnostic
+  tooling has kept needing to answer by hand. `tagreader.Tags` gets
+  explicit `json` struct tags for the first time as part of this (it
+  doubles as this endpoint's response body), matching every other JSON
+  type this API returns; the pre-existing `tags_json` DB column still
+  round-trips correctly against already-stored rows either way
+  (`encoding/json`'s case-insensitive fallback matching).
 - **Four new naming-template tokens: `{TrackArtist}`, `{ArtistSortName}`,
   `{ReleaseType}`, and `{Date}`.** All sourced from data already loaded
   for every organize, so no new fetches. `{TrackArtist}` is the track's

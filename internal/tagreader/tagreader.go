@@ -23,27 +23,34 @@ import (
 )
 
 // Tags is the subset of an audio file's embedded metadata CantiNode's
-// scanner and matcher care about.
+// scanner and matcher care about. Also the wire shape returned directly by
+// GET /api/v1/music/trackfile/{id}/tags and round-tripped through
+// track_files.tags_json (internal/musicscanner writes it with
+// json.Marshal, suggest.go reads it back with json.Unmarshal) — the
+// explicit lowerCamelCase tags below match every other JSON type this API
+// returns; encoding/json's case-insensitive fallback matching means an
+// already-stored tags_json blob written before these tags existed still
+// unmarshals correctly.
 type Tags struct {
-	Title       string
-	Artist      string
-	AlbumArtist string
-	Album       string
-	TrackNumber int
-	DiscNumber  int
-	Year        int
+	Title       string `json:"title"`
+	Artist      string `json:"artist"`
+	AlbumArtist string `json:"albumArtist"`
+	Album       string `json:"album"`
+	TrackNumber int    `json:"trackNumber"`
+	DiscNumber  int    `json:"discNumber"`
+	Year        int    `json:"year"`
 	// Format is the detected file type, lowercased (e.g. "mp3", "flac",
 	// "m4a") — dhowden/tag detects this from file content, not extension.
-	Format string
+	Format string `json:"format"`
 
 	// MusicBrainz IDs, populated only when the file's own tags already
 	// carry them (common — Picard and most rippers embed these). Empty
 	// when absent; internal/scanner falls back to a fuzzy MusicBrainz
 	// search in that case.
-	MusicBrainzArtistID       string
-	MusicBrainzAlbumID        string // the release MBID
-	MusicBrainzReleaseGroupID string
-	MusicBrainzRecordingID    string // identifies this specific track/recording
+	MusicBrainzArtistID       string `json:"musicBrainzArtistId"`
+	MusicBrainzAlbumID        string `json:"musicBrainzAlbumId"` // the release MBID
+	MusicBrainzReleaseGroupID string `json:"musicBrainzReleaseGroupId"`
+	MusicBrainzRecordingID    string `json:"musicBrainzRecordingId"` // identifies this specific track/recording
 }
 
 // audioExtensions are the file extensions worth attempting to read — a

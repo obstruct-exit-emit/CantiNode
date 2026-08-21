@@ -26,6 +26,7 @@ import (
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
 	"github.com/cantinode/cantinode/internal/release"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 // musicNotFoundStatus maps musiclibrary.ErrNotFound to 404, anything else
@@ -1270,6 +1271,33 @@ func (s *server) handlePreviewOrganizeTrackFile(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": path})
+}
+
+// handleGetTrackFileTags reads a track file's embedded tags fresh off
+// disk, rather than the tagsJson snapshot track_files stores from its own
+// last scan — deliberately, since that snapshot is never refreshed after
+// a "Write tags" call (see internal/musicscanner/tagwrite.go), so it can
+// silently disagree with what's actually embedded right now. This is
+// meant as a live, trustworthy answer to "what does this file actually
+// have on it," the same question this project's own diagnostic tooling
+// keeps needing to answer by hand.
+func (s *server) handleGetTrackFileTags(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	tf, err := s.musicStore.GetTrackFile(id)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	tags, err := tagreader.Read(tf.Path)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "reading tags: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tags)
 }
 
 func (s *server) handleOrganizeTrackFile(w http.ResponseWriter, r *http.Request) {

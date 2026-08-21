@@ -11,6 +11,7 @@ import {
 import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
+import TrackFileTagsModal from "../components/TrackFileTagsModal";
 import { formatBytes } from "../format";
 
 // commonBasePath returns the deepest directory every one of paths shares —
@@ -89,6 +90,7 @@ export default function AlbumDetailView({
   const [notice, setNotice] = useState("");
   const [description, setDescription] = useState("");
   const [versionLabel, setVersionLabel] = useState("");
+  const [tagsFile, setTagsFile] = useState<MusicTrackFile | null>(null);
 
   const reload = useCallback(() => {
     Promise.all([api.getMusicAlbum(id), api.listMusicTracks(id)])
@@ -387,6 +389,13 @@ export default function AlbumDetailView({
                       <span className="muted" title={f.path}>
                         {f.format} · {formatBytes(f.sizeBytes)}
                       </span>
+                      <button
+                        className="link"
+                        title="Show this file's own embedded tags"
+                        onClick={() => setTagsFile(f)}
+                      >
+                        Tags
+                      </button>
                     </div>
                   ))}
                 </li>
@@ -395,6 +404,13 @@ export default function AlbumDetailView({
           </ul>
         )}
       </section>
+      {tagsFile && (
+        <TrackFileTagsModal
+          fileId={tagsFile.id}
+          fileName={tagsFile.path.split("/").pop() ?? tagsFile.path}
+          onClose={() => setTagsFile(null)}
+        />
+      )}
     </>
   );
 }

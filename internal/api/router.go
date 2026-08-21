@@ -207,6 +207,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/match", s.auth(s.handleManualMatchTrackFile))
 	mux.HandleFunc("DELETE /api/v1/music/trackfile/{id}/match", s.auth(s.handleClearTrackFileMatch))
 	mux.HandleFunc("GET /api/v1/music/trackfile/{id}/organize/preview", s.auth(s.handlePreviewOrganizeTrackFile))
+	mux.HandleFunc("GET /api/v1/music/trackfile/{id}/tags", s.auth(s.handleGetTrackFileTags))
 	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/organize", s.auth(s.handleOrganizeTrackFile))
 	mux.HandleFunc("POST /api/v1/music/trackfile/{id}/write-tags", s.auth(s.handleWriteMusicTags))
 	mux.HandleFunc("DELETE /api/v1/music/trackfile/{id}", s.auth(s.handleDeleteTrackFile))

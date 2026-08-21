@@ -333,6 +333,24 @@ export interface UnmatchedTrackFile extends MusicTrackFile {
   groupKey: string;
 }
 
+// MusicTrackFileTags is a track file's own embedded tags, read live off
+// disk (not MusicTrackFile.tagsJson's snapshot from its last scan, which
+// goes stale after a "Write tags" call) — see getMusicTrackFileTags.
+export interface MusicTrackFileTags {
+  title: string;
+  artist: string;
+  albumArtist: string;
+  album: string;
+  trackNumber: number;
+  discNumber: number;
+  year: number;
+  format: string;
+  musicBrainzArtistId: string;
+  musicBrainzAlbumId: string;
+  musicBrainzReleaseGroupId: string;
+  musicBrainzRecordingId: string;
+}
+
 // TrackSuggestion is one proposed track_file → recording slot from
 // suggestTrackFileMatches — a proposal only, nothing commits until it's
 // sent through matchTrackFile like any other match.
@@ -765,6 +783,8 @@ export const api = {
     ),
   listMusicTrackFiles: (trackId: number) =>
     request<MusicTrackFile[]>(`/api/v1/music/track/${trackId}/files`),
+  getMusicTrackFileTags: (id: number) =>
+    request<MusicTrackFileTags>(`/api/v1/music/trackfile/${id}/tags`),
   listUnmatchedTrackFiles: () =>
     request<UnmatchedTrackFile[]>("/api/v1/music/trackfile/unmatched"),
   suggestTrackFileMatches: (fileIds: number[], releaseGroupMbid: string, releaseMbid = "") =>
