@@ -730,6 +730,30 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **A file could get matched — and later organized — onto a completely
+  unrelated album, if the same recording also happens to appear on a
+  release with a long history.** Found live: a Blind Melon "Change"
+  single track, correctly tagged with the single's own MusicBrainz
+  release MBID, filed under the unrelated "Blind Melon" self-titled
+  album instead — Organize then refused to move it (correctly — the
+  album's own real "Change" track file was already sitting at the
+  target path), surfacing as a confusing "destination already exists"
+  error with no obvious cause. Root cause: `LookupRecording`'s
+  `inc=releases` is capped at 25 releases by MusicBrainz itself
+  (confirmed live: this recording has 35 known releases total, via the
+  dedicated paginated browse endpoint) — the single was release #29,
+  past the cap, so it was simply missing from the response every match
+  attempt reasoned from. `Recording.BestRelease(preferredReleaseMBID)`
+  treats "not found in this list" as "doesn't exist, fall back to the
+  clean-studio-album heuristic," which is correct when a file's tag is
+  actually wrong but silently wrong when the tag is simply missing from
+  a truncated list. New `ensurePreferredReleasePresent` fetches the
+  preferred release directly by its own MBID whenever it's not already
+  present, before any release-based decision is made — called from both
+  the direct-match path (a file's own embedded tag) and `ManualMatch` (a
+  human's explicit version-picker choice), the two places a specific
+  release MBID is already known and should never lose to a truncated
+  list.
 - **Changing the file naming template didn't take effect until the next
   restart — Organize kept planning paths against the old template, so a
   file that genuinely needed to move under the new one still reported

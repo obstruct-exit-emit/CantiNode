@@ -428,6 +428,94 @@ func TestScanRootFolderMemoizesReleaseCreditLookupAcrossFolder(t *testing.T) {
 	}
 }
 
+// TestScanRootFolderHonorsEmbeddedReleaseTagPastRecordingLookupCap is the
+// regression test for a real live bug: LookupRecording's inc=releases is
+// capped at 25 by MusicBrainz itself (confirmed live: the dedicated
+// /release?recording=<mbid> browse endpoint, which does paginate
+// properly, reported 35 total releases for the real recording behind
+// this test). rec.Releases below stands in for that truncated response —
+// it deliberately omits the file's own tagged release ("rel-single"),
+// containing only an unrelated "clean album" release that would win
+// Recording.BestRelease's own heuristic fallback if the real release
+// were never found. Found live: a Blind Melon "Change" single track,
+// correctly tagged with the single's own release MBID, got filed under
+// the unrelated "Blind Melon" self-titled album instead — the single was
+// the recording's 29th of 35 known releases, past the cap, so
+// BestRelease never even considered it.
+func TestScanRootFolderHonorsEmbeddedReleaseTagPastRecordingLookupCap(t *testing.T) {
+	fs := newFolderTestServer()
+	rec := mbRecording{ID: "rec-change", Title: "Change"}
+	rec.ArtistCredit = []struct {
+		Name   string `json:"name"`
+		Artist struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			SortName string `json:"sort-name"`
+		} `json:"artist"`
+	}{{Name: "Blind Melon", Artist: struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		SortName string `json:"sort-name"`
+	}{ID: "artist-mbid", Name: "Blind Melon", SortName: "Blind Melon"}}}
+	rec.Releases = []struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Date         string `json:"date"`
+		ReleaseGroup struct {
+			ID             string   `json:"id"`
+			Title          string   `json:"title"`
+			PrimaryType    string   `json:"primary-type"`
+			SecondaryTypes []string `json:"secondary-types,omitempty"`
+		} `json:"release-group"`
+	}{{ID: "rel-album", Title: "Blind Melon", ReleaseGroup: struct {
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		PrimaryType    string   `json:"primary-type"`
+		SecondaryTypes []string `json:"secondary-types,omitempty"`
+	}{ID: "rg-album", Title: "Blind Melon", PrimaryType: "Album"}}}
+	fs.recordingLookups["rec-change"] = rec
+
+	fs.releaseLookups["rel-single"] = mbReleaseWithTracklist{
+		ID:    "rel-single",
+		Title: "Change",
+		ArtistCredit: []mbArtistCredit{
+			{Name: "Blind Melon", Artist: mbArtistRef{ID: "artist-mbid", Name: "Blind Melon", SortName: "Blind Melon"}},
+		},
+		ReleaseGroup: mbReleaseGroup{ID: "rg-single", Title: "Change", PrimaryType: "Single"},
+	}
+
+	s, rf := newFolderTestScanner(t, fs)
+	buildFLACFile(t, rf.Path, "01.flac", map[string]string{
+		"ARTIST": "Blind Melon", "TITLE": "Change",
+		"MUSICBRAINZ_TRACKID":        "rec-change",
+		"MUSICBRAINZ_ALBUMID":        "rel-single",
+		"MUSICBRAINZ_RELEASEGROUPID": "rg-single",
+	})
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("FilesMatched = %d, want 1 (result=%+v)", result.FilesMatched, result)
+	}
+
+	artist, err := s.db.GetOrCreateArtist("artist-mbid", "Blind Melon", "Blind Melon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	albums, err := s.db.ListAlbumsByArtist(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albums) != 1 {
+		t.Fatalf("len(albums) = %d, want 1", len(albums))
+	}
+	if albums[0].ReleaseGroupMBID != "rg-single" {
+		t.Errorf("album release group = %q, want %q (the file's own embedded release tag) — got the unrelated \"clean album\" release group instead, meaning BestRelease's heuristic fallback won despite the file's own correct tag", albums[0].ReleaseGroupMBID, "rg-single")
+	}
+}
+
 // TestScanRootFolderNeverFilesUnderWrongArtistWhenCorrectionFetchFails is
 // the regression test for a real bug found live: correctArtistCreditForCompilation's
 // own LookupReleaseWithTracklist call failed (a genuine live network
@@ -455,7 +543,7 @@ func TestScanRootFolderNeverFilesUnderWrongArtistWhenCorrectionFetchFails(t *tes
 	// all — every LookupReleaseWithTracklist call for it 404s, standing in
 	// for a real transient failure.
 	fuzzyCandidate := rec
-	fuzzyCandidate.Score = 100 // clears matchFileFuzzy's own confidence gate, so it actually reaches the correction check
+	fuzzyCandidate.Score = 100                         // clears matchFileFuzzy's own confidence gate, so it actually reaches the correction check
 	fs.recordingSearch = []mbRecording{fuzzyCandidate} // matchFileFuzzy's own fallback candidate, once folder consensus also can't resolve it
 
 	s, rf := newFolderTestScanner(t, fs)

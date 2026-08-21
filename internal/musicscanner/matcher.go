@@ -95,6 +95,52 @@ type releaseCreditCache map[string][]musicbrainz.ArtistCredit
 // answer. A release that genuinely needs no correction, or whose fetch
 // succeeds but returns no artist-credit at all (a real, different
 // answer, not a failure), is not an error — see the two returns below.
+// ensurePreferredReleasePresent guarantees rec.Releases actually contains
+// preferredReleaseMBID's own release, fetching and appending it directly
+// when it's missing — mutates rec in place. A real, confirmed MusicBrainz
+// API limit: LookupRecording's inc=releases returns at most 25 releases
+// per recording (verified live: the dedicated /release?recording=<mbid>
+// browse endpoint, which does paginate properly, reported 35 total for a
+// real example below), so a recording with a longer release history can
+// come back missing the exact release a file's own embedded tag (or a
+// human's manual pick via ManualMatch) names — silently, with no error
+// anywhere to notice.
+//
+// That matters because every caller of Recording.BestRelease(preferred)
+// trusts an empty search result to mean "no such release, fall back to
+// the clean-album heuristic" — which is correct when preferred is simply
+// wrong, but wrong when it's simply missing from a truncated list. Found
+// live: a Blind Melon "Change" single track, correctly tagged with the
+// single's own release MBID, filed under the unrelated "Blind Melon"
+// self-titled album instead — the single was the recording's 29th of 35
+// known releases, past the 25-item cap, so BestRelease never even
+// considered it and fell back to whichever release won the "clean
+// studio album" heuristic instead.
+//
+// Called unconditionally wherever a preferred release MBID is available
+// (a file's own embedded tag, or a human's explicit choice) — the common
+// case where it's already present costs one cheap local loop; only a
+// recording actually past the cap, asked about specifically by its own
+// release's MBID, pays for the extra lookup. Best-effort: a lookup
+// failure here just leaves BestRelease to its existing heuristic
+// fallback, exactly the behavior before this fix existed — never worth
+// failing the whole match over.
+func (s *Scanner) ensurePreferredReleasePresent(ctx context.Context, rec *musicbrainz.Recording, preferredReleaseMBID string) {
+	if preferredReleaseMBID == "" {
+		return
+	}
+	for _, rel := range rec.Releases {
+		if rel.ID == preferredReleaseMBID {
+			return
+		}
+	}
+	full, err := s.mb.LookupReleaseWithTracklist(ctx, preferredReleaseMBID)
+	if err != nil {
+		return
+	}
+	rec.Releases = append(rec.Releases, full.AsRelease())
+}
+
 func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *musicbrainz.Recording, preferredReleaseMBID string, cache releaseCreditCache) error {
 	release := rec.BestRelease(preferredReleaseMBID)
 	if release.ID == "" {
@@ -226,6 +272,11 @@ func (s *Scanner) matchFileDirect(ctx context.Context, tf *musiclibrary.TrackFil
 // own doc comment; pass the same one folder-processing-wide, or nil for a
 // standalone caller.
 func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags, rec *musicbrainz.Recording, cache releaseCreditCache) (bool, error) {
+	// Must run before embeddedTagsAgree, not just before applyMatch below —
+	// a preferred release missing from rec.Releases (see this function's
+	// own doc comment) makes embeddedTagsAgree's own release-group check
+	// fail too, for the same underlying reason.
+	s.ensurePreferredReleasePresent(ctx, rec, tags.MusicBrainzAlbumID)
 	if !embeddedTagsAgree(tags, rec) || !titleAgrees(tags, rec) {
 		// Decline the fast path rather than confidently matching to the
 		// wrong album/song — matchFolder catches this sentinel and gives
@@ -405,6 +456,11 @@ func (s *Scanner) ManualMatch(ctx context.Context, trackFileID int64, recordingM
 	if err != nil {
 		return fmt.Errorf("lookup recording %s: %w", recordingMBID, err)
 	}
+	// A human explicitly chose preferredReleaseMBID (e.g. the version
+	// picker) — it must win even if it's past LookupRecording's own
+	// truncation cap (see ensurePreferredReleasePresent's own doc
+	// comment), not silently lose to BestRelease's heuristic fallback.
+	s.ensurePreferredReleasePresent(ctx, rec, preferredReleaseMBID)
 
 	trackNumber, discNumber := 0, 1
 	var tags *tagreader.Tags
