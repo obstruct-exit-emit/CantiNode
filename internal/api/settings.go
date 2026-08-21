@@ -50,7 +50,24 @@ func (s *server) handlePutNamingSettings(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "saving config: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, namingResponse(s.cfg.NamingSettings()))
+	// musicScanner keeps its own in-memory copy of the naming template (see
+	// Scanner.UpdateSettings's own doc comment: "takes effect on the very
+	// next file scanned/organized, no restart needed") — found live: a
+	// template change saved here alone never reached it, since only
+	// handlePutMusicSettings called UpdateSettings. Organize kept planning
+	// paths against the stale template until the next process restart, so
+	// a template edit that genuinely changed a file's target path still
+	// reported "already organized" (the plan was computed from the old
+	// template, which the file already matched). Pass through the current
+	// Music settings' own two fields unchanged — this handler has no
+	// reason to touch either of them.
+	// Re-read rather than reusing req.MusicFile directly: an empty
+	// submitted field means "reset to default" and SetNaming resolves that
+	// against its own copy, not this handler's local req.
+	ns := s.cfg.NamingSettings()
+	m := s.cfg.MusicSettings()
+	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch)
+	writeJSON(w, http.StatusOK, namingResponse(ns))
 }
 
 // --- Remote path mappings ---

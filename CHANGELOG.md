@@ -730,6 +730,18 @@ in progress. Highlights from the hardening period, newest first:
   and scan as one book unit; other nesting is flattened collision-safely.
 
 ### Fixed
+- **Changing the file naming template didn't take effect until the next
+  restart — Organize kept planning paths against the old template, so a
+  file that genuinely needed to move under the new one still reported
+  "already organized."** Found live: `PUT /api/v1/settings/naming` saved
+  the new template to config, but only `handlePutMusicSettings` (a
+  different settings section — min match confidence, organize-on-match)
+  ever called `Scanner.UpdateSettings` to refresh the scanner's own live,
+  in-memory copy of the template. `handlePutNamingSettings` now does the
+  same, re-reading the saved (and default-filled) template back out of
+  config first — an empty submitted field means "reset to default," which
+  only config's own `SetNaming` resolves, not the request body's raw
+  value.
 - **A root folder that's a network mount (CIFS/NFS/etc.), briefly
   unreachable during a scan, would have every one of its tracked files
   silently wiped from the database — even though every file was still
