@@ -754,6 +754,23 @@ in progress. Highlights from the hardening period, newest first:
   human's explicit version-picker choice), the two places a specific
   release MBID is already known and should never lose to a truncated
   list.
+- **The same MusicBrainz recording appearing on two different releases
+  (a single also included on its own parent album) could only ever get
+  one track row — so a file correctly matched to the single could never
+  be organized under it, always resolving to the album's own pre-existing
+  track for that recording instead.** Found live investigating the fix
+  above: `tracks.mbid` was globally `UNIQUE`, so `GetOrCreateTrack`'s
+  lookup (by mbid alone, no album scoping) always returned whichever
+  album's track claimed that recording first — even after correctly
+  resolving the right album/release, the file's own copy of "Change"
+  still landed on the "Blind Melon" album's track 6, not a track of its
+  own under the "Change" single. Uniqueness moves to `(album_id, mbid)`
+  (migration 030) — the same album-scoped pattern already used for
+  `albums.release_group_mbid` — so the identical recording gets one
+  track row per album it actually belongs to, while two files matched to
+  the same recording *within* the same album still correctly collide (a
+  genuine duplicate rip of that album's own track, not two different
+  releases).
 - **Changing the file naming template didn't take effect until the next
   restart — Organize kept planning paths against the old template, so a
   file that genuinely needed to move under the new one still reported

@@ -30,12 +30,23 @@ type Track struct {
 
 const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit FROM tracks`
 
-// GetOrCreateTrack returns the existing track for mbid, inserting one if
-// none exists yet. artistCredit is only ever stored at insert time (like
-// every other field here) — an existing track keeps whatever credit it
-// was first created with.
+// GetOrCreateTrack returns albumID's existing track for mbid, inserting
+// one if none exists yet under this album specifically. artistCredit is
+// only ever stored at insert time (like every other field here) — an
+// existing track keeps whatever credit it was first created with.
+//
+// Scoped to (albumID, mbid), not mbid alone — found live: the same
+// MusicBrainz recording legitimately appearing on two different releases
+// (a single also included on its parent album) used to collapse onto one
+// globally-shared track row, so a file correctly matched and organized
+// under one release could never get its own row under the other; Organize
+// then refused to place a second file at that row's already-occupied
+// destination, with nothing in the error connecting it back to this
+// cause. One recording can now have one track row per album it actually
+// belongs to — mirrors idx_albums_artist_release_group's own per-artist
+// scoping for the identical reason (see migration 030).
 func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber, discNumber int, durationMs int64, artistCredit string) (*Track, error) {
-	existing, err := s.getTrackByMBID(mbid)
+	existing, err := s.getTrackByAlbumAndMBID(albumID, mbid)
 	if err == nil {
 		return existing, nil
 	}
@@ -62,15 +73,15 @@ func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber,
 	}, nil
 }
 
-func (s *Store) getTrackByMBID(mbid string) (*Track, error) {
+func (s *Store) getTrackByAlbumAndMBID(albumID int64, mbid string) (*Track, error) {
 	var t Track
-	err := s.db.QueryRow(trackSelect+` WHERE mbid = ?`, mbid).
+	err := s.db.QueryRow(trackSelect+` WHERE album_id = ? AND mbid = ?`, albumID, mbid).
 		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get track by mbid: %w", err)
+		return nil, fmt.Errorf("get track by album and mbid: %w", err)
 	}
 	return &t, nil
 }
