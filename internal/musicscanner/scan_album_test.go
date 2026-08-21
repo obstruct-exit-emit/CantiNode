@@ -24,7 +24,7 @@ func seedAlbumWithFile(t *testing.T, s *Scanner, rf musiclibrary.RootFolder, art
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-"+albumTitle, "Track One", 1, 1, 200000, "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-"+albumTitle, "Track One", 1, 1, 200000, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestScanAlbumFolderKeepsFileOnNonNotExistStatError(t *testing.T) {
 	}
 	phantomPath := filepath.Join(blockerPath, "02 - Track Two.flac")
 
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-phantom", "Track Two", 2, 1, 200000, "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-phantom", "Track Two", 2, 1, 200000, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

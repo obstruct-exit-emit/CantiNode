@@ -133,7 +133,7 @@ func TestOrganizeFileMovesAndRecordsPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestOrganizeFileSweepsUpEmptyOldFolderTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestOrganizeFileRefusesToOverwrite(t *testing.T) {
 
 	artist, _ := s.db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "")
+	track, _ := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "")
 
 	destDir := filepath.Join(rf.Path, "Artist", "Album (2020)")
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
@@ -277,8 +277,8 @@ func TestPlanOrganizeArtistSkipsUnmatchedAndAlreadyOrganized(t *testing.T) {
 
 	artist, _ := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
 	album, _ := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
-	track1, _ := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000, "")
-	track2, _ := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 4, 1, 200000, "")
+	track1, _ := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
+	track2, _ := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 4, 1, 200000, "", "")
 
 	// Needs moving.
 	unsorted := filepath.Join(rf.Path, "unsorted.flac")
@@ -346,8 +346,8 @@ func TestOrganizeArtistMovesFilesAndSurvivesPartialFailure(t *testing.T) {
 
 	artist, _ := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
 	album, _ := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
-	trackOK, _ := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000, "")
-	trackBlocked, _ := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 4, 1, 200000, "")
+	trackOK, _ := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
+	trackBlocked, _ := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 4, 1, 200000, "", "")
 
 	okSrc := filepath.Join(rf.Path, "ok.flac")
 	os.WriteFile(okSrc, []byte("x"), 0o644)

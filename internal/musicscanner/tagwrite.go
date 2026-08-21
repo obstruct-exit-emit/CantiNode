@@ -2,17 +2,18 @@ package musicscanner
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 // WriteTags embeds trackFileID's matched metadata (artist/album/track
-// names, track/disc numbers, and every MusicBrainz ID CantiNode already
-// resolved for it) back into the file's own tags — see internal/
-// tagwriter's package doc comment for exactly which formats this
-// supports. Requires the file to already be matched; there's nothing to
-// write otherwise.
+// names, track/disc numbers, genre, release type, sort names, track/disc
+// totals, and every MusicBrainz ID CantiNode already resolved for it)
+// back into the file's own tags — see internal/tagwriter's package doc
+// comment for exactly which formats this supports. Requires the file to
+// already be matched; there's nothing to write otherwise.
 func (s *Scanner) WriteTags(trackFileID int64) error {
 	tf, err := s.db.GetTrackFile(trackFileID)
 	if err != nil {
@@ -34,20 +35,57 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 	if err != nil {
 		return fmt.Errorf("get artist: %w", err)
 	}
-
-	year := album.ReleaseDate
-	if len(year) >= 4 {
-		year = year[:4]
+	siblings, err := s.db.ListTracksByAlbum(album.ID)
+	if err != nil {
+		return fmt.Errorf("list tracks by album: %w", err)
 	}
 
-	// track.ArtistCredit is only ever non-empty when it differs from the
-	// album's own artist (see applyMatch) — the real per-recording
-	// performer on a Various Artists compilation. Writing artist.Name
-	// there would stamp every track's ARTIST tag with "Various Artists",
-	// discarding exactly the distinction this field exists to preserve.
+	// track.ArtistCredit/ArtistCreditMBID are only ever non-empty when
+	// they differ from the album's own artist (see applyMatch) — the real
+	// per-recording performer, and that performer's own MusicBrainz ID, on
+	// a Various Artists compilation. Writing artist.Name/artist.MBID there
+	// would stamp every track with "Various Artists" and its ID, discarding
+	// exactly the distinction these fields exist to preserve — found live:
+	// the ID half of this used to always be artist.MBID regardless, so a
+	// compilation track's ARTIST tag correctly named its real performer
+	// while the ID tag right next to it silently disagreed.
 	trackArtist := artist.Name
 	if track.ArtistCredit != "" {
 		trackArtist = track.ArtistCredit
+	}
+	trackArtistMBID := artist.MBID
+	if track.ArtistCreditMBID != "" {
+		trackArtistMBID = track.ArtistCreditMBID
+	}
+
+	// Only ever set when trackArtist is genuinely the album's own artist:
+	// CantiNode has no stored sort name for a Various Artists track's own
+	// distinct real performer (only ArtistCredit's display text and its
+	// MBID), so writing the album artist's sort name there would
+	// misattribute it the same way the old ID mismatch did.
+	var artistSortName string
+	if trackArtist == artist.Name {
+		artistSortName = artist.SortName
+	}
+
+	// discTotal/trackTotal describe the whole release from its own
+	// tracklist (siblings), not just this one track's own knowledge of
+	// itself — trackTotal is scoped to this track's own disc, matching how
+	// {DiscNumber}/{TrackNumber} already read per-disc in the naming
+	// templates.
+	var discTotal, trackTotal int
+	for _, sib := range siblings {
+		if sib.DiscNumber > discTotal {
+			discTotal = sib.DiscNumber
+		}
+		if sib.DiscNumber == track.DiscNumber {
+			trackTotal++
+		}
+	}
+
+	var genre string
+	if len(artist.Genres) > 0 {
+		genre = strings.Join(artist.Genres, "; ")
 	}
 
 	tags := tagwriter.Tags{
@@ -57,8 +95,15 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 		Album:                     album.Title,
 		TrackNumber:               track.TrackNumber,
 		DiscNumber:                track.DiscNumber,
-		Year:                      year,
-		MusicBrainzArtistID:       artist.MBID,
+		TrackTotal:                trackTotal,
+		DiscTotal:                 discTotal,
+		Date:                      album.ReleaseDate,
+		Genre:                     genre,
+		ReleaseType:               album.PrimaryType,
+		ArtistSortName:            artistSortName,
+		AlbumArtistSortName:       artist.SortName,
+		MusicBrainzArtistID:       trackArtistMBID,
+		AlbumArtistID:             artist.MBID,
 		MusicBrainzAlbumID:        album.MBID,
 		MusicBrainzReleaseGroupID: album.ReleaseGroupMBID,
 		MusicBrainzRecordingID:    track.MBID,

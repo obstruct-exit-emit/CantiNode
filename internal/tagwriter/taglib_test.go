@@ -3,6 +3,7 @@ package tagwriter
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/cantinode/cantinode/internal/tagreader"
@@ -28,11 +29,53 @@ func copyFixture(t *testing.T, name string) string {
 func fullTags() Tags {
 	return Tags{
 		Title: "Alpha and Omega", Artist: "Boards of Canada", Album: "Geogaddi",
-		AlbumArtist: "Boards of Canada", TrackNumber: 3, DiscNumber: 1, Year: "2002",
+		AlbumArtist: "Boards of Canada", TrackNumber: 3, DiscNumber: 1,
+		TrackTotal: 12, DiscTotal: 1, Date: "2002-02-04",
+		Genre: "Electronic; IDM", ReleaseType: "Album",
+		ArtistSortName: "Boards of Canada", AlbumArtistSortName: "Boards of Canada",
 		MusicBrainzArtistID:       "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d",
+		AlbumArtistID:             "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d",
 		MusicBrainzAlbumID:        "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
 		MusicBrainzReleaseGroupID: "11111111-2222-3333-4444-555555555555",
 		MusicBrainzRecordingID:    "66666666-7777-8888-9999-000000000000",
+	}
+}
+
+// assertTagLibFields checks the new fields fullTags() sets that
+// internal/tagreader has no getter for (Genre/ReleaseType/sort names/
+// track-disc totals/AlbumArtistID) — read back via taglib's own reader
+// instead of dhowden/tag. Still a real round-trip check, not the writer
+// checking its own output: ReadTags and WriteTags are independent
+// operations even within the same package, and TagLib itself is the
+// mature, independent library the MP3 migration was about trusting in the
+// first place.
+func assertTagLibFields(t *testing.T, path string, tags Tags) {
+	t.Helper()
+	got, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("taglib ReadTags: %v", err)
+	}
+	check := func(key, want string) {
+		t.Helper()
+		if want == "" {
+			return
+		}
+		vals := got[key]
+		if len(vals) == 0 || vals[0] != want {
+			t.Errorf("%s = %v, want %q", key, vals, want)
+		}
+	}
+	check(taglibpkg.Genre, tags.Genre)
+	check(taglibpkg.ReleaseType, tags.ReleaseType)
+	check(taglibpkg.ArtistSort, tags.ArtistSortName)
+	check(taglibpkg.AlbumArtistSort, tags.AlbumArtistSortName)
+	check(taglibpkg.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
+	check(taglibpkg.Date, tags.Date)
+	if tags.TrackTotal > 0 {
+		check("TRACKTOTAL", strconv.Itoa(tags.TrackTotal))
+	}
+	if tags.DiscTotal > 0 {
+		check("DISCTOTAL", strconv.Itoa(tags.DiscTotal))
 	}
 }
 
@@ -87,6 +130,7 @@ func TestWriteTagLibM4A(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
+	assertTagLibFields(t, path, tags)
 }
 
 // TestWriteTagLibMP3 covers the format that used to be hand-rolled
@@ -99,6 +143,7 @@ func TestWriteTagLibMP3(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
+	assertTagLibFields(t, path, tags)
 }
 
 // TestWriteTagLibMP3NonASCIIText is the regression test for the bug that
@@ -165,6 +210,7 @@ func TestWriteTagLibFLAC(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
+	assertTagLibFields(t, path, tags)
 }
 
 // TestWriteTagLibFLACPreservesUntrackedFields is

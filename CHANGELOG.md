@@ -11,6 +11,27 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **"Write tags" now embeds genre, release type, artist/album-artist sort
+  names, track/disc totals, and the full release date — not just the
+  4-digit year — plus fixes a real ID mismatch on Various Artists tracks.**
+  All sourced from data already cached for every write, no new fetches.
+  Genre/release type/sort names use "leave untouched if we have nothing to
+  say" semantics rather than clearing an existing tag — found live while
+  adding this: Genre in particular comes from a per-artist cache that may
+  genuinely never have been fetched yet, unlike Title/Artist/the
+  MusicBrainz IDs, which are always authoritatively resolved (or genuinely
+  absent) the moment a file is matched; clearing a file's real, possibly
+  hand-curated GENRE just because CantiNode hadn't cached one yet would
+  have silently destroyed it. Separately: on a Various Artists compilation,
+  the ARTIST tag already correctly named the track's own real performer,
+  but the embedded MusicBrainz Artist Id right next to it was always the
+  release's filing artist ("Various Artists") regardless — the name and ID
+  tag disagreeing about whose identity the frame even carried. A new
+  `tracks.artist_credit_mbid` column (migration 031, mirroring how
+  `artist_credit` already stores the display-text half of this same
+  distinction) now lets MusicBrainz Artist Id correctly hold the track's
+  own real performer's own ID, with a new, separate MusicBrainz Album
+  Artist Id tag always carrying the release's filing artist.
 - **A "Tags" button on each track file (album page) pops up its own
   embedded tags** — Title, Artist, Album Artist, Album, Track/Disc
   number, Year, Format, and all four MusicBrainz IDs. New

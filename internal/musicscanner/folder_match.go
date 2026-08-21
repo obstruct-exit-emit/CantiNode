@@ -515,9 +515,10 @@ func (s *Scanner) matchEntriesToRelease(entries []folderEntry, release *musicbra
 		// ft.Recording.ArtistCredit — the track's own real per-recording
 		// credit, before recordingForReleaseTrack substitutes the
 		// release's own credit into rec for artist/album assignment — is
-		// what actually gets displayed; see applyMatch's trackArtistCredit
-		// param for why the two must stay distinct.
-		err := s.applyMatch(e.tf, rec, confidence, release.ID, ft.Position, ft.disc, musiclibrary.StatusMatched, joinArtistCredit(ft.Recording.ArtistCredit))
+		// what actually gets displayed; see applyMatch's trackArtistCredit/
+		// trackArtistMBID params for why the two must stay distinct.
+		err := s.applyMatch(e.tf, rec, confidence, release.ID, ft.Position, ft.disc, musiclibrary.StatusMatched,
+			joinArtistCredit(ft.Recording.ArtistCredit), ft.Recording.PrimaryArtist().ID)
 		s.recordFileResult(result, e.tf, err == nil, err)
 	}
 }

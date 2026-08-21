@@ -26,14 +26,23 @@ type Track struct {
 	// Empty whenever it matches the album's own artist and so adds
 	// nothing worth displaying — see AlbumDetailView's own rendering.
 	ArtistCredit string `json:"artistCredit,omitempty"`
+	// ArtistCreditMBID is ArtistCredit's own MusicBrainz artist ID — the
+	// same distinction, for the ID rather than the display name: on a
+	// Various Artists album, this is the track's own real performer's ID,
+	// not the album's shared filing artist. Empty under the same rule as
+	// ArtistCredit (matches the album's own artist, nothing extra to
+	// carry). Written into a file's own "MusicBrainz Artist Id" tag
+	// instead of the album artist's — see internal/tagwriter.
+	ArtistCreditMBID string `json:"artistCreditMbid,omitempty"`
 }
 
-const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit FROM tracks`
+const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit, artist_credit_mbid FROM tracks`
 
 // GetOrCreateTrack returns albumID's existing track for mbid, inserting
-// one if none exists yet under this album specifically. artistCredit is
-// only ever stored at insert time (like every other field here) — an
-// existing track keeps whatever credit it was first created with.
+// one if none exists yet under this album specifically. artistCredit/
+// artistCreditMBID are only ever stored at insert time (like every other
+// field here) — an existing track keeps whatever credit it was first
+// created with.
 //
 // Scoped to (albumID, mbid), not mbid alone — found live: the same
 // MusicBrainz recording legitimately appearing on two different releases
@@ -45,7 +54,7 @@ const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number
 // cause. One recording can now have one track row per album it actually
 // belongs to — mirrors idx_albums_artist_release_group's own per-artist
 // scoping for the identical reason (see migration 030).
-func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber, discNumber int, durationMs int64, artistCredit string) (*Track, error) {
+func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber, discNumber int, durationMs int64, artistCredit, artistCreditMBID string) (*Track, error) {
 	existing, err := s.getTrackByAlbumAndMBID(albumID, mbid)
 	if err == nil {
 		return existing, nil
@@ -56,9 +65,9 @@ func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber,
 
 	now := time.Now().UTC()
 	res, err := s.db.Exec(
-		`INSERT INTO tracks (album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		albumID, mbid, title, trackNumber, discNumber, durationMs, now, now, artistCredit)
+		`INSERT INTO tracks (album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit, artist_credit_mbid)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		albumID, mbid, title, trackNumber, discNumber, durationMs, now, now, artistCredit, artistCreditMBID)
 	if err != nil {
 		return nil, fmt.Errorf("insert track: %w", err)
 	}
@@ -69,14 +78,14 @@ func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber,
 	return &Track{
 		ID: id, AlbumID: albumID, MBID: mbid, Title: title,
 		TrackNumber: trackNumber, DiscNumber: discNumber, DurationMs: durationMs,
-		CreatedAt: now, UpdatedAt: now, ArtistCredit: artistCredit,
+		CreatedAt: now, UpdatedAt: now, ArtistCredit: artistCredit, ArtistCreditMBID: artistCreditMBID,
 	}, nil
 }
 
 func (s *Store) getTrackByAlbumAndMBID(albumID int64, mbid string) (*Track, error) {
 	var t Track
 	err := s.db.QueryRow(trackSelect+` WHERE album_id = ? AND mbid = ?`, albumID, mbid).
-		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit)
+		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -90,7 +99,7 @@ func (s *Store) getTrackByAlbumAndMBID(albumID int64, mbid string) (*Track, erro
 func (s *Store) GetTrack(id int64) (*Track, error) {
 	var t Track
 	err := s.db.QueryRow(trackSelect+` WHERE id = ?`, id).
-		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit)
+		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -113,7 +122,7 @@ func (s *Store) ListTracksByAlbum(albumID int64) ([]Track, error) {
 	out := []Track{}
 	for rows.Next() {
 		var t Track
-		if err := rows.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit); err != nil {
+		if err := rows.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID); err != nil {
 			return nil, fmt.Errorf("scan track: %w", err)
 		}
 		out = append(out, t)

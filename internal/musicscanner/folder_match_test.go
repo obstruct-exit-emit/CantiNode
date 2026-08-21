@@ -958,7 +958,7 @@ func TestScanRootFolderSingleRemainingFileSkipsReleaseSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "rec-existing", "Already Matched", 1, 1, 200000, "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "rec-existing", "Already Matched", 1, 1, 200000, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

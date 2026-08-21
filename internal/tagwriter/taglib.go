@@ -28,8 +28,27 @@ func writeTagLib(path string, tags Tags) error {
 	setField(set, taglib.Album, tags.Album)
 	setIntField(set, taglib.TrackNumber, tags.TrackNumber)
 	setIntField(set, taglib.DiscNumber, tags.DiscNumber)
-	setField(set, taglib.Date, tags.Year)
+	setIntField(set, "TRACKTOTAL", tags.TrackTotal)
+	setIntField(set, "DISCTOTAL", tags.DiscTotal)
+	setField(set, taglib.Date, tags.Date)
+	// Genre/ReleaseType/sort names use setFieldIfPresent, not setField —
+	// found live: these are best-effort supplementary data (Genre in
+	// particular comes from Artist.Genres, a cache that may genuinely
+	// never have been fetched yet for a given artist), unlike Title/
+	// Artist/Album/the MusicBrainz IDs, which are always authoritatively
+	// resolved (or genuinely absent) the moment a file is matched. Blank
+	// here means "CantiNode has no opinion," not "the correct value is
+	// blank" — clearing a file's existing GENRE just because CantiNode
+	// hasn't cached one yet would silently destroy real, possibly
+	// hand-curated data for no reason. Confirmed live: this exact
+	// difference broke every "preserves untracked fields" test the moment
+	// these fields were added with plain setField.
+	setFieldIfPresent(set, taglib.Genre, tags.Genre)
+	setFieldIfPresent(set, taglib.ReleaseType, tags.ReleaseType)
+	setFieldIfPresent(set, taglib.ArtistSort, tags.ArtistSortName)
+	setFieldIfPresent(set, taglib.AlbumArtistSort, tags.AlbumArtistSortName)
 	setField(set, taglib.MusicBrainzArtistID, tags.MusicBrainzArtistID)
+	setField(set, taglib.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
 	setField(set, taglib.MusicBrainzAlbumID, tags.MusicBrainzAlbumID)
 	setField(set, taglib.MusicBrainzReleaseGroupID, tags.MusicBrainzReleaseGroupID)
 	// "MusicBrainz Track Id" is the ecosystem-standard (if confusingly
@@ -65,5 +84,14 @@ func setIntField(set map[string][]string, key string, value int) {
 		setField(set, key, strconv.Itoa(value))
 	} else {
 		setField(set, key, "")
+	}
+}
+
+// setFieldIfPresent omits key entirely when value is empty, rather than
+// setField's own always-set-even-to-clear behavior — see writeTagLib's
+// call site for which fields need this and why.
+func setFieldIfPresent(set map[string][]string, key, value string) {
+	if value != "" {
+		set[key] = []string{value}
 	}
 }

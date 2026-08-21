@@ -58,12 +58,50 @@ type Tags struct {
 	Album       string
 	TrackNumber int
 	DiscNumber  int
-	Year        string
+	// Date is the release's full date (e.g. "2019-02-15"), not just a
+	// 4-digit year — named Year in an earlier version of this struct, back
+	// when the caller truncated it before ever reaching here.
+	Date string
+	// TrackTotal/DiscTotal are the release's own total counts (0 = unknown,
+	// omitted rather than writing a literal "0") — distinct fields (not
+	// baked into TrackNumber/DiscNumber as "N/M") since every other caller
+	// of this struct's numeric fields expects a plain int, and TagLib's own
+	// property mapping already reassembles TRACKTOTAL/DISCTOTAL into each
+	// format's native combined representation where one exists (confirmed
+	// live for ID3v2/MP3).
+	TrackTotal int
+	DiscTotal  int
+	// Genre is a single string, not a list — a real recording can have
+	// several, but writing them as taglib's own multi-value field came back
+	// concatenated with no separator at all when read back from an MP3
+	// (confirmed live), not the null-separated multi-value ID3v2 normally
+	// uses. A caller with more than one genre joins them into one
+	// unambiguous string (e.g. "Power Metal; Symphonic Metal") instead.
+	Genre string
+	// ReleaseType is the release group's MusicBrainz primary type (Album,
+	// EP, Single, Compilation, ...).
+	ReleaseType string
+	// ArtistSortName/AlbumArtistSortName are the sort-name form of Artist/
+	// AlbumArtist (e.g. "Beatles, The") — separate fields since the two
+	// differ on a Various Artists compilation the same way Artist/
+	// AlbumArtist themselves do.
+	ArtistSortName      string
+	AlbumArtistSortName string
 
 	// MusicBrainz IDs, written back so a future rescan recognizes this
 	// file by direct MBID match (see internal/scanner's matcher)
 	// immediately, without needing another fuzzy search.
+	//
+	// MusicBrainzArtistID is the recording's own real (primary) performer
+	// — AlbumArtistID is the release's filing artist. The two differ on a
+	// Various Artists compilation the same way Artist/AlbumArtist do; found
+	// live that this file used to only ever write the filing artist's ID
+	// under MusicBrainzArtistID, so a VA track's ARTIST tag correctly named
+	// its real performer while the ID tag right next to it silently pointed
+	// at Various Artists instead — the two disagreeing about whose
+	// identity the frame even carries.
 	MusicBrainzArtistID       string
+	AlbumArtistID             string
 	MusicBrainzAlbumID        string // the release MBID
 	MusicBrainzReleaseGroupID string
 	MusicBrainzRecordingID    string
