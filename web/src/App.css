@@ -331,6 +331,46 @@ button.link {
   flex-shrink: 0;
 }
 
+/* Fixed-width columns for a track row's format/size/Tags/owned cluster
+   (AlbumDetailView's own track list) — a plain flex row hugs its own
+   content width, so the whole cluster shifts left/right row to row
+   purely because file sizes have different digit counts, leaving nothing
+   actually lined up between rows. Explicit grid-column per element (not
+   just document order) means a row that skips format/size/Tags entirely
+   (no file, or more than one) still puts "owned" in the same column
+   every other row's "owned" lands in. */
+.track-row-actions {
+  display: grid;
+  grid-template-columns: 3.4rem 4.6rem 3.4rem 4.4rem;
+  gap: 0.4rem;
+  align-items: center;
+  justify-items: center;
+  flex-shrink: 0;
+}
+
+/* .pill's own margin-left (spacing it from preceding inline text in its
+   other, non-grid uses) would just add uneven padding on top of the
+   grid's own gap here. */
+.track-row-actions .pill {
+  margin-left: 0;
+}
+
+.track-row-actions .col-format {
+  grid-column: 1;
+}
+
+.track-row-actions .col-size {
+  grid-column: 2;
+}
+
+.track-row-actions .col-tags {
+  grid-column: 3;
+}
+
+.track-row-actions .col-owned {
+  grid-column: 4;
+}
+
 .row-actions button {
   font-size: 0.78rem;
   padding: 0.25rem 0.6rem;
@@ -1711,6 +1751,22 @@ button.link.back:hover {
   grid-template-columns: max-content 1fr;
   gap: 0.5rem 1.25rem;
   margin: 0 0 1rem;
+}
+
+.credits-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.credits-list li {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.88rem;
 }
 
 .tag-field {
