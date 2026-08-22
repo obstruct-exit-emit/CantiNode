@@ -400,16 +400,13 @@ export default function AlbumDetailView({
                         <span className="muted"> — {t.artistCredit}</span>
                       )}
                       {single && (
-                        <span className="muted">
-                          {" "}
-                          — {single.format} · {formatBytes(single.sizeBytes)}
-                        </span>
+                        <>
+                          <span className="pill">{single.format}</span>
+                          <span className="pill">{formatBytes(single.sizeBytes)}</span>
+                        </>
                       )}
                     </span>
                     <span className="row-actions">
-                      <span className={tfiles.length > 0 ? "owned yes" : "owned no"}>
-                        {tfiles.length > 0 ? "owned" : "no file"}
-                      </span>
                       {single && (
                         <button
                           className="toggle"
@@ -419,13 +416,17 @@ export default function AlbumDetailView({
                           Tags
                         </button>
                       )}
+                      <span className={tfiles.length > 0 ? "owned yes" : "owned no"}>
+                        {tfiles.length > 0 ? "owned" : "no file"}
+                      </span>
                     </span>
                   </div>
                   {tfiles.length > 1 &&
                     tfiles.map((f) => (
                       <div className="row nested" key={f.id}>
-                        <span className="muted" title={f.path}>
-                          {f.format} · {formatBytes(f.sizeBytes)}
+                        <span title={f.path}>
+                          <span className="pill">{f.format}</span>
+                          <span className="pill">{formatBytes(f.sizeBytes)}</span>
                         </span>
                         <button
                           className="toggle"
