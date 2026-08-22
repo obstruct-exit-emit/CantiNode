@@ -39,6 +39,63 @@ func TestGetOrCreateTrackCreatesThenReuses(t *testing.T) {
 	}
 }
 
+// TestGetOrCreateTrackRefreshesArtistCreditOnExistingRow is the regression
+// test for a real live gap: a track matched before artist_credit_mbid
+// existed (or before applyMatch correctly resolved it) stayed wrong
+// forever, because GetOrCreateTrack's existing-row path never updated
+// artist_credit/artist_credit_mbid once a track row was first created —
+// found live re-matching a real Various Artists track: the corrected ID
+// never took effect on the already-existing row. Only artist_credit/
+// artist_credit_mbid refresh this way; every other field (checked below)
+// stays exactly as first inserted, since those describe the recording
+// itself and have no reason to legitimately change between calls.
+func TestGetOrCreateTrackRefreshesArtistCreditOnExistingRow(t *testing.T) {
+	db := newTestStore(t)
+
+	artist, err := db.GetOrCreateArtist("va-mbid", "Various Artists", "Various Artists")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	album, err := db.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Compilation", "1998", "Compilation")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+
+	// First match: as if artist_credit_mbid didn't resolve correctly yet
+	// (the pre-fix behavior) — stored empty.
+	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack (first match): %v", err)
+	}
+	if t1.ArtistCreditMBID != "" {
+		t.Fatalf("ArtistCreditMBID = %q, want empty on first insert", t1.ArtistCreditMBID)
+	}
+
+	// Re-match with the now-correctly-resolved MBID — same album/mbid, so
+	// this hits the existing row, not a fresh insert.
+	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "phil-collins-mbid")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack (re-match): %v", err)
+	}
+	if t2.ID != t1.ID {
+		t.Fatalf("re-match created a new row: ID = %d, want %d", t2.ID, t1.ID)
+	}
+	if t2.ArtistCreditMBID != "phil-collins-mbid" {
+		t.Errorf("ArtistCreditMBID after re-match = %q, want phil-collins-mbid", t2.ArtistCreditMBID)
+	}
+
+	stored, err := db.GetTrack(t1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ArtistCreditMBID != "phil-collins-mbid" {
+		t.Errorf("stored ArtistCreditMBID = %q, want phil-collins-mbid (the refresh must actually persist, not just the returned value)", stored.ArtistCreditMBID)
+	}
+	if stored.Title != "In the Air Tonight" || stored.TrackNumber != 1 || stored.DiscNumber != 1 || stored.DurationMs != 200000 {
+		t.Errorf("non-credit fields changed on refresh: %+v", stored)
+	}
+}
+
 // TestGetOrCreateTrackScopedPerAlbum is the regression test for a real
 // live bug: the same MusicBrainz recording legitimately appearing on two
 // different releases (a single also included on its parent album) used

@@ -39,10 +39,21 @@ type Track struct {
 const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit, artist_credit_mbid FROM tracks`
 
 // GetOrCreateTrack returns albumID's existing track for mbid, inserting
-// one if none exists yet under this album specifically. artistCredit/
-// artistCreditMBID are only ever stored at insert time (like every other
-// field here) — an existing track keeps whatever credit it was first
-// created with.
+// one if none exists yet under this album specifically. Every field
+// except artistCredit/artistCreditMBID is only ever stored at insert time
+// — an existing track keeps its own title/track number/disc number/
+// duration regardless of what a later match call passes in.
+//
+// artistCredit/artistCreditMBID are the exception: an existing row gets
+// them refreshed to whatever this call resolved, whenever they differ.
+// Found live: these two started out "insert-time only" like everything
+// else, so a track matched before artist_credit_mbid existed (or before
+// applyMatch correctly resolved it — see migration 031) stayed wrong
+// forever, since nothing short of deleting and recreating the row would
+// ever update it. Re-matching (an explicit clear+rematch, or any future
+// resolution logic getting smarter) now actually corrects a track's own
+// stored display credit/ID instead of leaving a stale first-match value
+// stuck in place indefinitely.
 //
 // Scoped to (albumID, mbid), not mbid alone — found live: the same
 // MusicBrainz recording legitimately appearing on two different releases
@@ -57,6 +68,17 @@ const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number
 func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber, discNumber int, durationMs int64, artistCredit, artistCreditMBID string) (*Track, error) {
 	existing, err := s.getTrackByAlbumAndMBID(albumID, mbid)
 	if err == nil {
+		if existing.ArtistCredit != artistCredit || existing.ArtistCreditMBID != artistCreditMBID {
+			now := time.Now().UTC()
+			if _, err := s.db.Exec(
+				`UPDATE tracks SET artist_credit = ?, artist_credit_mbid = ?, updated_at = ? WHERE id = ?`,
+				artistCredit, artistCreditMBID, now, existing.ID); err != nil {
+				return nil, fmt.Errorf("refresh track artist credit: %w", err)
+			}
+			existing.ArtistCredit = artistCredit
+			existing.ArtistCreditMBID = artistCreditMBID
+			existing.UpdatedAt = now
+		}
 		return existing, nil
 	}
 	if !errors.Is(err, ErrNotFound) {

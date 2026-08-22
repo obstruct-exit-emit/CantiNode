@@ -32,6 +32,19 @@ in progress. Highlights from the hardening period, newest first:
   distinction) now lets MusicBrainz Artist Id correctly hold the track's
   own real performer's own ID, with a new, separate MusicBrainz Album
   Artist Id tag always carrying the release's filing artist.
+
+  Found live testing this against a real Various Artists album:
+  re-matching an already-existing track never actually applied the fix,
+  because `GetOrCreateTrack` only ever stored `artist_credit`/
+  `artist_credit_mbid` at insert time — an existing row kept whatever
+  credit it was first created with, forever, no matter what a later match
+  resolved. Fixed the same way: an existing row now gets these two fields
+  refreshed whenever a match resolves a different value, so a track
+  matched before this fix (or before `artist_credit_mbid` existed at all)
+  self-corrects the next time it's matched, instead of staying wrong
+  indefinitely. Every other field on an existing track row is unaffected —
+  only these two, since they're the only ones with a legitimate reason to
+  improve after first-match time.
 - **A "Tags" button on each track file (album page) pops up its own
   embedded tags** — Title, Artist, Album Artist, Album, Track/Disc
   number, Year, Format, and all four MusicBrainz IDs. New
