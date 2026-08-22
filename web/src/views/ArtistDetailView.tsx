@@ -460,15 +460,30 @@ export default function ArtistDetailView({
             <div className="rename-plan">
               <p>{renamePlan.length} file(s) would move to match the naming template:</p>
               <ul className="rows">
-                {renamePlan.map((m) => (
-                  <li key={m.fileId}>
-                    <div className="move">
-                      <span className="file-path muted">{m.from}</span>
-                      <span className="file-path">→ {m.to}</span>
-                    </div>
-                  </li>
-                ))}
+                <li key={renamePlan[0].fileId}>
+                  <div className="move">
+                    <span className="file-path muted">{renamePlan[0].from}</span>
+                    <span className="file-path">→ {renamePlan[0].to}</span>
+                  </div>
+                </li>
               </ul>
+              {renamePlan.length > 1 && (
+                <details className="disclosure">
+                  <summary>Show {renamePlan.length - 1} more</summary>
+                  <div className="disclosure-body">
+                    <ul className="rows">
+                      {renamePlan.slice(1).map((m) => (
+                        <li key={m.fileId}>
+                          <div className="move">
+                            <span className="file-path muted">{m.from}</span>
+                            <span className="file-path">→ {m.to}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </details>
+              )}
               <div className="settings-actions">
                 <button disabled={busy} onClick={applyOrganize}>Apply</button>
                 <button className="toggle" onClick={() => setRenamePlan(null)}>Cancel</button>
