@@ -319,8 +319,20 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		return false
 	}
 	if len(copiedPaths) == 0 {
+		// copyTree found nothing worth copying — a genuinely empty/wrong
+		// release, not a copy error. Found live: this used to fall through
+		// to the success path below regardless, which resolved the grab as
+		// imported, deleted its wanted_albums row (so the album could never
+		// be automatically retried), and deleted the "completed" download's
+		// data — for content that was never actually added to the library.
+		// A real failure, so it's treated as one: failGrab reverts a wanted
+		// album back to "wanted" the same as any other failed grab, and the
+		// source is left in the download client for the user to inspect
+		// rather than silently discarded.
 		s.logger.Warn("importer: no audio files found in completed download, nothing imported",
 			"grab_id", g.ID, "src", src)
+		s.failGrab(g, "completed download contained no recognized audio files")
+		return false
 	}
 	// Stamps the files just copied with the release group this grab was
 	// actually for, before the scan below discovers/matches them — lets

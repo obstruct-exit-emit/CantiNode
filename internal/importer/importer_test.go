@@ -170,6 +170,89 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	}
 }
 
+// TestPollOnceFailsGrabWithNoAudioFiles is the regression test for a real
+// live bug found during a burn-in test: a completed download whose folder
+// contains nothing copyTree recognizes as audio (a bad/mislabeled release,
+// or a client-reported "completed" state that arrived before extraction
+// actually finished) used to fall through to the success path anyway —
+// resolving the grab as imported, deleting its wanted_albums row (so the
+// album could never be automatically retried), and deleting the "completed"
+// download's data — for content that was never actually added to the
+// library. Confirmed live: grabs.status ended up 'imported' and the
+// wanted_albums row was gone, but no album/track/file existed anywhere.
+// copyTree returning an empty, non-error result must now be treated as a
+// real failure: the grab fails, the wanted album reverts to "wanted" (same
+// as any other failed grab), and the source is left alone in the download
+// client rather than being discarded.
+func TestPollOnceFailsGrabWithNoAudioFiles(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Bad Release")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Only a non-audio file — copyTree filters by extension, so this leaves
+	// it with nothing to copy, the exact condition that triggered the bug.
+	if err := os.WriteFile(filepath.Join(albumDir, "readme.txt"), []byte("nothing here"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sab, deleteCalls := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, destRoot, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Bad Release", "Album", "2020")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatalf("set wanted album downloading: %v", err)
+	}
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Bad Release",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Checked != 1 || result.Imported != 0 || result.Failed != 1 {
+		t.Fatalf("PollOnce result = %+v, want 1 checked, 0 imported, 1 failed", result)
+	}
+
+	if _, err := os.Stat(filepath.Join(destRoot, "Bad Release")); !os.IsNotExist(err) {
+		t.Errorf("nothing should have landed in the library — stat err = %v", err)
+	}
+
+	grabs, err := dlStore.ListGrabs(download.GrabStatusFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grabs) != 1 {
+		t.Fatalf("failed grabs = %+v, want exactly 1", grabs)
+	}
+
+	// The wanted album must revert to "wanted" (retryable), not be deleted
+	// as if it had actually been satisfied.
+	got, err := musicStore.GetWantedAlbum(wanted.ID)
+	if err != nil {
+		t.Fatalf("GetWantedAlbum after failed import: %v", err)
+	}
+	if got.Status != musiclibrary.WantedStatusWanted {
+		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusWanted)
+	}
+
+	if *deleteCalls != 0 {
+		t.Error("importer must not remove the download from its client for a failed import")
+	}
+	if _, err := os.Stat(albumDir); err != nil {
+		t.Errorf("source directory should be left alone for inspection, stat err = %v", err)
+	}
+}
+
 // TestImportGrabSkipsWhenCanceledBeforeCopy is the regression test for a
 // real race: removing an artist/album with a grab still in flight
 // (internal/api's cancelInFlightGrabs) resolves that grab as failed, but
@@ -647,7 +730,7 @@ func TestPollOnceMatchesItemIDCaseInsensitively(t *testing.T) {
 	if err := os.MkdirAll(albumDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(albumDir, "readme.txt"), []byte("hello"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(albumDir, "readme.flac"), []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
