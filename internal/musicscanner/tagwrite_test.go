@@ -13,6 +13,7 @@ import (
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagreader"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 	taglibpkg "go.senan.xyz/taglib"
 )
 
@@ -48,7 +49,7 @@ func setupOrganizeScannerWithCoverart(t *testing.T, caaHandler http.HandlerFunc)
 	}
 
 	coverartClient := coverart.NewClientWithBaseURL(t.TempDir(), "cantinode-test/0.1", caa.URL, nil)
-	s := New(db, nil, coverartClient, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	s := New(db, nil, coverartClient, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
 	return s, *rf
 }
 
@@ -617,6 +618,65 @@ func TestWriteTagsEmbedsMood(t *testing.T) {
 	}
 	if vals := got[taglibpkg.Mood]; len(vals) == 0 || vals[0] != "Trippy" {
 		t.Errorf("Mood = %v, want [Trippy]", vals)
+	}
+}
+
+// TestWriteTagsRespectsDisabledFieldToggle is the end-to-end regression
+// test for the Settings → Music → "Tags to write" feature: a field
+// disabled via UpdateSettings (the same call PUT /api/v1/settings/tagwrite
+// makes — see internal/api/settings.go's tagWriteToggles) must not land on
+// a real written file, even though the underlying data (Mood, here) is
+// genuinely available and would otherwise be written — internal/tagwriter's
+// own tests already prove Toggles works in isolation; this proves the
+// live setting actually reaches WriteTags through Scanner.getTagToggles.
+func TestWriteTagsRespectsDisabledFieldToggle(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	disabled := tagwriter.AllEnabled
+	disabled.Mood = false
+	s.UpdateSettings(s.getNamingFormat(), s.getMinMatchConfidence(), s.getOrganizeOnMatch(), disabled)
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetAlbumDescription(album.ID, "A dark, hypnotic record.", "Trippy", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(rf.Path, "song.mp3")
+	if err := os.WriteFile(path, []byte("fake mp3 audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.WriteTags(context.Background(), tf.ID, false); err != nil {
+		t.Fatalf("WriteTags: %v", err)
+	}
+
+	got, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("taglib ReadTags: %v", err)
+	}
+	if vals := got[taglibpkg.Mood]; len(vals) != 0 {
+		t.Errorf("Mood = %v, want empty — Mood is disabled via UpdateSettings", vals)
+	}
+	if vals := got[taglibpkg.Title]; len(vals) == 0 || vals[0] != "Alpha and Omega" {
+		t.Errorf("Title = %v, want [Alpha and Omega] — Title was never disabled", vals)
 	}
 }
 

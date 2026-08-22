@@ -11,6 +11,27 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A new Settings → Music → "Tags to Write" card lets every field "Write
+  tags" can embed be toggled on or off individually, all on by default.**
+  A disabled field is left completely alone by a write — never set, never
+  cleared — the same treatment a field CantiNode simply has no data for
+  already gets, not a destructive "wipe this specific tag" action. Plumbed
+  through as `tagwriter.Toggles`, a bool per `Tags` field gating that
+  field's own `setField`/`setFieldIfPresent` call in `writeTagLib`, so
+  "disabled" and "no data" both land as "omit this key from the write"
+  rather than the two ending up different (a naive "just zero the field
+  before writing" approach would have actively cleared a real existing
+  value for anything using `setField`'s always-set semantics — Title,
+  Artist, the MusicBrainz IDs — instead of leaving it untouched).
+  `config.TagWriteSettings` stores the choice as `Disable*` flags, not
+  `Enable*` ones, specifically so a `config.yaml` written before this
+  section existed (or a fresh install that never touches it) reads back
+  as "nothing disabled" from Go's own zero value, with no self-heal logic
+  needed the way `MusicSettings.MinMatchConfidence` needs — unlike an
+  obviously-invalid zero threshold, a user disabling every single tag
+  field is a real (if unusual) intentional choice this shouldn't silently
+  reverse. New `GET/PUT /api/v1/settings/tagwrite` mirrors the existing
+  music-settings endpoints' shape and live-propagation-to-scanner pattern.
 - **"Write tags" now also embeds composer/writer credit, resolved from
   MusicBrainz's own work-relationship data.** MusicBrainz attaches
   composer/writer credit to a recording's underlying *Work*, not the

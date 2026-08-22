@@ -472,6 +472,38 @@ export interface MusicSettings {
   audioDbApiKey: string;
 }
 
+// TagWriteSettings mirrors config.TagWriteSettings' own negative polarity
+// wire-for-wire (every field is "disableX", not "x") — see that Go type's
+// doc comment for why. TagWriteToggleFields (in TagWriteSettingsCard) is
+// what actually renders these as positive "which tags get written"
+// checkboxes.
+export interface TagWriteSettings {
+  disableTitle: boolean;
+  disableArtist: boolean;
+  disableAlbumArtist: boolean;
+  disableAlbum: boolean;
+  disableTrackNumber: boolean;
+  disableDiscNumber: boolean;
+  disableDate: boolean;
+  disableTrackTotal: boolean;
+  disableDiscTotal: boolean;
+  disableGenre: boolean;
+  disableReleaseType: boolean;
+  disableArtistSortName: boolean;
+  disableAlbumArtistSortName: boolean;
+  disableReleaseCountry: boolean;
+  disableReleaseStatus: boolean;
+  disableMedia: boolean;
+  disableMood: boolean;
+  disableComposer: boolean;
+  disableCoverImage: boolean;
+  disableMusicBrainzArtistId: boolean;
+  disableAlbumArtistId: boolean;
+  disableMusicBrainzAlbumId: boolean;
+  disableMusicBrainzReleaseGroupId: boolean;
+  disableMusicBrainzRecordingId: boolean;
+}
+
 const KEY_STORAGE = "cantinode-api-key";
 
 export function getApiKey(): string {
@@ -867,4 +899,7 @@ export const api = {
   getMusicSettings: () => request<MusicSettings>("/api/v1/settings/music"),
   saveMusicSettings: (s: MusicSettings) =>
     request<MusicSettings>("/api/v1/settings/music", { ...json(s), method: "PUT" }),
+  getTagWriteSettings: () => request<TagWriteSettings>("/api/v1/settings/tagwrite"),
+  saveTagWriteSettings: (s: TagWriteSettings) =>
+    request<TagWriteSettings>("/api/v1/settings/tagwrite", { ...json(s), method: "PUT" }),
 };

@@ -105,6 +105,72 @@ func TestEnvOverrides(t *testing.T) {
 // TestSetTimingsNormalizesWantedSearchFields: a garbage mode or time-of-day
 // degrades to the default rather than persisting nonsense that would
 // silently never fire (or panic parsing it back out later).
+// TestTagWriteSettingsDefaultAllEnabled confirms a fresh install's
+// TagWriteSettings has nothing disabled — every tag field gets written —
+// without needing any self-heal logic the way MusicSettings.MinMatchConfidence
+// does, since TagWriteSettings' own negative "Disable*" polarity already
+// makes the Go zero value the correct default (see that type's own doc
+// comment).
+func TestTagWriteSettingsDefaultAllEnabled(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.TagWriteSettings()
+	if got != (TagWriteSettings{}) {
+		t.Errorf("TagWriteSettings() = %+v, want the zero value (nothing disabled)", got)
+	}
+}
+
+// TestTagWriteSettingsPredatingConfigStillAllEnabled is the regression
+// test for the exact scenario TagWriteSettings' negative polarity exists
+// to handle: a config.yaml written before this section existed at all (no
+// tag_write key whatsoever, not even an empty one) must still read back as
+// "nothing disabled" on load — not silently disable every tag field the
+// way positive "Enabled" flags would have (see TagWriteSettings' own doc
+// comment).
+func TestTagWriteSettingsPredatingConfigStillAllEnabled(t *testing.T) {
+	dir := t.TempDir()
+	raw := "host: 0.0.0.0\nport: 7847\napi_key: test-key\nnaming:\n  music_file: \"{Artist}/{Album}/{Title}.{Ext}\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.TagWriteSettings()
+	if got != (TagWriteSettings{}) {
+		t.Errorf("TagWriteSettings() on a config predating this section = %+v, want the zero value (nothing disabled)", got)
+	}
+}
+
+// TestSetTagWritePersistsAcrossReload confirms an explicit choice to
+// disable specific fields actually round-trips through a save+reload
+// (simulating a server restart), and that fields never touched stay
+// enabled alongside the ones deliberately disabled.
+func TestSetTagWritePersistsAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := TagWriteSettings{DisableGenre: true, DisableComposer: true}
+	if err := cfg.SetTagWrite(want); err != nil {
+		t.Fatalf("SetTagWrite: %v", err)
+	}
+
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got := reloaded.TagWriteSettings()
+	if got != want {
+		t.Errorf("TagWriteSettings() after reload = %+v, want %+v", got, want)
+	}
+}
+
 func TestSetTimingsNormalizesWantedSearchFields(t *testing.T) {
 	cfg, err := Load(t.TempDir())
 	if err != nil {

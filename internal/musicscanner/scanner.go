@@ -23,6 +23,7 @@ import (
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagreader"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 // Scanner ties the database, MusicBrainz client, and tag reader together
@@ -33,15 +34,17 @@ type Scanner struct {
 	coverart *coverart.Client
 	logger   *slog.Logger
 
-	// settingsMu guards namingFormat/minMatchConfidence/organizeOnMatch —
-	// internal/api's settings endpoint calls UpdateSettings from an HTTP
-	// handler goroutine while a scan (reading them from ScanRootFolder's
-	// own goroutine) may be in flight, so a plain unsynchronized field
-	// would be a real data race, not just a style nitpick.
+	// settingsMu guards namingFormat/minMatchConfidence/organizeOnMatch/
+	// tagToggles — internal/api's settings endpoint calls UpdateSettings
+	// from an HTTP handler goroutine while a scan (reading them from
+	// ScanRootFolder's own goroutine) may be in flight, so a plain
+	// unsynchronized field would be a real data race, not just a style
+	// nitpick.
 	settingsMu         sync.RWMutex
 	namingFormat       string
 	minMatchConfidence float64
 	organizeOnMatch    bool
+	tagToggles         tagwriter.Toggles
 }
 
 // New returns a Scanner. namingFormat/minMatchConfidence/organizeOnMatch
@@ -51,8 +54,10 @@ type Scanner struct {
 // UpdateSettings to change them after construction. coverartClient may be
 // nil (tests, or any setup that doesn't want embedded art) — WriteTags
 // simply never embeds a cover in that case, same as it never fetching one
-// at all.
-func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverart.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool) *Scanner {
+// at all. tagToggles gates which tagwriter.Tags fields WriteTags actually
+// writes — pass tagwriter.AllEnabled for a caller (most tests) that
+// doesn't care about per-field settings.
+func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverart.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles) *Scanner {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -64,18 +69,20 @@ func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverar
 		namingFormat:       namingFormat,
 		minMatchConfidence: minMatchConfidence,
 		organizeOnMatch:    organizeOnMatch,
+		tagToggles:         tagToggles,
 	}
 }
 
 // UpdateSettings applies a live settings change (from internal/api's
 // PUT /api/v1/settings) to this Scanner — takes effect on the very next
-// file scanned/organized, no restart needed.
-func (s *Scanner) UpdateSettings(namingFormat string, minMatchConfidence float64, organizeOnMatch bool) {
+// file scanned/organized/tag-written, no restart needed.
+func (s *Scanner) UpdateSettings(namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles) {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	s.namingFormat = namingFormat
 	s.minMatchConfidence = minMatchConfidence
 	s.organizeOnMatch = organizeOnMatch
+	s.tagToggles = tagToggles
 }
 
 func (s *Scanner) getNamingFormat() string {
@@ -94,6 +101,12 @@ func (s *Scanner) getOrganizeOnMatch() bool {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.organizeOnMatch
+}
+
+func (s *Scanner) getTagToggles() tagwriter.Toggles {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.tagToggles
 }
 
 // ScanResult summarizes one scan pass (either a single root folder or

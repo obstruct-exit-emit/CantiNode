@@ -14,6 +14,7 @@ import (
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 // --- JSON-shaped fixtures for release-search/release-lookup responses,
@@ -241,7 +242,7 @@ func newFolderTestScanner(t *testing.T, fs *folderTestServer) (*Scanner, musicli
 		t.Fatal(err)
 	}
 
-	s := New(db, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	s := New(db, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
 	return s, *rf
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 func TestSanitizePathComponent(t *testing.T) {
@@ -118,7 +119,7 @@ func setupOrganizeScanner(t *testing.T) (*Scanner, musiclibrary.RootFolder) {
 		t.Fatal(err)
 	}
 
-	s := New(db, nil, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	s := New(db, nil, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
 	return s, *rf
 }
 

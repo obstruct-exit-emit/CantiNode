@@ -95,7 +95,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// throttle state, either way a release's cover is fetched.
 	coverartClient := coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient)
 	musicScanner := musicscanner.New(musicStore, mb, coverartClient, slog.Default(),
-		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch)
+		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch, tagWriteToggles(cfg.TagWriteSettings()))
 	discographySvc := discography.New(mb, musicStore)
 	metadataBackfillSvc := metadatabackfill.New(musicStore, mb, audiodbClient, discographySvc)
 
@@ -229,6 +229,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("PUT /api/v1/settings/naming", s.requireAdmin(s.handlePutNamingSettings))
 	mux.HandleFunc("GET /api/v1/settings/music", s.requireAdmin(s.handleGetMusicSettings))
 	mux.HandleFunc("PUT /api/v1/settings/music", s.requireAdmin(s.handlePutMusicSettings))
+	mux.HandleFunc("GET /api/v1/settings/tagwrite", s.requireAdmin(s.handleGetTagWriteSettings))
+	mux.HandleFunc("PUT /api/v1/settings/tagwrite", s.requireAdmin(s.handlePutTagWriteSettings))
 	mux.HandleFunc("GET /api/v1/settings/timings", s.requireAdmin(s.handleGetTimingSettings))
 	mux.HandleFunc("PUT /api/v1/settings/timings", s.requireAdmin(s.handlePutTimingSettings))
 	mux.HandleFunc("GET /api/v1/settings/pathmappings", s.requireAdmin(s.handleGetPathMappings))

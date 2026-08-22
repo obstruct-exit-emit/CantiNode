@@ -53,3 +53,44 @@ func TestPutNamingSettingsTakesEffectImmediately(t *testing.T) {
 		t.Errorf("preview path after naming settings change = %q, want %q (new template never reached the live scanner)", preview.Path, wantPath)
 	}
 }
+
+// TestGetTagWriteSettingsDefaultsToAllEnabled confirms a fresh instance's
+// GET /api/v1/settings/tagwrite reports nothing disabled — see
+// config.TagWriteSettings' own doc comment on why its zero value already
+// means "write everything."
+func TestGetTagWriteSettingsDefaultsToAllEnabled(t *testing.T) {
+	a := newTestAPI(t)
+	var got map[string]any
+	a.want(a.call("GET", "/api/v1/settings/tagwrite", nil, &got), http.StatusOK)
+	for field, v := range got {
+		if b, ok := v.(bool); ok && b {
+			t.Errorf("field %q = true on a fresh instance, want every disable* flag false", field)
+		}
+	}
+}
+
+// TestPutTagWriteSettingsPersistsAndPropagates confirms a PUT round-trips
+// through config.yaml (a later GET sees the change) — mirrors
+// TestPutNamingSettingsTakesEffectImmediately's own "did the write-path
+// actually reach the thing that reads it back" shape, one layer up
+// (config persistence itself, not yet the live Scanner — see
+// internal/musicscanner's own WriteTags toggle tests for that half).
+func TestPutTagWriteSettingsPersistsAndPropagates(t *testing.T) {
+	a := newTestAPI(t)
+
+	body := map[string]bool{"disableGenre": true, "disableComposer": true}
+	var put map[string]any
+	a.want(a.call("PUT", "/api/v1/settings/tagwrite", body, &put), http.StatusOK)
+	if put["disableGenre"] != true || put["disableComposer"] != true {
+		t.Fatalf("PUT response = %+v, want disableGenre/disableComposer true", put)
+	}
+
+	var got map[string]any
+	a.want(a.call("GET", "/api/v1/settings/tagwrite", nil, &got), http.StatusOK)
+	if got["disableGenre"] != true || got["disableComposer"] != true {
+		t.Errorf("GET after PUT = %+v, want disableGenre/disableComposer still true", got)
+	}
+	if got["disableTitle"] == true {
+		t.Errorf("GET after PUT = %+v, want disableTitle to remain false (untouched field)", got)
+	}
+}

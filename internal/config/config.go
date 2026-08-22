@@ -310,16 +310,69 @@ func defaultMusic() MusicSettings {
 	}
 }
 
+// TagWriteSettings controls which of tagwriter.Tags' fields "Write tags"
+// actually embeds into a file — Settings → Music → "Tags to write" in the
+// UI. Every field here is a "Disable" flag, not an "Enable" one, on
+// purpose: a bool's zero value is false, and false has to be the safe,
+// default behavior for a config.yaml that predates this section entirely
+// (unmarshaling a missing YAML key just leaves the Go field at its zero
+// value) — with positive "Enabled" flags instead, that same old config
+// would read back as "disable everything," indistinguishable from a user
+// who genuinely unchecked every single tag, and unlike
+// MusicSettings.MinMatchConfidence's own self-heal (an obviously-invalid
+// zero that's safe to override), disabling every tag field is a real,
+// if unusual, intentional choice this package must not silently reverse.
+// Negative polarity here sidesteps the ambiguity outright: nothing
+// disabled (the zero value) already means everything gets written,
+// whether that's because a fresh install never touched this section or
+// because an existing config.yaml simply predates it.
+type TagWriteSettings struct {
+	DisableTitle                     bool `yaml:"disable_title" json:"disableTitle"`
+	DisableArtist                    bool `yaml:"disable_artist" json:"disableArtist"`
+	DisableAlbumArtist               bool `yaml:"disable_album_artist" json:"disableAlbumArtist"`
+	DisableAlbum                     bool `yaml:"disable_album" json:"disableAlbum"`
+	DisableTrackNumber               bool `yaml:"disable_track_number" json:"disableTrackNumber"`
+	DisableDiscNumber                bool `yaml:"disable_disc_number" json:"disableDiscNumber"`
+	DisableDate                      bool `yaml:"disable_date" json:"disableDate"`
+	DisableTrackTotal                bool `yaml:"disable_track_total" json:"disableTrackTotal"`
+	DisableDiscTotal                 bool `yaml:"disable_disc_total" json:"disableDiscTotal"`
+	DisableGenre                     bool `yaml:"disable_genre" json:"disableGenre"`
+	DisableReleaseType               bool `yaml:"disable_release_type" json:"disableReleaseType"`
+	DisableArtistSortName            bool `yaml:"disable_artist_sort_name" json:"disableArtistSortName"`
+	DisableAlbumArtistSortName       bool `yaml:"disable_album_artist_sort_name" json:"disableAlbumArtistSortName"`
+	DisableReleaseCountry            bool `yaml:"disable_release_country" json:"disableReleaseCountry"`
+	DisableReleaseStatus             bool `yaml:"disable_release_status" json:"disableReleaseStatus"`
+	DisableMedia                     bool `yaml:"disable_media" json:"disableMedia"`
+	DisableMood                      bool `yaml:"disable_mood" json:"disableMood"`
+	DisableComposer                  bool `yaml:"disable_composer" json:"disableComposer"`
+	DisableCoverImage                bool `yaml:"disable_cover_image" json:"disableCoverImage"`
+	DisableMusicBrainzArtistID       bool `yaml:"disable_musicbrainz_artist_id" json:"disableMusicBrainzArtistId"`
+	DisableAlbumArtistID             bool `yaml:"disable_album_artist_id" json:"disableAlbumArtistId"`
+	DisableMusicBrainzAlbumID        bool `yaml:"disable_musicbrainz_album_id" json:"disableMusicBrainzAlbumId"`
+	DisableMusicBrainzReleaseGroupID bool `yaml:"disable_musicbrainz_release_group_id" json:"disableMusicBrainzReleaseGroupId"`
+	DisableMusicBrainzRecordingID    bool `yaml:"disable_musicbrainz_recording_id" json:"disableMusicBrainzRecordingId"`
+}
+
+// defaultTagWrite is the zero value, spelled out for the same discoverable
+// symmetry defaultMusic()/defaultNaming() already give every other
+// settings section — nothing to actually set, since "disable nothing" (see
+// TagWriteSettings' own doc comment) is already Go's zero value for every
+// field here.
+func defaultTagWrite() TagWriteSettings {
+	return TagWriteSettings{}
+}
+
 type Config struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
 	APIKey   string `yaml:"api_key"`
 	LogLevel string `yaml:"log_level"` // debug, info, warn, error
 
-	Auth    AuthSettings   `yaml:"auth,omitempty"`
-	Naming  NamingSettings `yaml:"naming"`
-	Music   MusicSettings  `yaml:"music,omitempty"`
-	Timings TimingSettings `yaml:"timings,omitempty"`
+	Auth     AuthSettings     `yaml:"auth,omitempty"`
+	Naming   NamingSettings   `yaml:"naming"`
+	Music    MusicSettings    `yaml:"music,omitempty"`
+	TagWrite TagWriteSettings `yaml:"tag_write,omitempty"`
+	Timings  TimingSettings   `yaml:"timings,omitempty"`
 	// PathMappingList translates client-reported download paths onto this
 	// machine's filesystem (Completed Download Handling reads them).
 	PathMappingList []PathMapping `yaml:"path_mappings,omitempty"`
@@ -335,6 +388,7 @@ func defaults() *Config {
 		LogLevel: "info",
 		Naming:   defaultNaming(),
 		Music:    defaultMusic(),
+		TagWrite: defaultTagWrite(),
 	}
 }
 
@@ -486,6 +540,24 @@ func (c *Config) MusicSettings() MusicSettings {
 func (c *Config) SetMusic(m MusicSettings) error {
 	c.mu.Lock()
 	c.Music = m
+	c.mu.Unlock()
+	return c.save()
+}
+
+// TagWriteSettings returns which tag fields "Write tags" should embed —
+// no self-heal needed here the way MusicSettings has (see
+// TagWriteSettings' own doc comment on why negative polarity makes the
+// zero value already correct).
+func (c *Config) TagWriteSettings() TagWriteSettings {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.TagWrite
+}
+
+// SetTagWrite replaces the tag-write field toggles and persists the config.
+func (c *Config) SetTagWrite(t TagWriteSettings) error {
+	c.mu.Lock()
+	c.TagWrite = t
 	c.mu.Unlock()
 	return c.save()
 }

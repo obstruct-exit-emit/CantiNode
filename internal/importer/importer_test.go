@@ -17,6 +17,7 @@ import (
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 // mockSab fakes just enough of SABnzbd's API for Service.PollOnce to see one
@@ -85,7 +86,7 @@ func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musi
 	}
 
 	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", "http://127.0.0.1:0")
-	scanner := musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	scanner := musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
 
 	cfg := &config.Config{}
 

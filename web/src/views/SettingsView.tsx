@@ -15,6 +15,7 @@ import {
   type QualityProfile,
   type RootFolder,
   type SystemStatus,
+  type TagWriteSettings,
   type TimingSettings,
   type UserAccount,
 } from "../api";
@@ -145,7 +146,12 @@ export default function SettingsView({
           <NamingCard onError={onError} />
         </>
       )}
-      {group === "Music" && <MusicCard onError={onError} />}
+      {group === "Music" && (
+        <>
+          <MusicCard onError={onError} />
+          <TagWriteCard onError={onError} />
+        </>
+      )}
       {group === "Quality Profiles" && (
         <QualityProfilesCard onError={onError} activeTypes={activeTypes} />
       )}
@@ -544,6 +550,148 @@ function MusicCard({ onError }: { onError: (message: string) => void }) {
       </div>
 
       <ImageCacheSection />
+    </section>
+  );
+}
+
+// tagFieldGroups lists every tagwriter.Tags field "Write tags" can embed,
+// grouped for readability — the checkbox grid TagWriteCard renders one of
+// these per group. Each entry's key is TagWriteSettings' own (negative-
+// polarity) field name; the checkbox itself is inverted at render time so
+// the UI reads positively ("Genre" checked = written), matching every
+// other on/off setting in this file.
+const tagFieldGroups: { title: string; fields: { key: keyof TagWriteSettings; label: string }[] }[] = [
+  {
+    title: "Core",
+    fields: [
+      { key: "disableTitle", label: "Title" },
+      { key: "disableArtist", label: "Artist" },
+      { key: "disableAlbumArtist", label: "Album Artist" },
+      { key: "disableAlbum", label: "Album" },
+      { key: "disableTrackNumber", label: "Track Number" },
+      { key: "disableDiscNumber", label: "Disc Number" },
+    ],
+  },
+  {
+    title: "Additional info",
+    fields: [
+      { key: "disableDate", label: "Release Date" },
+      { key: "disableTrackTotal", label: "Track Total" },
+      { key: "disableDiscTotal", label: "Disc Total" },
+      { key: "disableGenre", label: "Genre" },
+      { key: "disableReleaseType", label: "Release Type" },
+      { key: "disableArtistSortName", label: "Artist Sort Name" },
+      { key: "disableAlbumArtistSortName", label: "Album Artist Sort Name" },
+      { key: "disableReleaseCountry", label: "Release Country" },
+      { key: "disableReleaseStatus", label: "Release Status" },
+      { key: "disableMedia", label: "Media" },
+      { key: "disableMood", label: "Mood" },
+      { key: "disableComposer", label: "Composer" },
+    ],
+  },
+  {
+    title: "Cover art",
+    fields: [{ key: "disableCoverImage", label: "Embedded cover art" }],
+  },
+  {
+    title: "MusicBrainz IDs",
+    fields: [
+      { key: "disableMusicBrainzArtistId", label: "Artist ID" },
+      { key: "disableAlbumArtistId", label: "Album Artist ID" },
+      { key: "disableMusicBrainzAlbumId", label: "Album (Release) ID" },
+      { key: "disableMusicBrainzReleaseGroupId", label: "Release Group ID" },
+      { key: "disableMusicBrainzRecordingId", label: "Recording ID" },
+    ],
+  },
+];
+
+// TagWriteCard toggles which of the fields above "Write tags" actually
+// embeds into a file — everything on by default. A disabled field is left
+// completely alone by a write (never set, never cleared), the same as a
+// field CantiNode simply has no data for — see internal/tagwriter.Toggles'
+// own doc comment.
+function TagWriteCard({ onError }: { onError: (message: string) => void }) {
+  const [settings, setSettings] = useState<TagWriteSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    api
+      .getTagWriteSettings()
+      .then(setSettings)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  }, [onError]);
+
+  if (!settings) return <p className="muted">Loading…</p>;
+
+  const setAll = (disabled: boolean) => {
+    const next = { ...settings };
+    for (const group of tagFieldGroups) {
+      for (const f of group.fields) next[f.key] = disabled;
+    }
+    setSettings(next);
+  };
+
+  const save = () => {
+    setBusy(true);
+    setNotice("");
+    api
+      .saveTagWriteSettings(settings)
+      .then((s) => {
+        setSettings(s);
+        setNotice("✓ Saved");
+      })
+      .catch((err: unknown) =>
+        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="card">
+      <h2>Tags to Write</h2>
+      <p className="muted">
+        Which fields "Write tags" embeds into a file's own tags — everything
+        is on by default. Turning a field off doesn't clear it from a file;
+        CantiNode just leaves it alone entirely, the same as a field it has
+        no data for.
+      </p>
+      <div className="settings-form settings-form-wide">
+        <div className="settings-actions">
+          <button className="toggle" onClick={() => setAll(false)}>
+            Select all
+          </button>
+          <button className="toggle" onClick={() => setAll(true)}>
+            Select none
+          </button>
+        </div>
+        {tagFieldGroups.map((group) => (
+          <Section key={group.title} title={group.title}>
+            <div className="tag-toggle-grid">
+              {group.fields.map((f) => (
+                <label key={f.key} className="tag-toggle-item">
+                  <input
+                    type="checkbox"
+                    checked={!settings[f.key]}
+                    onChange={(e) => setSettings({ ...settings, [f.key]: !e.target.checked })}
+                  />{" "}
+                  {f.label}
+                </label>
+              ))}
+            </div>
+          </Section>
+        ))}
+        <div className="settings-actions">
+          <button disabled={busy} onClick={save}>
+            {busy ? "Saving…" : "Save"}
+          </button>
+          {notice && (
+            <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>
+              {notice}
+            </span>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

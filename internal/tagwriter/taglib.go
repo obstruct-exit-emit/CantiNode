@@ -23,17 +23,35 @@ import (
 // (same, plus a seeded METADATA_BLOCK_PICTURE). clear passes taglib.Clear
 // instead, an explicit opt-in for a caller that wants a clean slate — see
 // Write's own doc comment.
-func writeTagLib(path string, tags Tags, clear bool) error {
+func writeTagLib(path string, tags Tags, clear bool, enabled Toggles) error {
 	set := map[string][]string{}
-	setField(set, taglib.Title, tags.Title)
-	setField(set, taglib.Artist, tags.Artist)
-	setField(set, taglib.AlbumArtist, tags.AlbumArtist)
-	setField(set, taglib.Album, tags.Album)
-	setIntField(set, taglib.TrackNumber, tags.TrackNumber)
-	setIntField(set, taglib.DiscNumber, tags.DiscNumber)
-	setIntField(set, "TRACKTOTAL", tags.TrackTotal)
-	setIntField(set, "DISCTOTAL", tags.DiscTotal)
-	setField(set, taglib.Date, tags.Date)
+	if enabled.Title {
+		setField(set, taglib.Title, tags.Title)
+	}
+	if enabled.Artist {
+		setField(set, taglib.Artist, tags.Artist)
+	}
+	if enabled.AlbumArtist {
+		setField(set, taglib.AlbumArtist, tags.AlbumArtist)
+	}
+	if enabled.Album {
+		setField(set, taglib.Album, tags.Album)
+	}
+	if enabled.TrackNumber {
+		setIntField(set, taglib.TrackNumber, tags.TrackNumber)
+	}
+	if enabled.DiscNumber {
+		setIntField(set, taglib.DiscNumber, tags.DiscNumber)
+	}
+	if enabled.TrackTotal {
+		setIntField(set, "TRACKTOTAL", tags.TrackTotal)
+	}
+	if enabled.DiscTotal {
+		setIntField(set, "DISCTOTAL", tags.DiscTotal)
+	}
+	if enabled.Date {
+		setField(set, taglib.Date, tags.Date)
+	}
 	// Genre/ReleaseType/sort names use setFieldIfPresent, not setField —
 	// found live: these are best-effort supplementary data (Genre in
 	// particular comes from Artist.Genres, a cache that may genuinely
@@ -46,30 +64,58 @@ func writeTagLib(path string, tags Tags, clear bool) error {
 	// hand-curated data for no reason. Confirmed live: this exact
 	// difference broke every "preserves untracked fields" test the moment
 	// these fields were added with plain setField.
-	setFieldIfPresent(set, taglib.Genre, tags.Genre)
-	setFieldIfPresent(set, taglib.ReleaseType, tags.ReleaseType)
-	setFieldIfPresent(set, taglib.ArtistSort, tags.ArtistSortName)
-	setFieldIfPresent(set, taglib.AlbumArtistSort, tags.AlbumArtistSortName)
+	if enabled.Genre {
+		setFieldIfPresent(set, taglib.Genre, tags.Genre)
+	}
+	if enabled.ReleaseType {
+		setFieldIfPresent(set, taglib.ReleaseType, tags.ReleaseType)
+	}
+	if enabled.ArtistSortName {
+		setFieldIfPresent(set, taglib.ArtistSort, tags.ArtistSortName)
+	}
+	if enabled.AlbumArtistSortName {
+		setFieldIfPresent(set, taglib.AlbumArtistSort, tags.AlbumArtistSortName)
+	}
 	// Same reasoning as Genre/ReleaseType/sort names above: only cached
 	// once the release version picker's own cache has actually been
 	// fetched for this release group, so blank means "nothing cached yet,"
 	// not "there's genuinely no country/status/media."
-	setFieldIfPresent(set, taglib.ReleaseCountry, tags.ReleaseCountry)
-	setFieldIfPresent(set, taglib.ReleaseStatus, tags.ReleaseStatus)
-	setFieldIfPresent(set, taglib.Media, tags.Media)
-	setFieldIfPresent(set, taglib.Mood, tags.Mood)
-	setFieldIfPresent(set, taglib.Composer, tags.Composer)
-	setField(set, taglib.MusicBrainzArtistID, tags.MusicBrainzArtistID)
-	setField(set, taglib.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
-	setField(set, taglib.MusicBrainzAlbumID, tags.MusicBrainzAlbumID)
-	setField(set, taglib.MusicBrainzReleaseGroupID, tags.MusicBrainzReleaseGroupID)
+	if enabled.ReleaseCountry {
+		setFieldIfPresent(set, taglib.ReleaseCountry, tags.ReleaseCountry)
+	}
+	if enabled.ReleaseStatus {
+		setFieldIfPresent(set, taglib.ReleaseStatus, tags.ReleaseStatus)
+	}
+	if enabled.Media {
+		setFieldIfPresent(set, taglib.Media, tags.Media)
+	}
+	if enabled.Mood {
+		setFieldIfPresent(set, taglib.Mood, tags.Mood)
+	}
+	if enabled.Composer {
+		setFieldIfPresent(set, taglib.Composer, tags.Composer)
+	}
+	if enabled.MusicBrainzArtistID {
+		setField(set, taglib.MusicBrainzArtistID, tags.MusicBrainzArtistID)
+	}
+	if enabled.AlbumArtistID {
+		setField(set, taglib.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
+	}
+	if enabled.MusicBrainzAlbumID {
+		setField(set, taglib.MusicBrainzAlbumID, tags.MusicBrainzAlbumID)
+	}
+	if enabled.MusicBrainzReleaseGroupID {
+		setField(set, taglib.MusicBrainzReleaseGroupID, tags.MusicBrainzReleaseGroupID)
+	}
 	// "MusicBrainz Track Id" is the ecosystem-standard (if confusingly
 	// named) tag for a recording's MBID — the same field Picard writes and
 	// internal/tagreader already reads back as MusicBrainzRecordingID via
 	// its own normalizeKey("MusicBrainz Track Id") == "musicbrainztrackid"
 	// lookup, verified round-tripping correctly through dhowden/tag for
 	// both M4A and OGG before this was wired in.
-	setField(set, taglib.MusicBrainzTrackID, tags.MusicBrainzRecordingID)
+	if enabled.MusicBrainzRecordingID {
+		setField(set, taglib.MusicBrainzTrackID, tags.MusicBrainzRecordingID)
+	}
 
 	var opts taglib.WriteOption
 	if clear {
@@ -85,7 +131,7 @@ func writeTagLib(path string, tags Tags, clear bool) error {
 	// overwrites whatever was already there — deliberately unconditional
 	// on clear, since embedding real cover art is worth doing on an
 	// ordinary merge-mode write too, not just a clean-slate one.
-	if len(tags.CoverImage) > 0 {
+	if enabled.CoverImage && len(tags.CoverImage) > 0 {
 		if err := taglib.WriteImage(path, tags.CoverImage); err != nil {
 			return fmt.Errorf("write cover image: %w", err)
 		}

@@ -130,8 +130,65 @@ type Tags struct {
 	MusicBrainzRecordingID    string
 }
 
-// Write embeds tags into the audio file at path, based on its extension.
-// Returns ErrUnsupportedFormat for any extension IsSupported doesn't list.
+// Toggles gates which of Tags' fields Write actually touches — one bool
+// per Tags field, by the same name. A disabled field is omitted from the
+// write entirely (never included in the underlying tag map Write builds),
+// not zeroed before writing: those are different outcomes for a field
+// like Title, which taglib always sets (even to blank, clearing whatever
+// was already there) when it's present in that map at all — see
+// writeTagLib's own per-field setField/setFieldIfPresent calls, which
+// Toggles wraps rather than replaces. Settings-driven (Settings → Music →
+// "Tags to write" in the UI); AllEnabled is every other caller's default
+// and what a zero Config.TagWriteSettings self-heals to (see
+// internal/config), so disabling this feature entirely is opt-in, not the
+// starting state a fresh install or an old config.yaml predating this
+// field would silently get.
+type Toggles struct {
+	Title, Artist, AlbumArtist, Album                                                                         bool
+	TrackNumber, DiscNumber                                                                                   bool
+	Date                                                                                                      bool
+	TrackTotal, DiscTotal                                                                                     bool
+	Genre                                                                                                     bool
+	ReleaseType                                                                                               bool
+	ArtistSortName, AlbumArtistSortName                                                                       bool
+	ReleaseCountry, ReleaseStatus, Media                                                                      bool
+	Mood                                                                                                      bool
+	Composer                                                                                                  bool
+	CoverImage                                                                                                bool
+	MusicBrainzArtistID, AlbumArtistID, MusicBrainzAlbumID, MusicBrainzReleaseGroupID, MusicBrainzRecordingID bool
+}
+
+// AllEnabled is a Toggles value with every field true — Write's effective
+// behavior before Toggles existed, and what every caller that doesn't
+// care about per-field settings (every test in this package, any future
+// one-off caller) should pass.
+var AllEnabled = Toggles{
+	Title: true, Artist: true, AlbumArtist: true, Album: true,
+	TrackNumber: true, DiscNumber: true,
+	Date:       true,
+	TrackTotal: true, DiscTotal: true,
+	Genre:                     true,
+	ReleaseType:               true,
+	ArtistSortName:            true,
+	AlbumArtistSortName:       true,
+	ReleaseCountry:            true,
+	ReleaseStatus:             true,
+	Media:                     true,
+	Mood:                      true,
+	Composer:                  true,
+	CoverImage:                true,
+	MusicBrainzArtistID:       true,
+	AlbumArtistID:             true,
+	MusicBrainzAlbumID:        true,
+	MusicBrainzReleaseGroupID: true,
+	MusicBrainzRecordingID:    true,
+}
+
+// Write embeds tags into the audio file at path, based on its extension —
+// every field enabled in enabled and non-empty in tags (or, for the
+// setField-backed fields — see Toggles' own doc comment — every field
+// enabled in enabled, whether or not it's empty). Returns
+// ErrUnsupportedFormat for any extension IsSupported doesn't list.
 //
 // clear controls whether fields this package doesn't itself manage
 // (comments, lyrics, ReplayGain, an existing embedded picture other than
@@ -141,10 +198,10 @@ type Tags struct {
 // full-replace bug MP3's old hand-rolled writer used to have). false
 // everywhere except a caller that specifically wants a clean-slate
 // rewrite.
-func Write(path string, tags Tags, clear bool) error {
+func Write(path string, tags Tags, clear bool, enabled Toggles) error {
 	switch extOf(path) {
 	case "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav":
-		return writeTagLib(path, tags, clear)
+		return writeTagLib(path, tags, clear, enabled)
 	default:
 		return ErrUnsupportedFormat
 	}

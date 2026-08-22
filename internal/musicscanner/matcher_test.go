@@ -16,6 +16,7 @@ import (
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagreader"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 // buildFLACFile writes a minimal FLAC file (just a Vorbis comment block —
@@ -341,7 +342,7 @@ func newTestScanner(t *testing.T, lookupResponses map[string]mbRecording, search
 		t.Fatal(err)
 	}
 
-	s := New(db, mb, nil, slog.Default(), "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	s := New(db, mb, nil, slog.Default(), "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
 	return s, *rf
 }
 

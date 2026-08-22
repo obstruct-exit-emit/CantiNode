@@ -20,7 +20,9 @@ import (
 // there's nothing to write otherwise. clear requests a full wipe of
 // everything this function doesn't itself set, rather than the default
 // merge — see tagwriter.Write's own doc comment for what that actually
-// destroys and why it's opt-in.
+// destroys and why it's opt-in. Which of the fields above actually get
+// written is further gated by the live tagToggles setting (Settings →
+// Music → "Tags to write") — see Scanner.getTagToggles.
 func (s *Scanner) WriteTags(ctx context.Context, trackFileID int64, clear bool) error {
 	return s.writeTagsForFile(ctx, trackFileID, clear, map[int64][]byte{})
 }
@@ -144,7 +146,7 @@ func (s *Scanner) writeTagsForFile(ctx context.Context, trackFileID int64, clear
 		MusicBrainzReleaseGroupID: album.ReleaseGroupMBID,
 		MusicBrainzRecordingID:    track.MBID,
 	}
-	if err := tagwriter.Write(tf.Path, tags, clear); err != nil {
+	if err := tagwriter.Write(tf.Path, tags, clear, s.getTagToggles()); err != nil {
 		return fmt.Errorf("write tags to %s: %w", tf.Path, err)
 	}
 	return nil

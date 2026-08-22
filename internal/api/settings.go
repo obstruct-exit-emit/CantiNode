@@ -8,6 +8,7 @@ import (
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
 // --- Naming settings ---
@@ -66,8 +67,65 @@ func (s *server) handlePutNamingSettings(w http.ResponseWriter, r *http.Request)
 	// against its own copy, not this handler's local req.
 	ns := s.cfg.NamingSettings()
 	m := s.cfg.MusicSettings()
-	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch)
+	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(s.cfg.TagWriteSettings()))
 	writeJSON(w, http.StatusOK, namingResponse(ns))
+}
+
+// --- Tag-write field toggles ---
+
+// tagWriteToggles converts config.TagWriteSettings' negative-polarity
+// "Disable*" flags (see that type's own doc comment for why they're
+// inverted) into tagwriter.Toggles' positive-polarity "will this field get
+// written" flags Scanner/tagwriter actually consult — the one place that
+// inversion happens, so every other caller on either side of it just deals
+// with the polarity native to its own layer.
+func tagWriteToggles(t config.TagWriteSettings) tagwriter.Toggles {
+	return tagwriter.Toggles{
+		Title:                     !t.DisableTitle,
+		Artist:                    !t.DisableArtist,
+		AlbumArtist:               !t.DisableAlbumArtist,
+		Album:                     !t.DisableAlbum,
+		TrackNumber:               !t.DisableTrackNumber,
+		DiscNumber:                !t.DisableDiscNumber,
+		Date:                      !t.DisableDate,
+		TrackTotal:                !t.DisableTrackTotal,
+		DiscTotal:                 !t.DisableDiscTotal,
+		Genre:                     !t.DisableGenre,
+		ReleaseType:               !t.DisableReleaseType,
+		ArtistSortName:            !t.DisableArtistSortName,
+		AlbumArtistSortName:       !t.DisableAlbumArtistSortName,
+		ReleaseCountry:            !t.DisableReleaseCountry,
+		ReleaseStatus:             !t.DisableReleaseStatus,
+		Media:                     !t.DisableMedia,
+		Mood:                      !t.DisableMood,
+		Composer:                  !t.DisableComposer,
+		CoverImage:                !t.DisableCoverImage,
+		MusicBrainzArtistID:       !t.DisableMusicBrainzArtistID,
+		AlbumArtistID:             !t.DisableAlbumArtistID,
+		MusicBrainzAlbumID:        !t.DisableMusicBrainzAlbumID,
+		MusicBrainzReleaseGroupID: !t.DisableMusicBrainzReleaseGroupID,
+		MusicBrainzRecordingID:    !t.DisableMusicBrainzRecordingID,
+	}
+}
+
+func (s *server) handleGetTagWriteSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.TagWriteSettings())
+}
+
+func (s *server) handlePutTagWriteSettings(w http.ResponseWriter, r *http.Request) {
+	var req config.TagWriteSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.cfg.SetTagWrite(req); err != nil {
+		writeError(w, http.StatusInternalServerError, "saving config: "+err.Error())
+		return
+	}
+	ns := s.cfg.NamingSettings()
+	m := s.cfg.MusicSettings()
+	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(req))
+	writeJSON(w, http.StatusOK, req)
 }
 
 // --- Remote path mappings ---

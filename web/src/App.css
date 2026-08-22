@@ -434,6 +434,27 @@ button.link {
   font-size: 0.85rem;
 }
 
+/* Wider variant for a form whose content (the tag-write toggle grid) needs
+   more than .settings-form's usual 480px to lay out in more than one
+   column. */
+.settings-form-wide {
+  max-width: 720px;
+}
+
+.tag-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.5rem 1rem;
+}
+
+.settings-form label.tag-toggle-item {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
 /* Collapsible "advanced" block: common fields stay visible, the rest tuck away. */
 .disclosure {
   border: 1px solid var(--border);
