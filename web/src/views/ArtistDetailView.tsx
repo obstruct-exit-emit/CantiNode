@@ -125,10 +125,29 @@ export default function ArtistDetailView({
   const [reloadTick, setReloadTick] = useState(0);
   const [albumsSort, setAlbumsSort] = useState("date");
   const [albumsDir, setAlbumsDir] = useState<SortDir>(defaultDirFor("date"));
-  const [albumsView, setAlbumsView] = useState<AlbumsView>("grid");
+  const [albumsView, setAlbumsViewState] = useState<AlbumsView>("grid");
   const changeAlbumsSort = (key: string) => {
     setAlbumsSort(key);
     setAlbumsDir(defaultDirFor(key));
+  };
+
+  // The signed-in account's own remembered Albums-section view (separate
+  // from the main library's own view — see MusicLibraryView) — loaded once
+  // on mount, best-effort (a fetch failure just leaves the "grid" default
+  // in place rather than blocking the page).
+  useEffect(() => {
+    api
+      .getViewPrefs()
+      .then((p) => {
+        if (p.albumsView === "grid" || p.albumsView === "compact" || p.albumsView === "list") {
+          setAlbumsViewState(p.albumsView);
+        }
+      })
+      .catch(() => {});
+  }, []);
+  const setAlbumsView = (v: AlbumsView) => {
+    setAlbumsViewState(v);
+    api.setViewPrefs({ albumsView: v }).catch(() => {});
   };
 
   const reload = useCallback(() => {

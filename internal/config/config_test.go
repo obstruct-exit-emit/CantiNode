@@ -86,6 +86,50 @@ func TestAuthUserMigrationAndManagement(t *testing.T) {
 	}
 }
 
+// TestSetUserViewPrefs: LibraryView/AlbumsView persist independently per
+// account and survive a reload; an invalid value is rejected.
+func TestSetUserViewPrefs(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.AddUser("alice", "hash-a", RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.AddUser("bob", "hash-b", RoleMember); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cfg.SetUserLibraryView("alice", "list"); err != nil {
+		t.Fatalf("SetUserLibraryView: %v", err)
+	}
+	if err := cfg.SetUserAlbumsView("alice", "compact"); err != nil {
+		t.Fatalf("SetUserAlbumsView: %v", err)
+	}
+	// bob's own prefs stay untouched by alice's.
+	if err := cfg.SetUserLibraryView("bob", "grid"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cfg.SetUserLibraryView("alice", "bogus"); err == nil {
+		t.Error("expected an error for an unrecognized view value")
+	}
+
+	cfg2, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := cfg2.AuthSettings()
+	alice, bob := a.Find("alice"), a.Find("bob")
+	if alice == nil || alice.LibraryView != "list" || alice.AlbumsView != "compact" {
+		t.Fatalf("alice's prefs after reload = %+v", alice)
+	}
+	if bob == nil || bob.LibraryView != "grid" || bob.AlbumsView != "" {
+		t.Fatalf("bob's prefs after reload = %+v", bob)
+	}
+}
+
 func TestEnvOverrides(t *testing.T) {
 	t.Setenv("CANTINODE_PORT", "9999")
 	t.Setenv("CANTINODE_LOG_LEVEL", "debug")

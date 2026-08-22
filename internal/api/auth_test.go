@@ -361,3 +361,90 @@ func TestUserRoleChangeAndDefaultInvariant(t *testing.T) {
 		t.Fatalf("helper (new default) GET /indexer = %d, want 200", got)
 	}
 }
+
+// TestViewPrefsPerAccountAndAPIKeyNoop: each signed-in account's own
+// Grid/Compact/List choices persist independently of every other account's,
+// a partial PUT only touches the field it names, and plain API-key use (no
+// per-account identity) is a harmless no-op rather than an error.
+func TestViewPrefsPerAccountAndAPIKeyNoop(t *testing.T) {
+	a := newTestAPI(t)
+
+	var prefs map[string]string
+	a.want(a.call("GET", "/api/v1/auth/view-prefs", nil, &prefs), http.StatusOK)
+	if prefs["libraryView"] != "" || prefs["albumsView"] != "" {
+		t.Fatalf("API-key-only GET = %+v, want empty defaults", prefs)
+	}
+	a.want(a.call("PUT", "/api/v1/auth/view-prefs",
+		map[string]string{"libraryView": "list"}, &prefs), http.StatusOK)
+	if prefs["libraryView"] != "" {
+		t.Fatalf("API-key-only PUT should be a no-op, got %+v", prefs)
+	}
+
+	a.want(a.call("PUT", "/api/v1/auth/credentials",
+		map[string]string{"username": "dan", "password": "secret-pass-1"}, nil), http.StatusOK)
+	a.want(a.call("POST", "/api/v1/auth/users",
+		map[string]string{"username": "bob", "password": "bob-pass-123", "role": "member"}, nil), http.StatusCreated)
+
+	login := func(user, pass string) *http.Cookie {
+		resp, err := http.Post(a.srv.URL+"/api/v1/auth/login", "application/json",
+			strings.NewReader(`{"username":"`+user+`","password":"`+pass+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("login %s: status %d", user, resp.StatusCode)
+		}
+		for _, c := range resp.Cookies() {
+			if c.Name == sessionCookie {
+				return c
+			}
+		}
+		t.Fatalf("login %s: no session cookie", user)
+		return nil
+	}
+	doJSON := func(c *http.Cookie, method, path, body string) map[string]string {
+		req, _ := http.NewRequest(method, a.srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(c)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s %s: status %d, want 200", method, path, resp.StatusCode)
+		}
+		var out map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("%s %s: decoding response: %v", method, path, err)
+		}
+		return out
+	}
+
+	dan := login("dan", "secret-pass-1")
+	bob := login("bob", "bob-pass-123")
+
+	prefs = doJSON(dan, "PUT", "/api/v1/auth/view-prefs", `{"libraryView":"list","albumsView":"compact"}`)
+	if prefs["libraryView"] != "list" || prefs["albumsView"] != "compact" {
+		t.Fatalf("dan's prefs after PUT = %+v", prefs)
+	}
+
+	// bob's own GET is unaffected by dan's prefs.
+	prefs = doJSON(bob, "GET", "/api/v1/auth/view-prefs", "")
+	if prefs["libraryView"] != "" || prefs["albumsView"] != "" {
+		t.Fatalf("bob's prefs should still be defaults, got %+v", prefs)
+	}
+
+	// Partial update: bob sets only libraryView, albumsView stays default.
+	prefs = doJSON(bob, "PUT", "/api/v1/auth/view-prefs", `{"libraryView":"grid"}`)
+	if prefs["libraryView"] != "grid" || prefs["albumsView"] != "" {
+		t.Fatalf("bob's prefs after partial PUT = %+v", prefs)
+	}
+
+	// dan's own prefs are untouched by bob's changes.
+	prefs = doJSON(dan, "GET", "/api/v1/auth/view-prefs", "")
+	if prefs["libraryView"] != "list" || prefs["albumsView"] != "compact" {
+		t.Fatalf("dan's prefs after bob's changes = %+v", prefs)
+	}
+}

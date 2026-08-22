@@ -62,6 +62,16 @@ type UserAccount struct {
 	// — every account saved before roles existed keeps full access on
 	// upgrade rather than being silently downgraded.
 	Role string `yaml:"role,omitempty" json:"role"`
+	// LibraryView/AlbumsView are this account's own remembered Grid/Compact/
+	// List choice for the main artist library and an artist's Albums
+	// section, respectively — kept separate since one person may want the
+	// library dense (List) but an individual artist's albums visual
+	// (Grid). Empty means "grid", the default for both. Per-account rather
+	// than per-browser (contrast web/src/theme.ts's theme preference,
+	// deliberately per-browser) since CantiNode's accounts are commonly
+	// shared across devices by the same person.
+	LibraryView string `yaml:"library_view,omitempty" json:"libraryView,omitempty"`
+	AlbumsView  string `yaml:"albums_view,omitempty" json:"albumsView,omitempty"`
 }
 
 // EffectiveRole returns the account's role, defaulting to admin for
@@ -737,6 +747,47 @@ func (c *Config) SetUserPassword(username, passwordHash string) error {
 		return fmt.Errorf("user %q not found", username)
 	}
 	u.PasswordHash = passwordHash
+	c.mu.Unlock()
+	return c.save()
+}
+
+// validViewPref reports whether v is a recognized Grid/Compact/List choice
+// — "" (meaning "use the default") is valid too, so clearing a preference
+// back to default doesn't need its own separate call.
+func validViewPref(v string) bool {
+	return v == "" || v == "grid" || v == "compact" || v == "list"
+}
+
+// SetUserLibraryView stores username's remembered view for the main artist
+// library — see UserAccount.LibraryView.
+func (c *Config) SetUserLibraryView(username, view string) error {
+	if !validViewPref(view) {
+		return fmt.Errorf("view must be %q, %q, %q, or empty", "grid", "compact", "list")
+	}
+	c.mu.Lock()
+	u := c.Auth.Find(username)
+	if u == nil {
+		c.mu.Unlock()
+		return fmt.Errorf("user %q not found", username)
+	}
+	u.LibraryView = view
+	c.mu.Unlock()
+	return c.save()
+}
+
+// SetUserAlbumsView stores username's remembered view for an artist page's
+// own Albums section — see UserAccount.AlbumsView.
+func (c *Config) SetUserAlbumsView(username, view string) error {
+	if !validViewPref(view) {
+		return fmt.Errorf("view must be %q, %q, %q, or empty", "grid", "compact", "list")
+	}
+	c.mu.Lock()
+	u := c.Auth.Find(username)
+	if u == nil {
+		c.mu.Unlock()
+		return fmt.Errorf("user %q not found", username)
+	}
+	u.AlbumsView = view
 	c.mu.Unlock()
 	return c.save()
 }

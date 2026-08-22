@@ -30,7 +30,7 @@ export default function MusicLibraryView({
   const [visible, setVisible] = useState(60);
   const [sort, setSort] = useState("name");
   const [sortDir, setSortDir] = useState<SortDir>(defaultDirFor("name"));
-  const [view, setView] = useState<LibraryView>("grid");
+  const [view, setViewState] = useState<LibraryView>("grid");
   const changeSort = (key: string) => {
     setSort(key);
     setSortDir(defaultDirFor(key));
@@ -45,6 +45,25 @@ export default function MusicLibraryView({
   }, [onError]);
 
   useEffect(reload, [reload]);
+
+  // The signed-in account's own remembered library view (separate from an
+  // artist page's own Albums-section view — see ArtistDetailView) — loaded
+  // once on mount, best-effort (a fetch failure just leaves the "grid"
+  // default in place rather than blocking the page).
+  useEffect(() => {
+    api
+      .getViewPrefs()
+      .then((p) => {
+        if (p.libraryView === "grid" || p.libraryView === "compact" || p.libraryView === "list") {
+          setViewState(p.libraryView);
+        }
+      })
+      .catch(() => {});
+  }, []);
+  const setView = (v: LibraryView) => {
+    setViewState(v);
+    api.setViewPrefs({ libraryView: v }).catch(() => {});
+  };
 
   const headerAction = (action: () => Promise<string>) => {
     setBusyHeader(true);

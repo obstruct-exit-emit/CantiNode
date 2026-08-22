@@ -516,6 +516,19 @@ export interface TagWriteSettings {
   disableMusicBrainzRecordingId: boolean;
 }
 
+// ViewPrefs is a signed-in account's own remembered Grid/Compact/List
+// choice for the main artist library and an artist page's own Albums
+// section — kept separate so one can be List while the other stays Grid.
+// Empty string means "grid" (the default for both). Per-account, not
+// per-browser (contrast theme.ts's theme preference) — see
+// config.UserAccount.LibraryView/AlbumsView. Always {"",""} under plain
+// API-key use (no login accounts configured): there's no per-account
+// identity to remember it against.
+export interface ViewPrefs {
+  libraryView: string;
+  albumsView: string;
+}
+
 const KEY_STORAGE = "cantinode-api-key";
 
 export function getApiKey(): string {
@@ -597,6 +610,9 @@ export const api = {
   login: (username: string, password: string) =>
     request<{ ok: boolean }>("/api/v1/auth/login", json({ username, password })),
   logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
+  getViewPrefs: () => request<ViewPrefs>("/api/v1/auth/view-prefs"),
+  setViewPrefs: (prefs: Partial<ViewPrefs>) =>
+    request<ViewPrefs>("/api/v1/auth/view-prefs", { ...json(prefs), method: "PUT" }),
   setCredentials: (username: string, password: string) =>
     request<{ authEnabled: boolean }>("/api/v1/auth/credentials", {
       ...json({ username, password }),

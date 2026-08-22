@@ -419,6 +419,64 @@ func (s *server) handleSetUserPassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// handleGetViewPrefs returns the calling account's own remembered
+// Grid/Compact/List choices for the music library and an artist's Albums
+// section — see config.UserAccount.LibraryView/AlbumsView. Plain API-key
+// use (no login accounts configured) has no per-account identity to key
+// this on, so it always reports the zero-value defaults rather than
+// erroring — nothing to remember against.
+func (s *server) handleGetViewPrefs(w http.ResponseWriter, r *http.Request) {
+	username, _, ok := s.currentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or missing API key")
+		return
+	}
+	resp := map[string]string{"libraryView": "", "albumsView": ""}
+	if username != "" {
+		if u := s.cfg.AuthSettings().Find(username); u != nil {
+			resp["libraryView"] = u.LibraryView
+			resp["albumsView"] = u.AlbumsView
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handlePutViewPrefs updates the calling account's own remembered
+// Grid/Compact/List choice(s) — partial: only a field present in the body
+// changes, so setting just libraryView never touches albumsView. A no-op
+// (not an error) under plain API-key use, the same reasoning as
+// handleGetViewPrefs.
+func (s *server) handlePutViewPrefs(w http.ResponseWriter, r *http.Request) {
+	username, _, ok := s.currentUser(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid or missing API key")
+		return
+	}
+	var req struct {
+		LibraryView *string `json:"libraryView"`
+		AlbumsView  *string `json:"albumsView"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if username != "" {
+		if req.LibraryView != nil {
+			if err := s.cfg.SetUserLibraryView(username, *req.LibraryView); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		if req.AlbumsView != nil {
+			if err := s.cfg.SetUserAlbumsView(username, *req.AlbumsView); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+	}
+	s.handleGetViewPrefs(w, r)
+}
+
 // handleMakeDefaultUser promotes an account to the protected default (and to
 // admin in the same step — see config.SetDefaultUser).
 func (s *server) handleMakeDefaultUser(w http.ResponseWriter, r *http.Request) {

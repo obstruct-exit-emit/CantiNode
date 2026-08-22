@@ -148,6 +148,11 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("PUT /api/v1/auth/users/{username}/default", s.requireAdmin(s.handleMakeDefaultUser))
 	mux.HandleFunc("PUT /api/v1/auth/users/{username}/role", s.requireAdmin(s.handleSetUserRole))
 	mux.HandleFunc("POST /api/v1/auth/apikey/regenerate", s.requireAdmin(s.handleRegenerateAPIKey))
+	// view-prefs is self-service like handleSetUserPassword above: any
+	// signed-in account reads/writes only its own remembered Grid/Compact/
+	// List choices, keyed off the session — no username in the path.
+	mux.HandleFunc("GET /api/v1/auth/view-prefs", s.auth(s.handleGetViewPrefs))
+	mux.HandleFunc("PUT /api/v1/auth/view-prefs", s.auth(s.handlePutViewPrefs))
 	mux.HandleFunc("GET /api/v1/system/status", s.auth(s.handleSystemStatus))
 	mux.HandleFunc("GET /api/v1/image", s.auth(s.handleImage))
 	mux.HandleFunc("DELETE /api/v1/cache", s.requireAdmin(s.handleClearAllCache))
