@@ -10,6 +10,33 @@ once the pre-1.0 hardening (see [ROADMAP](ROADMAP.md)) wraps up.
 Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardening
 in progress. Highlights from the hardening period, newest first:
 
+### Added
+- **Auto-match now falls back to the filename, then the containing folders,
+  when a file's own tags don't have Artist/Album** — before this, a file
+  with blank tags (no Artist/Album, and for the per-file fuzzy path no
+  Title either) was simply left unmatched, no matter how well-organized
+  its folder structure was. Resolution order per field: the file's own
+  tags first, then the filename (only when it has at least three
+  `" - "`-separated segments — Artist, Album, then a track number and/or
+  title — a plain two-segment "Artist - Title.ext" is too ambiguous to
+  guess which segment is which, so it's left alone), then the containing
+  folders (the immediate parent for Album, one level further up for
+  Artist — stopping at the file's own root folder boundary, so a flat
+  layout with no separate artist-level folder correctly contributes
+  nothing for Artist rather than guessing the root folder's own name).
+  Folder/filename text is cleaned before use as a search term — bracketed
+  scene/quality annotations (`[FLAC]`, `(2019)`, `{Deluxe}`) stripped,
+  underscores/dots folded to spaces — but a real hyphen is left alone,
+  since within one folder/filename segment it's usually a meaningful part
+  of a title, not a separator. This is matching input only: a file's own
+  cached/displayed tags (the "Tags" popup, `tagsJson`) are never touched
+  by it, only what gets searched with when the real tags come up empty.
+  Reaches both `matchFileFuzzy` (the per-file path) and
+  `folderTagConsensus` (the whole-folder path) — a folder of otherwise
+  completely untagged files now reaches a real consensus from its own
+  shared folder name instead of failing outright for lack of any tag data
+  at all.
+
 ### Fixed
 - **A transport-level MusicBrainz request failure (a timeout, a connection
   reset, a DNS blip) used to bypass `Client.get`'s own retry loop entirely**

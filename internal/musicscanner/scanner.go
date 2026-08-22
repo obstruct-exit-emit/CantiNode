@@ -232,7 +232,7 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 	// into one logical group before matching — see groupMultiDiscFolders.
 	// Purely an in-memory regrouping for matching purposes; files stay
 	// exactly where they are on disk until an explicit Organize action.
-	groups = groupMultiDiscFolders(groups)
+	groups = groupMultiDiscFolders(groups, s.resolveArtistAlbumFallback)
 
 	// Sorted for deterministic scan behavior/logging, not correctness —
 	// map iteration order would otherwise vary run to run.
@@ -358,7 +358,7 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 		}
 	}
 
-	groups = groupMultiDiscFolders(groups)
+	groups = groupMultiDiscFolders(groups, s.resolveArtistAlbumFallback)
 
 	dirs := make([]string, 0, len(groups))
 	for d := range groups {

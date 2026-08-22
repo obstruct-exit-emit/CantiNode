@@ -191,7 +191,7 @@ func (s *Scanner) resolveFolderRelease(ctx context.Context, remaining []folderEn
 		return nil, 0, nil
 	}
 
-	artist, album, ok := folderTagConsensus(remaining)
+	artist, album, ok := folderTagConsensus(remaining, s.resolveArtistAlbumFallback)
 	if !ok {
 		return nil, 0, nil // inconsistent tags — not really "one album"
 	}
@@ -264,7 +264,7 @@ func (s *Scanner) resolveExpectedRelease(ctx context.Context, remaining []folder
 		return nil, 0, false
 	}
 	const albumTitleMatchThreshold = 0.5 // more lenient than slotTrack's own 0.6 — album titles carry more legitimate edition-to-edition variance ("(Remastered)", "(Deluxe)") than a single track title does
-	if _, album, ok := folderTagConsensus(remaining); ok {
+	if _, album, ok := folderTagConsensus(remaining, s.resolveArtistAlbumFallback); ok {
 		matchesAny := false
 		for _, v := range versions {
 			if titleSimilarity(album, v.Title) >= albumTitleMatchThreshold {
@@ -342,14 +342,39 @@ func albumTagsDisagree(entries []folderEntry) bool {
 // loose singles dropped directly in a root folder) fails this check
 // outright rather than silently picking a plurality and mismatching
 // whichever files disagree with it — see matchFolder's fallback.
-func folderTagConsensus(entries []folderEntry) (artist, album string, ok bool) {
+//
+// A file with no Album (or no AlbumArtist/Artist) tag at all falls back to
+// fallback (filename, then folder names — see Scanner.resolveArtistAlbumFallback,
+// the real implementation every production caller passes; tests pass nil
+// to skip this entirely and exercise pure tag-agreement behavior) before
+// joining the agreement check — every file in the same directory shares
+// the same folder-derived Album, so a whole folder of otherwise-untagged
+// files still reaches a real, trivially-agreeing consensus instead of
+// failing outright for lack of any tag data whatsoever.
+func folderTagConsensus(entries []folderEntry, fallback func(*musiclibrary.TrackFile) (artist, album string)) (artist, album string, ok bool) {
 	albumAgrees := true
 	artistAgrees := true
 	albumArtistSeen := false // true once any file supplies a real AlbumArtist override
 	distinctArtists := map[string]bool{}
 
 	for _, e := range entries {
-		if a := strings.TrimSpace(e.tags.Album); a != "" {
+		a := strings.TrimSpace(e.tags.Album)
+		aa := strings.TrimSpace(e.tags.AlbumArtist)
+		ar := aa
+		if ar == "" {
+			ar = strings.TrimSpace(e.tags.Artist)
+		}
+		if (a == "" || ar == "") && fallback != nil {
+			fbArtist, fbAlbum := fallback(e.tf)
+			if a == "" {
+				a = fbAlbum
+			}
+			if ar == "" {
+				ar = fbArtist
+			}
+		}
+
+		if a != "" {
 			switch {
 			case album == "":
 				album = a
@@ -357,13 +382,8 @@ func folderTagConsensus(entries []folderEntry) (artist, album string, ok bool) {
 				albumAgrees = false
 			}
 		}
-		aa := strings.TrimSpace(e.tags.AlbumArtist)
 		if aa != "" {
 			albumArtistSeen = true
-		}
-		ar := aa
-		if ar == "" {
-			ar = strings.TrimSpace(e.tags.Artist)
 		}
 		if ar != "" {
 			distinctArtists[strings.ToLower(ar)] = true
@@ -653,7 +673,7 @@ func stripDiscSuffix(album string) string {
 // its own) is left as separate groups, exactly as before this function
 // existed — same degrade-to-per-folder behavior a genuine discography pack
 // already gets.
-func groupMultiDiscFolders(groups map[string][]folderEntry) map[string][]folderEntry {
+func groupMultiDiscFolders(groups map[string][]folderEntry, fallback func(*musiclibrary.TrackFile) (artist, album string)) map[string][]folderEntry {
 	byParent := map[string][]string{}
 	for dir := range groups {
 		if discFolderPattern.MatchString(filepath.Base(dir)) {
@@ -673,7 +693,7 @@ func groupMultiDiscFolders(groups map[string][]folderEntry) map[string][]folderE
 		var refArtist, refAlbum string
 		agree := true
 		for i, dir := range subdirs {
-			artist, album, ok := folderTagConsensus(groups[dir])
+			artist, album, ok := folderTagConsensus(groups[dir], fallback)
 			if !ok {
 				agree = false
 				break

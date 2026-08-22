@@ -314,11 +314,27 @@ func (s *Scanner) resolveDirectMatch(ctx context.Context, tf *musiclibrary.Track
 // cache is releaseCreditCache — see its own doc comment; pass the same one
 // folder-processing-wide, or nil for a standalone caller.
 func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile, tags *tagreader.Tags, cache releaseCreditCache) (bool, error) {
-	if tags.Artist == "" && tags.Title == "" {
+	artist, album := tags.Artist, tags.Album
+	if artist == "" || album == "" {
+		// Last resort: the file's own tags didn't have it, so try the
+		// filename, then the folders it's sitting in — see
+		// resolveArtistAlbumFallback's own doc comment. tags.Artist/
+		// tags.Album themselves are left untouched; this only ever affects
+		// what gets searched with, never what's cached/displayed as the
+		// file's real embedded tags.
+		fbArtist, fbAlbum := s.resolveArtistAlbumFallback(tf)
+		if artist == "" {
+			artist = fbArtist
+		}
+		if album == "" {
+			album = fbAlbum
+		}
+	}
+	if artist == "" && tags.Title == "" {
 		return false, nil
 	}
 
-	candidates, err := s.mb.SearchRecordings(ctx, tags.Artist, tags.Album, tags.Title)
+	candidates, err := s.mb.SearchRecordings(ctx, artist, album, tags.Title)
 	if err != nil {
 		return false, fmt.Errorf("search recordings: %w", err)
 	}

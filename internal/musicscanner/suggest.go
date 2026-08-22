@@ -103,7 +103,7 @@ func (s *Scanner) ListUnmatchedWithGroups() ([]UnmatchedFileGroup, error) {
 		dir := filepath.Dir(tf.Path)
 		raw[dir] = append(raw[dir], folderEntry{tf: tf, tags: &tags})
 	}
-	grouped := groupMultiDiscFolders(raw)
+	grouped := groupMultiDiscFolders(raw, s.resolveArtistAlbumFallback)
 
 	keyByID := make(map[int64]string, len(files))
 	for key, entries := range grouped {

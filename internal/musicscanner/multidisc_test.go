@@ -31,7 +31,7 @@ func TestGroupMultiDiscFoldersMergesSameAlbumDiscs(t *testing.T) {
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 
 	if len(got) != 1 {
 		t.Fatalf("groups = %+v, want exactly 1 merged group", got)
@@ -76,7 +76,7 @@ func TestGroupMultiDiscFoldersRejectsMismatchedArtistWhenOneSideBlank(t *testing
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 
 	if len(got) != 2 {
 		t.Fatalf("groups = %+v, want 2 separate groups (one side has no artist signal, the other does — must not merge)", got)
@@ -104,7 +104,7 @@ func TestGroupMultiDiscFoldersKeepsLooseFilesInParent(t *testing.T) {
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 
 	merged, ok := got["/music/The Wall"]
 	if !ok {
@@ -136,7 +136,7 @@ func TestGroupMultiDiscFoldersToleratesPerDiscAlbumSuffix(t *testing.T) {
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 
 	merged, ok := got["/music/Avantasia - Moonglow (2CD)"]
 	if !ok || len(merged) != 2 {
@@ -195,7 +195,7 @@ func TestFolderTagConsensusVariousArtistsInference(t *testing.T) {
 		entry(2, "/music/Now/02.mp3", "Duran Duran", "Now That's What I Call Music", 0),
 		entry(3, "/music/Now/03.mp3", "UB40", "Now That's What I Call Music", 0),
 	}
-	artist, album, ok := folderTagConsensus(entries)
+	artist, album, ok := folderTagConsensus(entries, nil)
 	if !ok {
 		t.Fatalf("folderTagConsensus ok = false, want true (inferred Various Artists)")
 	}
@@ -216,7 +216,7 @@ func TestFolderTagConsensusAlreadyTaggedVariousArtists(t *testing.T) {
 		entryWithAlbumArtist(1, "/music/Now/01.mp3", "Phil Collins", "Various Artists", "Now"),
 		entryWithAlbumArtist(2, "/music/Now/02.mp3", "Duran Duran", "Various Artists", "Now"),
 	}
-	artist, album, ok := folderTagConsensus(entries)
+	artist, album, ok := folderTagConsensus(entries, nil)
 	if !ok || artist != "Various Artists" || album != "Now" {
 		t.Errorf("folderTagConsensus = %q, %q, %v, want Various Artists, Now, true", artist, album, ok)
 	}
@@ -231,7 +231,7 @@ func TestFolderTagConsensusRejectsDisagreeingAlbumArtist(t *testing.T) {
 		entryWithAlbumArtist(1, "/music/X/01.mp3", "", "Compilation Artist A", "Mixed Tape"),
 		entryWithAlbumArtist(2, "/music/X/02.mp3", "", "Compilation Artist B", "Mixed Tape"),
 	}
-	if _, _, ok := folderTagConsensus(entries); ok {
+	if _, _, ok := folderTagConsensus(entries, nil); ok {
 		t.Error("folderTagConsensus ok = true, want false — disagreeing AlbumArtist should not infer Various Artists")
 	}
 }
@@ -244,7 +244,7 @@ func TestFolderTagConsensusRejectsSingleArtistDisagreement(t *testing.T) {
 		entry(1, "/music/X/01.mp3", "Artist A", "Album One", 0),
 		entry(2, "/music/X/02.mp3", "Artist B", "Album Two", 0),
 	}
-	if _, _, ok := folderTagConsensus(entries); ok {
+	if _, _, ok := folderTagConsensus(entries, nil); ok {
 		t.Error("folderTagConsensus ok = true, want false — no shared album at all")
 	}
 }
@@ -264,7 +264,7 @@ func TestGroupMultiDiscFoldersKeepsDifferentAlbumsSeparate(t *testing.T) {
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 
 	if len(got) != 2 {
 		t.Fatalf("groups = %+v, want 2 separate groups (different albums)", got)
@@ -287,7 +287,7 @@ func TestGroupMultiDiscFoldersLeavesNonDiscFoldersAlone(t *testing.T) {
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 
 	if len(got) != 1 || len(got["/music/Wish You Were Here"]) != 1 {
 		t.Fatalf("got = %+v, want the single group unchanged", got)
@@ -307,7 +307,7 @@ func TestGroupMultiDiscFoldersRespectsExistingDiscNumberTag(t *testing.T) {
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 	merged := got["/music/Album"]
 	discByID := map[int64]int{}
 	for _, e := range merged {
@@ -332,7 +332,7 @@ func TestGroupMultiDiscFoldersRequiresAtLeastTwoSiblings(t *testing.T) {
 		},
 	}
 
-	got := groupMultiDiscFolders(groups)
+	got := groupMultiDiscFolders(groups, nil)
 	if len(got) != 1 || len(got["/music/Album/CD1"]) != 1 {
 		t.Fatalf("got = %+v, want the lone CD1 folder unchanged", got)
 	}
