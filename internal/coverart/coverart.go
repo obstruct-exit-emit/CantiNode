@@ -157,6 +157,31 @@ func (c *Client) GetFrontCover(ctx context.Context, releaseGroupMBID, releaseMBI
 	return c.fetchFromCoverArtArchive(ctx, releaseMBID)
 }
 
+// Refetch forces a fresh, live check of both sources for releaseMBID's
+// front cover right now, ignoring whatever's currently cached — a cached
+// image, either sentinel, or both. GetFrontCover's own dual-sentinel
+// design (see its doc comment) already self-heals a stale miss on its
+// own, but only after noCoverRecheckAfter (30 days) — this is the album
+// page's own "retry cover art" action, for a user who doesn't want to
+// wait that long on the chance either provider's catalog has since grown
+// to include this release. Returns ErrNoCoverArt the same as GetFrontCover
+// when a fresh check of both sources still turns up nothing.
+func (c *Client) Refetch(ctx context.Context, releaseGroupMBID, releaseMBID string) (path, contentType string, err error) {
+	if err := c.DeleteCached(releaseMBID); err != nil {
+		return "", "", err
+	}
+	// DeleteCached deliberately leaves noAudioDBSentinelExt alone (see its
+	// own doc comment — it outliving one release's removal is harmless) —
+	// but a genuine retry needs both sentinels gone, or a still-fresh
+	// noAudioDBSentinelExt would silently skip re-checking TheAudioDB here.
+	if releaseGroupMBID != "" {
+		if err := os.Remove(filepath.Join(c.cacheDir, releaseGroupMBID+noAudioDBSentinelExt)); err != nil && !os.IsNotExist(err) {
+			return "", "", fmt.Errorf("delete no-audiodb sentinel: %w", err)
+		}
+	}
+	return c.GetFrontCover(ctx, releaseGroupMBID, releaseMBID)
+}
+
 // DeleteCached removes releaseMBID's cached front cover (any of the known
 // extensions) and its no-cover sentinel, if either exists — used when an
 // artist is removed so its albums' cover art doesn't outlive the artist

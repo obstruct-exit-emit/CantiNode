@@ -815,6 +815,14 @@ export const api = {
   // not currently surfaced in this view.
   getMusicAlbumDescription: (id: number) =>
     request<{ description: string; mood?: string }>(`/api/v1/music/album/${id}/description`),
+  // The album/artist page's own "retry cover art" button, shown over the
+  // fallback tile once the plain <img src={musicAlbumCoverUrl(...)}>
+  // fails to load — forces a fresh check of both cover art sources rather
+  // than waiting on their own ~30-day self-heal. found:false means the
+  // retry itself succeeded, it just confirmed neither source has this
+  // release right now.
+  retryMusicAlbumCover: (id: number) =>
+    request<{ found: boolean }>(`/api/v1/music/album/${id}/cover/retry`, { method: "POST" }),
   searchAlbumUpgrade: (id: number) =>
     request<{ releases: ReleaseCandidate[]; errors: string[] }>(`/api/v1/music/album/${id}/upgrade/search`),
   grabAlbumUpgrade: (

@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
   getApiKey,
-  musicAlbumCoverUrl,
   type MusicAlbum,
   type MusicTrack,
   type MusicTrackFile,
   type RenameMove,
 } from "../api";
+import AlbumCover from "../components/AlbumCover";
 import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
@@ -241,11 +241,13 @@ export default function AlbumDetailView({
       </button>
 
       <section className="card detail-head">
-        {album.mbid ? (
-          <img className="detail-art" src={musicAlbumCoverUrl(album.id)} alt={`Cover of ${album.title}`} />
-        ) : (
-          <div className="detail-art fallback">{album.title.charAt(0)}</div>
-        )}
+        <AlbumCover
+          albumId={album.id}
+          mbid={album.mbid}
+          title={album.title}
+          className="detail-art"
+          alt={`Cover of ${album.title}`}
+        />
         <div className="detail-info">
           <h2>
             {album.title}

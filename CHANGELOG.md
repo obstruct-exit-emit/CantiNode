@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A "retry cover art" control appears over an owned album's cover once
+  it fails to load** — on the album page's own large cover and every
+  artist page's owned-albums grid. Clicking it calls new
+  `coverart.Client.Refetch`, which forces a live re-check of both cover
+  art sources right now rather than waiting out either source's own
+  ~30-day stale-miss recheck (see `noCoverRecheckAfter`) — clears the
+  cached image and both sentinels for the release before calling
+  `GetFrontCover` again, so a cover either provider has added since the
+  last check gets picked up immediately. `{"found": false}` (still a
+  200 — the retry itself worked, it just confirmed neither source has
+  this release right now) surfaces as a toast rather than an error. The
+  control itself is a `role="button"` `<span>`, not a real `<button>`:
+  it sits inside a poster-grid tile that's already a `<button>`
+  (navigates to the album on click), and a nested `<button>` gets
+  silently hoisted out of its parent by the browser's own HTML parsing
+  rules, breaking the overlay positioning.
 - **A new Settings → Music → "Tags to Write" card lets every field "Write
   tags" can embed be toggled on or off individually, all on by default.**
   A disabled field is left completely alone by a write — never set, never

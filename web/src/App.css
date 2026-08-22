@@ -1344,6 +1344,42 @@ button.show-more {
   color: var(--muted);
 }
 
+/* Retry-cover-art control, layered over a fallback tile (poster or
+   detail-art) — see components/AlbumCover.tsx. */
+.cover-missing {
+  position: relative;
+}
+
+.cover-retry {
+  position: absolute;
+  inset: auto 0 0.4rem 0;
+  margin: 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.cover-retry:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.detail-art .cover-retry {
+  width: 2.2rem;
+  height: 2.2rem;
+  font-size: 1.2rem;
+  margin-bottom: 0.6rem;
+}
+
 .poster-title {
   font-size: 0.82rem;
   margin-top: 0.35rem;

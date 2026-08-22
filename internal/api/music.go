@@ -1000,6 +1000,43 @@ func (s *server) handleMusicAlbumCover(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
+// handleRetryMusicAlbumCover forces a fresh, live check of both cover art
+// sources for an album right now — the album/artist page's own "retry
+// cover art" button, shown over the fallback tile when the plain /cover
+// endpoint above 404s. See coverart.Client.Refetch's own doc comment for
+// why this is worth having even though a stale miss already self-heals on
+// its own after 30 days: this is for a user who doesn't want to wait.
+// {"found": true} on success, {"found": false} (still 200 — the retry
+// itself succeeded, it just confirmed neither source has this release)
+// when a fresh check still comes up empty.
+func (s *server) handleRetryMusicAlbumCover(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	album, err := s.musicStore.GetAlbum(id)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	if album.MBID == "" {
+		writeError(w, http.StatusBadRequest, "album has no matched release yet")
+		return
+	}
+
+	_, _, err = s.coverart.Refetch(r.Context(), album.ReleaseGroupMBID, album.MBID)
+	if err != nil {
+		if errors.Is(err, coverart.ErrNoCoverArt) {
+			writeJSON(w, http.StatusOK, map[string]bool{"found": false})
+			return
+		}
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"found": true})
+}
+
 // handleAudioDBAlbumLink redirects to an album's own page on
 // theaudiodb.com — the album page's "TheAudioDB" link icon. Unlike
 // MusicBrainz (whose browsable URLs are MBID-based, so the frontend

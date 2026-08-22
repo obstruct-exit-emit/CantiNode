@@ -358,6 +358,96 @@ func TestGetFrontCoverCachesAudioDBMissSeparatelyFromCoverArtArchive(t *testing.
 	}
 }
 
+// TestRefetchBypassesBothFreshSentinels is the regression test for the
+// album page's own "retry cover art" action: even with both sources
+// already negative-cached (fresh, well within noCoverRecheckAfter — the
+// normal case Refetch exists for, not a stale-sentinel recheck), Refetch
+// must still force a live check of both and pick up a cover either has
+// added since.
+func TestRefetchBypassesBothFreshSentinels(t *testing.T) {
+	hasArt := false
+	caaRequests := 0
+	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caaRequests++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(caa.Close)
+
+	var audiodbSrv *httptest.Server
+	audiodbRequests := 0
+	audiodbSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/thumb.jpg" {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Write([]byte("audiodb thumb bytes"))
+			return
+		}
+		audiodbRequests++
+		if !hasArt {
+			w.Write([]byte(audioDBAlbumJSON("")))
+			return
+		}
+		w.Write([]byte(audioDBAlbumJSON(audiodbSrv.URL + "/thumb.jpg")))
+	}))
+	t.Cleanup(audiodbSrv.Close)
+
+	adb := audiodb.NewClientWithBaseURL("test-key", audiodbSrv.URL)
+	c := NewClient(t.TempDir(), "cantinode-test/0.1", adb)
+	c.baseURL = caa.URL
+
+	// Seed both sentinels, fresh — neither source has the art yet.
+	if _, _, err := c.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("seed call err = %v, want ErrNoCoverArt", err)
+	}
+	if audiodbRequests != 1 || caaRequests != 1 {
+		t.Fatalf("audiodbRequests=%d caaRequests=%d after seed, want 1 and 1", audiodbRequests, caaRequests)
+	}
+
+	// A plain GetFrontCover must trust the still-fresh sentinels and not
+	// hit the network again — establishes the baseline Refetch exists to
+	// override.
+	if _, _, err := c.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("plain GetFrontCover err = %v, want ErrNoCoverArt", err)
+	}
+	if audiodbRequests != 1 || caaRequests != 1 {
+		t.Fatalf("audiodbRequests=%d caaRequests=%d after plain GetFrontCover, want unchanged 1 and 1", audiodbRequests, caaRequests)
+	}
+
+	// TheAudioDB has since added the art — Refetch must find it despite
+	// both sentinels still being fresh.
+	hasArt = true
+	path, _, err := c.Refetch(t.Context(), "release-group-mbid", "release-mbid")
+	if err != nil {
+		t.Fatalf("Refetch: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "audiodb thumb bytes" {
+		t.Errorf("cached content = %q, want TheAudioDB's own thumb", data)
+	}
+	if audiodbRequests != 2 {
+		t.Errorf("audiodbRequests = %d, want 2 — Refetch must force a live TheAudioDB check", audiodbRequests)
+	}
+}
+
+// TestRefetchReturnsErrNoCoverArtWhenStillNothing confirms Refetch reports
+// the same ErrNoCoverArt as GetFrontCover when a fresh check of both
+// sources still finds nothing — not some other error from the sentinel
+// cleanup step.
+func TestRefetchReturnsErrNoCoverArtWhenStillNothing(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	if _, _, err := c.GetFrontCover(t.Context(), "", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("seed call err = %v, want ErrNoCoverArt", err)
+	}
+	if _, _, err := c.Refetch(t.Context(), "", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("Refetch err = %v, want ErrNoCoverArt", err)
+	}
+}
+
 // TestGetFrontCoverSkipsAudioDBWithoutReleaseGroupMBID covers a caller
 // that only has the release MBID in hand (releaseGroupMBID == "") — must
 // go straight to Cover Art Archive without ever querying TheAudioDB.

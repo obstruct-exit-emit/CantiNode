@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   api,
   getApiKey,
-  musicAlbumCoverUrl,
   musicReleaseGroupCoverUrl,
   proxiedImage,
   type ArtistMove,
@@ -14,6 +13,7 @@ import {
   type RenameMove,
   type WantedAlbum,
 } from "../api";
+import AlbumCover from "../components/AlbumCover";
 import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
@@ -597,11 +597,7 @@ export default function ArtistDetailView({
             {sortGridAlbums(gridAlbums, albumsSort, albumsDir).map((g) =>
               g.kind === "owned" ? (
                 <button key={g.key} className="poster-card" onClick={() => onOpenAlbum(g.id)}>
-                  {g.mbid ? (
-                    <img className="poster" src={musicAlbumCoverUrl(g.id)} alt="" loading="lazy" />
-                  ) : (
-                    <div className="poster fallback">{g.title.charAt(0)}</div>
-                  )}
+                  <AlbumCover albumId={g.id} mbid={g.mbid} title={g.title} className="poster" />
                   <span className="poster-title">{g.title}</span>
                   <span className="poster-sub">
                     {g.releaseDate ? g.releaseDate.slice(0, 4) + " · " : ""}
