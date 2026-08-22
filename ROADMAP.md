@@ -341,11 +341,74 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
     Reaches both the per-file fuzzy path and the whole-folder consensus
     path, so a whole album of completely untagged files can now reach a
     match from its folder structure alone.
+16. [ ] **Import Lists** — scoped 2026-08-22 (a Lidarr feature CantiNode
+    was missing — see [CHANGELOG](CHANGELOG.md) for the comparison that
+    prompted this), not yet built. Point CantiNode at an external source;
+    on a periodic sweep it resolves the source to MusicBrainz artist
+    MBIDs and adds+monitors any new artist automatically (matching
+    Lidarr's own default), so it joins the existing autosearch sweep with
+    no manual step. Add-only — an artist that later falls off a list
+    stays in the library, matching CantiNode's existing "never
+    auto-delete" posture elsewhere.
+    - **v1 source types, decided**: MusicBrainz Series (no new
+      integration — reuses `musicbrainz.Client.LookupSeries`, which
+      already exists and already dedupes/sorts its linked release
+      groups), a plain list (pasted text or a fetched URL, one artist
+      name per line, resolved the same way a manual "add artist" search
+      does), and Last.fm (a user's top artists, or a tag/genre's top
+      artists — needs a new Last.fm API key setting mirroring the
+      existing TheAudioDB key). **Deliberately deferred**: Spotify
+      (OAuth login-flow complexity is its own separate piece of work)
+      and MusicBrainz Collections (not even supported by Lidarr itself
+      yet — still an open feature request there).
+    - **Design, grounded in a research pass over CantiNode's own existing
+      conventions** (indexer/download-client CRUD, the
+      autosearch/discoveryrefresh/metadatabackfill periodic-service
+      shape, `TimingSettings`' tunable-interval pattern, and the
+      Settings-page card conventions), so this is ready to build, not
+      just an idea:
+      - New `internal/importlist` package: a `discoveryrefresh`-shaped
+        `Service`/`RunPeriodic`/`PollOnce` (simple periodic, no
+        daily-schedule mode needed).
+      - New `import_lists` table (next migration): flat typed columns —
+        id, name, type, per-type config fields, enabled, added_at,
+        last_synced_at, last_sync_error — matching the
+        `indexers`/`download_clients` convention rather than a JSON blob.
+      - Per-type resolver: MusicBrainz Series via the existing
+        `LookupSeries`; Last.fm via a new keyless-per-user
+        `user.getTopArtists`/`tag.getTopArtists` call resolved to MBIDs
+        via the existing `SearchArtists`; plain list via the same
+        search-based resolution over a line-per-artist source.
+      - Each resolved MBID goes through the same cheap path
+        `handleQuickAddMusicArtist` already uses (`LookupArtist` →
+        `GetOrCreateArtist` → `SetArtistMonitored(true)` →
+        `discography.Service.RefreshArtist`), leaving full bio/version
+        backfill to the existing `metadatabackfill` periodic sweep
+        rather than paying for it synchronously per artist during an
+        unattended sweep of potentially many artists at once.
+      - REST CRUD mirrors `internal/api/indexers.go` exactly: `GET/POST
+        /api/v1/importlist`, `PUT/DELETE /api/v1/importlist/{id}`,
+        `POST /api/v1/importlist/test` (validate an unsaved draft
+        resolves without erroring, same as the indexer Test button).
+      - Sync cadence is a new `TimingSettings.ImportListSyncIntervalMinutes`
+        (24h default, matching Lidarr's own default) — surfaces through
+        the existing `GET/PUT /api/v1/settings/timings` route and
+        `TimingsPanel`, no new settings route needed for cadence.
+      - UI: a new `ImportListsCard` in `web/src/views/SettingsView.tsx`,
+        structurally identical to the existing `IndexersCard`/
+        `DownloadClientsCard` (saved-list with test/enable-toggle/edit/
+        remove row actions; one add/edit form below with a type dropdown
+        driving conditional per-type fields).
 
 ## Future 💡
 
 Under consideration, in no particular order:
 
+- [ ] **Spotify import lists** — deferred out of the initial [Import
+  Lists](#next-steps-) work (item 16 above): followed artists, saved
+  albums, and playlists as a fourth import-list source type, pending an
+  OAuth login-flow design (the other three v1 source types are all
+  keyless or bring-your-own-API-key, no user login flow needed).
 - [ ] **Docker and Windows support, returning**: Dockerfile + compose,
   published GHCR images, and a Windows zip + install script all worked and
   shipped before being pulled back mid-Phase-6 to concentrate on one
