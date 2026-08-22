@@ -694,6 +694,7 @@ export const api = {
     ),
   cancelGrab: (id: number) =>
     request<{ cancelled: number }>(`/api/v1/grab/${id}/cancel`, { method: "POST" }),
+  clearHistory: () => request<{ cleared: number }>("/api/v1/history", { method: "DELETE" }),
 
   listProfiles: () => request<QualityProfile[]>("/api/v1/qualityprofile"),
   addProfile: (p: Partial<QualityProfile>) =>

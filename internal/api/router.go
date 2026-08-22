@@ -270,6 +270,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("GET /api/v1/blocklist", s.auth(s.handleBlocklist))
 	mux.HandleFunc("DELETE /api/v1/blocklist/{id}", s.auth(s.handleUnblock))
 	mux.HandleFunc("GET /api/v1/history", s.auth(s.handleHistory))
+	mux.HandleFunc("DELETE /api/v1/history", s.auth(s.handleClearHistory))
 	mux.HandleFunc("POST /api/v1/grab/{id}/cancel", s.auth(s.handleCancelGrab))
 
 	mux.HandleFunc("/", s.handleIndex)

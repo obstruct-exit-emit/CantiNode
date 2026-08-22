@@ -94,6 +94,21 @@ export default function ActivityView({
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   };
 
+  const clearHistory = async () => {
+    const ok = await confirmDlg({
+      title: "Clear history",
+      message:
+        "Delete every resolved grab (imported or failed) from history? A still-downloading grab is left untouched.\n\nThis only clears CantiNode's own record — it does not touch any download client, and it does not un-blocklist anything.",
+      confirmLabel: "Clear history",
+      danger: true,
+    });
+    if (!ok) return;
+    api
+      .clearHistory()
+      .then(reload)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  };
+
   // Poll while the tab is open; downloads move fast.
   useEffect(() => {
     reload();
@@ -209,15 +224,24 @@ export default function ActivityView({
         <details className="disclosure">
           <summary>History ({histTotal})</summary>
           <div className="disclosure-body">
-            <input
-              className="grid-filter"
-              placeholder="Filter history by title…"
-              value={histFilter}
-              onChange={(e) => {
-                setHistFilter(e.target.value);
-                setHistLimit(100);
-              }}
-            />
+            <div className="grid-controls">
+              <input
+                className="grid-filter"
+                placeholder="Filter history by title…"
+                value={histFilter}
+                onChange={(e) => {
+                  setHistFilter(e.target.value);
+                  setHistLimit(100);
+                }}
+              />
+              <button
+                className="danger"
+                title="Delete every resolved grab (imported or failed) — a still-downloading one is left alone"
+                onClick={clearHistory}
+              >
+                Clear history
+              </button>
+            </div>
             {history.length === 0 && (
               <p className="muted">No grabs match the filter.</p>
             )}

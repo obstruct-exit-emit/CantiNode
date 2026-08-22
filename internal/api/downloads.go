@@ -185,6 +185,18 @@ func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"records": records, "total": total})
 }
 
+// handleClearHistory deletes every resolved grab (imported or failed) from
+// history — a still-in-flight one (status=grabbed) is left alone, since
+// it's active tracking, not history yet.
+func (s *server) handleClearHistory(w http.ResponseWriter, r *http.Request) {
+	cleared, err := s.downloads.Store().ClearHistory()
+	if err != nil {
+		writeDownloadError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"cleared": cleared})
+}
+
 // handleCancelGrab manually resolves a pending grab as failed, without
 // touching any download client. A grab can be left permanently "pending" —
 // blocking any new search or grab for its book — when its queue entry is

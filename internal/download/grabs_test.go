@@ -119,3 +119,32 @@ func TestGetGrabNotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// TestClearHistory confirms resolved grabs (imported/failed) are deleted
+// while a still in-flight one (grabbed) survives — clearing history must
+// never touch a download the importer is still actively tracking.
+func TestClearHistory(t *testing.T) {
+	s := newTestService(t).Store()
+
+	imported := addTestGrab(t, s, 1, GrabStatusImported)
+	failed := addTestGrab(t, s, 2, GrabStatusFailed)
+	grabbed := addTestGrab(t, s, 3, GrabStatusGrabbed)
+
+	cleared, err := s.ClearHistory()
+	if err != nil {
+		t.Fatalf("ClearHistory: %v", err)
+	}
+	if cleared != 2 {
+		t.Errorf("cleared = %d, want 2", cleared)
+	}
+
+	if _, err := s.GetGrab(imported); err != ErrNotFound {
+		t.Errorf("imported grab err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetGrab(failed); err != ErrNotFound {
+		t.Errorf("failed grab err = %v, want ErrNotFound", err)
+	}
+	if got, err := s.GetGrab(grabbed); err != nil || got.Status != GrabStatusGrabbed {
+		t.Errorf("in-flight grab = %+v, err = %v, want it to survive untouched", got, err)
+	}
+}

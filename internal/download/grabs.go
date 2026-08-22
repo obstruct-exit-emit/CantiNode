@@ -193,3 +193,16 @@ func (s *Store) ResolveGrab(id int64, status, message string) error {
 	}
 	return nil
 }
+
+// ClearHistory deletes every resolved grab (imported or failed) — a still
+// in-flight one (status=grabbed) is left alone, since it's active tracking
+// the importer still needs, not history yet. Returns how many rows were
+// removed.
+func (s *Store) ClearHistory() (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM grabs WHERE status != ?`, GrabStatusGrabbed)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
