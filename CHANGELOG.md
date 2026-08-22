@@ -11,6 +11,18 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **Settings → Music → MusicBrainz now has a "Server URL" field** pointing
+  CantiNode at a MusicBrainz-API-compatible mirror instead of the real
+  musicbrainz.org — for an operator who has a self-hosted mirror of their
+  own (`musicbrainz.NewClientWithBaseURL` already existed for exactly this,
+  previously only reachable from tests). Deliberately not a shortcut to
+  someone else's infrastructure: there's no bundled or suggested mirror to
+  point this at, and CantiNode makes no attempt to auto-discover or default
+  to one — it's blank (real musicbrainz.org) unless an operator has
+  actually stood up their own. Applied at startup only, the same as
+  `musicbrainzContactEmail`/`audioDbApiKey` right next to it — none of
+  these three reach into an already-constructed client's live state the
+  way `Scanner.UpdateSettings` does for naming/matching settings.
 - **A "retry cover art" control appears over an owned album's cover once
   it fails to load** — on the album page's own large cover and every
   artist page's owned-albums grid. Clicking it calls new

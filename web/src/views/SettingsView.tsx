@@ -457,6 +457,23 @@ function MusicCard({ onError }: { onError: (message: string) => void }) {
               }
             />
           </label>
+          <label>
+            Server URL
+            <input
+              type="text"
+              placeholder="https://musicbrainz.org/ws/2 (default)"
+              value={settings.musicbrainzBaseUrl}
+              onChange={(e) =>
+                setSettings({ ...settings, musicbrainzBaseUrl: e.target.value })
+              }
+            />
+          </label>
+          <p className="muted field-note">
+            Only for a self-hosted MusicBrainz-API-compatible mirror you run
+            and control yourself — not a way to borrow someone else's
+            infrastructure for free. Leave blank to use the real
+            musicbrainz.org. Takes effect after a restart.
+          </p>
         </Section>
 
         <Section

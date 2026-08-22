@@ -171,6 +171,37 @@ func TestSetTagWritePersistsAcrossReload(t *testing.T) {
 	}
 }
 
+// TestSetMusicPersistsAcrossReload covers MusicBrainzBaseURL specifically
+// (the self-hosted-mirror override — see MusicSettings' own doc comment)
+// alongside its siblings, none of which had dedicated persistence
+// coverage before.
+func TestSetMusicPersistsAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := MusicSettings{
+		OrganizeOnMatch:         true,
+		MinMatchConfidence:      0.6,
+		AutoMatchConfidence:     0.9,
+		MusicBrainzContactEmail: "operator@example.com",
+		AudioDBAPIKey:           "my-key",
+		MusicBrainzBaseURL:      "https://mirror.example.com/ws/2",
+	}
+	if err := cfg.SetMusic(want); err != nil {
+		t.Fatalf("SetMusic: %v", err)
+	}
+
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := reloaded.MusicSettings(); got != want {
+		t.Errorf("MusicSettings() after reload = %+v, want %+v", got, want)
+	}
+}
+
 func TestSetTimingsNormalizesWantedSearchFields(t *testing.T) {
 	cfg, err := Load(t.TempDir())
 	if err != nil {

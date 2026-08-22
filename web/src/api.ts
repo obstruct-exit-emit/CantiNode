@@ -470,6 +470,13 @@ export interface MusicSettings {
   autoMatchConfidence: number;
   musicbrainzContactEmail: string;
   audioDbApiKey: string;
+  // Points at a MusicBrainz-API-compatible server other than the real
+  // musicbrainz.org — a self-hosted mirror the operator runs themselves,
+  // not a shortcut to someone else's infrastructure. Empty (the default)
+  // uses the real musicbrainz.org. Applied at startup only — like
+  // musicbrainzContactEmail/audioDbApiKey above, changing it needs a
+  // restart.
+  musicbrainzBaseUrl: string;
 }
 
 // TagWriteSettings mirrors config.TagWriteSettings' own negative polarity

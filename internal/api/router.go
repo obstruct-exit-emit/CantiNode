@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,6 +87,9 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	musicSettings := cfg.MusicSettings()
 	musicStore := musiclibrary.NewStore(db)
 	mb := musicbrainz.NewClient(version, musicSettings.MusicBrainzContactEmail)
+	if base := strings.TrimRight(strings.TrimSpace(musicSettings.MusicBrainzBaseURL), "/"); base != "" {
+		mb = musicbrainz.NewClientWithBaseURL(version, musicSettings.MusicBrainzContactEmail, base)
+	}
 	// One shared client for both artist metadata and cover art — two
 	// independent clients would each keep their own throttle state,
 	// doubling the effective request rate against TheAudioDB.

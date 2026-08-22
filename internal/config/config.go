@@ -300,6 +300,20 @@ type MusicSettings struct {
 	// missing bio/photo is a minor cosmetic gap, not a broken feature the
 	// way an unconfigured indexer/download client would be.
 	AudioDBAPIKey string `yaml:"audiodb_api_key" json:"audioDbApiKey"`
+	// MusicBrainzBaseURL points CantiNode at a MusicBrainz-API-compatible
+	// server other than the real musicbrainz.org — a self-hosted mirror
+	// the operator runs and controls themselves (see
+	// musicbrainz.NewClientWithBaseURL's own doc comment), not a way to
+	// get free speed from someone else's infrastructure: CantiNode has no
+	// bundled or recommended mirror to point this at, this is purely the
+	// knob for an operator who's stood up their own. Optional — empty (the
+	// default) uses the real musicbrainz.org. Applied at startup only
+	// (internal/api/router.go's own construction of the musicbrainz.Client)
+	// — unlike MinMatchConfidence/OrganizeOnMatch, changing it needs a
+	// restart, the same as MusicBrainzContactEmail/AudioDBAPIKey right
+	// above, since none of these reach into an already-constructed
+	// client's own live state the way Scanner.UpdateSettings does.
+	MusicBrainzBaseURL string `yaml:"musicbrainz_base_url" json:"musicbrainzBaseUrl"`
 }
 
 func defaultMusic() MusicSettings {
