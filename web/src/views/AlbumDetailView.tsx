@@ -429,22 +429,20 @@ export default function AlbumDetailView({
                       {t.discNumber > 1 ? `${t.discNumber}.` : ""}
                       {String(t.trackNumber).padStart(2, "0")} — {t.title}
                       {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} />}
+                    </span>
+                    <span className="row-actions">
                       {single && (
                         <>
                           <span className="pill">{single.format}</span>
                           <span className="pill">{formatBytes(single.sizeBytes)}</span>
+                          <button
+                            className="toggle"
+                            title="Show this file's own embedded tags"
+                            onClick={() => setTagsFile(single)}
+                          >
+                            Tags
+                          </button>
                         </>
-                      )}
-                    </span>
-                    <span className="row-actions">
-                      {single && (
-                        <button
-                          className="toggle"
-                          title="Show this file's own embedded tags"
-                          onClick={() => setTagsFile(single)}
-                        >
-                          Tags
-                        </button>
                       )}
                       <span className={tfiles.length > 0 ? "owned yes" : "owned no"}>
                         {tfiles.length > 0 ? "owned" : "no file"}
