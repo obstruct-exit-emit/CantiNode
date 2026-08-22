@@ -96,7 +96,7 @@ func TestDeleteArtistWithFiles(t *testing.T) {
 	}
 
 	// Re-seed, then delete WITH files.
-	artistID, _, _ = seedMusicFixture(t, a, rf.ID, trackPath)
+	artistID, _, trackFileID := seedMusicFixture(t, a, rf.ID, trackPath)
 	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/artist/%d?deleteFiles=true", artistID), nil, nil), http.StatusOK)
 	if _, err := os.Stat(trackPath); !os.IsNotExist(err) {
 		t.Fatal("file should be deleted from disk")
@@ -106,6 +106,18 @@ func TestDeleteArtistWithFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(rootDir); err != nil {
 		t.Fatalf("root folder itself must survive: %v", err)
+	}
+	// Regression check for a real bug found live: a deleteFiles=true removal
+	// used to unmatch the track_files row (the plain-delete behavior above)
+	// instead of removing it — orphaning a row that pointed at a path
+	// already gone from disk, left sitting in the Unmatched Files review
+	// page until some later scan happened to notice and prune it.
+	var stillThere int
+	if err := a.db.QueryRow(`SELECT count(*) FROM track_files WHERE id = ?`, trackFileID).Scan(&stillThere); err != nil {
+		t.Fatal(err)
+	}
+	if stillThere != 0 {
+		t.Error("track_files row should be deleted outright, not left behind unmatched, when its file was deleted from disk")
 	}
 }
 
@@ -138,7 +150,7 @@ func TestDeleteAlbumWithFiles(t *testing.T) {
 	// other's file.
 	artistID := seedMusicArtist(t, a, trackPath)
 	seedMusicAlbumFixture(t, a, artistID, rf.ID, keptPath)
-	albumID, _ := seedMusicAlbumFixture(t, a, artistID, rf.ID, trackPath)
+	albumID, trackFileID := seedMusicAlbumFixture(t, a, artistID, rf.ID, trackPath)
 
 	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/album/%d?deleteFiles=true", albumID), nil, nil), http.StatusOK)
 	if _, err := os.Stat(trackPath); !os.IsNotExist(err) {
@@ -149,6 +161,15 @@ func TestDeleteAlbumWithFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(keptPath); err != nil {
 		t.Fatalf("sibling album's file must survive: %v", err)
+	}
+	// Same regression check as TestDeleteArtistWithFiles: the row must be
+	// deleted outright, not left behind unmatched, once its file is gone.
+	var stillThere int
+	if err := a.db.QueryRow(`SELECT count(*) FROM track_files WHERE id = ?`, trackFileID).Scan(&stillThere); err != nil {
+		t.Fatal(err)
+	}
+	if stillThere != 0 {
+		t.Error("track_files row should be deleted outright, not left behind unmatched, when its file was deleted from disk")
 	}
 }
 

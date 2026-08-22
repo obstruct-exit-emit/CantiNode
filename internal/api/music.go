@@ -724,7 +724,19 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 	var paths []string
 	for _, f := range files {
 		if deleteFiles {
+			// The file itself is about to be deleted from disk (see
+			// writeDeleteResult below) — leaving its track_files row behind
+			// as "unmatched" would orphan it: a phantom entry pointing at a
+			// path that no longer exists, sitting in the Unmatched Files
+			// review page until some later scan happens to notice the path
+			// is gone and prunes it (DeleteTrackFilesMissing). Delete the
+			// row outright instead, same as removing one file on request.
 			paths = append(paths, f.Path)
+			if err := s.musicStore.DeleteTrackFile(f.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			continue
 		}
 		if err := s.musicStore.SetTrackFileMatch(f.ID, nil, musiclibrary.StatusUnmatched, 0); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -855,7 +867,15 @@ func (s *server) handleRemoveMusicAlbum(w http.ResponseWriter, r *http.Request) 
 	var paths []string
 	for _, f := range files {
 		if deleteFiles {
+			// See handleRemoveMusicArtist's identical fix — leaving the
+			// row as "unmatched" would orphan it once the file itself is
+			// deleted from disk below.
 			paths = append(paths, f.Path)
+			if err := s.musicStore.DeleteTrackFile(f.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			continue
 		}
 		if err := s.musicStore.SetTrackFileMatch(f.ID, nil, musiclibrary.StatusUnmatched, 0); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -1591,7 +1611,6 @@ func (s *server) handleMoveMusicArtist(w http.ResponseWriter, r *http.Request) {
 		s.musicMoveMu.Unlock()
 	}()
 
-	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
@@ -1702,7 +1721,6 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 		go s.backfillReleaseGroupVersions(context.Background())
 	}()
 
-	w.WriteHeader(http.StatusAccepted)
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
