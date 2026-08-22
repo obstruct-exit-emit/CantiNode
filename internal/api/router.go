@@ -86,12 +86,16 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	musicSettings := cfg.MusicSettings()
 	musicStore := musiclibrary.NewStore(db)
 	mb := musicbrainz.NewClient(version, musicSettings.MusicBrainzContactEmail)
-	musicScanner := musicscanner.New(musicStore, mb, slog.Default(),
-		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch)
 	// One shared client for both artist metadata and cover art — two
 	// independent clients would each keep their own throttle state,
 	// doubling the effective request rate against TheAudioDB.
 	audiodbClient := audiodb.NewClient(musicSettings.AudioDBAPIKey)
+	// Likewise shared between the API's own cover-serving endpoints and
+	// the scanner's "Write tags" embedding — one on-disk cache, one
+	// throttle state, either way a release's cover is fetched.
+	coverartClient := coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient)
+	musicScanner := musicscanner.New(musicStore, mb, coverartClient, slog.Default(),
+		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch)
 	discographySvc := discography.New(mb, musicStore)
 	metadataBackfillSvc := metadatabackfill.New(musicStore, mb, audiodbClient, discographySvc)
 
@@ -109,7 +113,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		musicScanner:     musicScanner,
 		mb:               mb,
 		audiodb:          audiodbClient,
-		coverart:         coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient),
+		coverart:         coverartClient,
 		discography:      discographySvc,
 		metadataBackfill: metadataBackfillSvc,
 	}

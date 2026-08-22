@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -1057,11 +1058,11 @@ func (s *server) handleGetMusicAlbumDescription(w http.ResponseWriter, r *http.R
 		return
 	}
 	if album.DescriptionFetchedAt != nil {
-		writeJSON(w, http.StatusOK, map[string]string{"description": album.Description})
+		writeJSON(w, http.StatusOK, map[string]string{"description": album.Description, "mood": album.Mood})
 		return
 	}
 
-	description := ""
+	description, mood := "", ""
 	if album.ReleaseGroupMBID != "" {
 		meta, err := s.audiodb.LookupAlbumByReleaseGroupMBID(r.Context(), album.ReleaseGroupMBID)
 		if err != nil {
@@ -1074,16 +1075,17 @@ func (s *server) handleGetMusicAlbumDescription(w http.ResponseWriter, r *http.R
 		}
 		if meta != nil {
 			description = meta.Description
+			mood = meta.Mood
 		}
 	}
 	// Stamped even when TheAudioDB simply has nothing for this album (a
 	// definitive answer, not a failure) so this isn't re-queried on every
 	// subsequent page view — same convention as SetArtistMetadata's own.
-	if err := s.musicStore.SetAlbumDescription(id, description, time.Now().UTC()); err != nil {
+	if err := s.musicStore.SetAlbumDescription(id, description, mood, time.Now().UTC()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"description": description})
+	writeJSON(w, http.StatusOK, map[string]string{"description": description, "mood": mood})
 }
 
 // handleReleaseGroupCover serves a release group's front cover art via its
@@ -1314,13 +1316,34 @@ func (s *server) handleOrganizeTrackFile(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"path": path})
 }
 
+// writeTagsClearOption decodes the optional {"clear": bool} body every
+// write-tags endpoint accepts — a request with no body at all (every
+// existing caller today) decodes as clear=false, the safe default; only
+// EOF is tolerated, any genuinely malformed body still 400s.
+func writeTagsClearOption(r *http.Request) (clear bool, ok bool) {
+	var req struct {
+		Clear bool `json:"clear"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		return false, false
+	}
+	return req.Clear, true
+}
+
 func (s *server) handleWriteMusicTags(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.musicScanner.WriteTags(id); err != nil {
+	clear, ok := writeTagsClearOption(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	ctx, cancel := s.metadataCtx()
+	defer cancel()
+	if err := s.musicScanner.WriteTags(ctx, id, clear); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1329,14 +1352,23 @@ func (s *server) handleWriteMusicTags(w http.ResponseWriter, r *http.Request) {
 
 // handleWriteMusicTagsForAlbum writes every matched file in an album back
 // to its own tags — the album page's own bulk "Write tags" action, the
-// album-scoped counterpart to handleOrganizeMusicAlbum.
+// album-scoped counterpart to handleOrganizeMusicAlbum. An optional
+// {"clear": true} body requests a full wipe-and-rewrite instead of the
+// default merge — see tagwriter.Write's own doc comment.
 func (s *server) handleWriteMusicTagsForAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	written, errs, err := s.musicScanner.WriteTagsForAlbum(id)
+	clear, ok := writeTagsClearOption(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	ctx, cancel := s.metadataCtx()
+	defer cancel()
+	written, errs, err := s.musicScanner.WriteTagsForAlbum(ctx, id, clear)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1353,7 +1385,14 @@ func (s *server) handleWriteMusicTagsForArtist(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	written, errs, err := s.musicScanner.WriteTagsForArtist(id)
+	clear, ok := writeTagsClearOption(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	ctx, cancel := s.metadataCtx()
+	defer cancel()
+	written, errs, err := s.musicScanner.WriteTagsForArtist(ctx, id, clear)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

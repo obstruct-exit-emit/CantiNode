@@ -135,13 +135,14 @@ func (c *Client) LookupArtistByMBID(ctx context.Context, mbid string) (*ArtistMe
 // and falls back to Cover Art Archive when TheAudioDB doesn't have it),
 // IDAlbum — TheAudioDB's own internal numeric album id, not the MBID —
 // for linking out to the album's own page on theaudiodb.com (which, unlike
-// MusicBrainz, doesn't use MBIDs in its browsable URLs at all), and
-// Description, the album's own write-up (MusicBrainz's release/
-// release-group data has no equivalent field at all).
+// MusicBrainz, doesn't use MBIDs in its browsable URLs at all), Description,
+// the album's own write-up, and Mood (e.g. "Trippy", "Melancholic") — both
+// TheAudioDB's own fields, with no MusicBrainz equivalent at all.
 type AlbumMeta struct {
 	ThumbURL    string
 	IDAlbum     string
 	Description string
+	Mood        string
 }
 
 type albumLookupResponse struct {
@@ -156,6 +157,7 @@ type audioDBAlbum struct {
 	AlbumThumb  string `json:"strAlbumThumb"`
 	IDAlbum     string `json:"idAlbum"`
 	Description string `json:"strDescription"`
+	Mood        string `json:"strMood"`
 }
 
 // LookupAlbumByReleaseGroupMBID fetches releaseGroupMBID's own entry from
@@ -186,6 +188,7 @@ func (c *Client) LookupAlbumByReleaseGroupMBID(ctx context.Context, releaseGroup
 		ThumbURL:    resp.Album[0].AlbumThumb,
 		IDAlbum:     resp.Album[0].IDAlbum,
 		Description: resp.Album[0].Description,
+		Mood:        resp.Album[0].Mood,
 	}, nil
 }
 

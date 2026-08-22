@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cantinode/cantinode/internal/coverart"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/tagreader"
@@ -27,9 +28,10 @@ import (
 // Scanner ties the database, MusicBrainz client, and tag reader together
 // into the scan -> match -> organize pipeline.
 type Scanner struct {
-	db     *musiclibrary.Store
-	mb     *musicbrainz.Client
-	logger *slog.Logger
+	db       *musiclibrary.Store
+	mb       *musicbrainz.Client
+	coverart *coverart.Client
+	logger   *slog.Logger
 
 	// settingsMu guards namingFormat/minMatchConfidence/organizeOnMatch —
 	// internal/api's settings endpoint calls UpdateSettings from an HTTP
@@ -46,14 +48,18 @@ type Scanner struct {
 // mirror the equivalent config.Config fields (kept as plain parameters
 // here rather than a *config.Config dependency, so this package doesn't
 // need to import internal/config just to read three values) — see
-// UpdateSettings to change them after construction.
-func New(db *musiclibrary.Store, mb *musicbrainz.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool) *Scanner {
+// UpdateSettings to change them after construction. coverartClient may be
+// nil (tests, or any setup that doesn't want embedded art) — WriteTags
+// simply never embeds a cover in that case, same as it never fetching one
+// at all.
+func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverart.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool) *Scanner {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Scanner{
 		db:                 db,
 		mb:                 mb,
+		coverart:           coverartClient,
 		logger:             logger,
 		namingFormat:       namingFormat,
 		minMatchConfidence: minMatchConfidence,

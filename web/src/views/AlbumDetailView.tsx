@@ -13,6 +13,7 @@ import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import TrackFileTagsModal from "../components/TrackFileTagsModal";
 import { formatBytes } from "../format";
+import { useUi } from "../ui";
 
 // commonBasePath returns the deepest directory every one of paths shares —
 // e.g. two discs' worth of files under .../Moonglow (2CD)/CD1/... and
@@ -80,6 +81,7 @@ export default function AlbumDetailView({
   onError: (message: string) => void;
   onBack: () => void;
 }) {
+  const { confirmDlg } = useUi();
   const [album, setAlbum] = useState<MusicAlbum | null>(null);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [files, setFiles] = useState<Record<number, MusicTrackFile[]>>({});
@@ -213,16 +215,30 @@ export default function AlbumDetailView({
       .finally(() => setHeaderBusy(false));
   };
 
-  const writeTags = () => {
+  const writeTags = (clear: boolean) => {
     setHeaderBusy(true);
     setNotice("");
     api
-      .writeMusicTagsForAlbum(album.id)
+      .writeMusicTagsForAlbum(album.id, clear)
       .then((r) => {
         setNotice(`✓ Wrote tags to ${r.written} file(s)${r.errors.length ? `, ${r.errors.length} failed` : ""}.`);
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setHeaderBusy(false));
+  };
+
+  const writeTagsClearFirst = async () => {
+    if (
+      await confirmDlg({
+        title: "Write tags (clear first)",
+        message:
+          "This wipes every tag CantiNode doesn't itself manage — embedded cover art (a fresh one is re-embedded from the album's own cached cover, if available), comments, lyrics, ReplayGain, ratings, custom fields from other taggers — before writing. The regular \"Write tags\" merges instead and never touches those. This cannot be undone.",
+        confirmLabel: "Clear and write",
+        danger: true,
+      })
+    ) {
+      writeTags(true);
+    }
   };
 
   const year = album.releaseDate ? album.releaseDate.slice(0, 4) : "";
@@ -309,8 +325,15 @@ export default function AlbumDetailView({
             <button disabled={headerBusy} onClick={previewOrganize} title="Preview naming-template moves for this album's files only">
               Organize…
             </button>
-            <button disabled={headerBusy} onClick={writeTags} title="Write this album's matched metadata back into every file's own tags">
+            <button disabled={headerBusy} onClick={() => writeTags(false)} title="Write this album's matched metadata back into every file's own tags">
               Write tags
+            </button>
+            <button
+              disabled={headerBusy}
+              onClick={writeTagsClearFirst}
+              title="Write tags after wiping everything CantiNode doesn't manage — embedded art, comments, lyrics, custom fields, ..."
+            >
+              Write tags (clear first)
             </button>
             <button
               className={showUpgrade ? "toggle on" : ""}

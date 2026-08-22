@@ -27,7 +27,7 @@ func TestWriteUnsupportedFormatReturnsErrUnsupportedFormat(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not a real wma"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := Write(path, Tags{Title: "X"})
+	err := Write(path, Tags{Title: "X"}, false)
 	if !errors.Is(err, ErrUnsupportedFormat) {
 		t.Errorf("err = %v, want ErrUnsupportedFormat", err)
 	}

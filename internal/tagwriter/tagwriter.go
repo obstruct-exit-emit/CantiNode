@@ -95,6 +95,15 @@ type Tags struct {
 	ReleaseCountry string
 	ReleaseStatus  string
 	Media          string
+	// Mood is the album's own mood descriptor (e.g. "Trippy",
+	// "Melancholic") — TheAudioDB's own field, cached alongside the
+	// album's description.
+	Mood string
+	// CoverImage, when non-empty, is embedded as the file's front cover —
+	// separate from every other field above since taglib writes an
+	// embedded image through its own dedicated call, not the same
+	// key-value tag map.
+	CoverImage []byte
 
 	// MusicBrainz IDs, written back so a future rescan recognizes this
 	// file by direct MBID match (see internal/scanner's matcher)
@@ -117,10 +126,19 @@ type Tags struct {
 
 // Write embeds tags into the audio file at path, based on its extension.
 // Returns ErrUnsupportedFormat for any extension IsSupported doesn't list.
-func Write(path string, tags Tags) error {
+//
+// clear controls whether fields this package doesn't itself manage
+// (comments, lyrics, ReplayGain, an existing embedded picture other than
+// what tags.CoverImage supplies, ...) are left alone (false — every other
+// caller's existing expectation) or stripped outright (true — a
+// deliberate, explicit "wipe first" pass, distinct from the accidental
+// full-replace bug MP3's old hand-rolled writer used to have). false
+// everywhere except a caller that specifically wants a clean-slate
+// rewrite.
+func Write(path string, tags Tags, clear bool) error {
 	switch extOf(path) {
 	case "mp3", "flac", "m4a", "m4b", "m4p", "ogg", "oga", "opus", "dsf", "wav":
-		return writeTagLib(path, tags)
+		return writeTagLib(path, tags, clear)
 	default:
 		return ErrUnsupportedFormat
 	}

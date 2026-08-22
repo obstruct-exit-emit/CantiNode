@@ -118,7 +118,7 @@ func setupOrganizeScanner(t *testing.T) (*Scanner, musiclibrary.RootFolder) {
 		t.Fatal(err)
 	}
 
-	s := New(db, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	s := New(db, nil, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false)
 	return s, *rf
 }
 

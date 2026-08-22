@@ -1,8 +1,10 @@
 package musicscanner
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cantinode/cantinode/internal/musiclibrary"
@@ -11,12 +13,25 @@ import (
 
 // WriteTags embeds trackFileID's matched metadata (artist/album/track
 // names, track/disc numbers, genre, release type, sort names, track/disc
-// totals, release country/status/media, and every MusicBrainz ID
-// CantiNode already resolved for it) back into the file's own tags — see
-// internal/tagwriter's package doc comment for exactly which formats this
-// supports. Requires the file to already be matched; there's nothing to
-// write otherwise.
-func (s *Scanner) WriteTags(trackFileID int64) error {
+// totals, release country/status/media, mood, cover art, and every
+// MusicBrainz ID CantiNode already resolved for it) back into the file's
+// own tags — see internal/tagwriter's package doc comment for exactly
+// which formats this supports. Requires the file to already be matched;
+// there's nothing to write otherwise. clear requests a full wipe of
+// everything this function doesn't itself set, rather than the default
+// merge — see tagwriter.Write's own doc comment for what that actually
+// destroys and why it's opt-in.
+func (s *Scanner) WriteTags(ctx context.Context, trackFileID int64, clear bool) error {
+	return s.writeTagsForFile(ctx, trackFileID, clear, map[int64][]byte{})
+}
+
+// writeTagsForFile is WriteTags's own body, taking a cover-image cache
+// shared across a whole bulk operation (WriteTagsForAlbum/WriteTagsForArtist)
+// so a release's cover is fetched at most once per call, not once per
+// track file — coverart.Client.GetFrontCover already disk-caches across
+// separate calls, but a bulk write for a 12-track album has no reason to
+// even repeat that many cache reads plus re-decoding the same bytes.
+func (s *Scanner) writeTagsForFile(ctx context.Context, trackFileID int64, clear bool, coverCache map[int64][]byte) error {
 	tf, err := s.db.GetTrackFile(trackFileID)
 	if err != nil {
 		return fmt.Errorf("get track file: %w", err)
@@ -120,16 +135,45 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 		ReleaseCountry:            releaseCountry,
 		ReleaseStatus:             releaseStatus,
 		Media:                     media,
+		Mood:                      album.Mood,
+		CoverImage:                s.coverImageForAlbum(ctx, album, coverCache),
 		MusicBrainzArtistID:       trackArtistMBID,
 		AlbumArtistID:             artist.MBID,
 		MusicBrainzAlbumID:        album.MBID,
 		MusicBrainzReleaseGroupID: album.ReleaseGroupMBID,
 		MusicBrainzRecordingID:    track.MBID,
 	}
-	if err := tagwriter.Write(tf.Path, tags); err != nil {
+	if err := tagwriter.Write(tf.Path, tags, clear); err != nil {
 		return fmt.Errorf("write tags to %s: %w", tf.Path, err)
 	}
 	return nil
+}
+
+// coverImageForAlbum returns album's own front cover image bytes, ready to
+// embed — best-effort: no coverart.Client (tests), no cover available for
+// this release (not yet cached and TheAudioDB/Cover Art Archive both come
+// up empty), or a transient fetch failure all just mean nothing gets
+// embedded, the same "cosmetic, not fatal" tolerance every other
+// TheAudioDB/Cover Art Archive call in this codebase already has — a
+// missing cover has never once blocked a match or a scan, and it doesn't
+// block a tag write either. cache is keyed by album ID so a bulk write
+// across one album's whole tracklist fetches/reads the cover once, not
+// once per track file.
+func (s *Scanner) coverImageForAlbum(ctx context.Context, album *musiclibrary.Album, cache map[int64][]byte) []byte {
+	if s.coverart == nil {
+		return nil
+	}
+	if img, ok := cache[album.ID]; ok {
+		return img
+	}
+	var img []byte
+	if path, _, err := s.coverart.GetFrontCover(ctx, album.ReleaseGroupMBID, album.MBID); err == nil {
+		if data, rerr := os.ReadFile(path); rerr == nil {
+			img = data
+		}
+	}
+	cache[album.ID] = img
+	return img
 }
 
 // WriteTagsForAlbum runs WriteTags for every matched file belonging to
@@ -141,31 +185,32 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 // PlanOrganizeAlbum already has; any other per-file failure is recorded
 // in errs and does not stop the rest, mirroring applyOrganizePlan's own
 // non-aborting pattern.
-func (s *Scanner) WriteTagsForAlbum(albumID int64) (written int, errs []string, err error) {
+func (s *Scanner) WriteTagsForAlbum(ctx context.Context, albumID int64, clear bool) (written int, errs []string, err error) {
 	files, err := s.db.ListTrackFilesByAlbum(albumID)
 	if err != nil {
 		return 0, nil, fmt.Errorf("list track files by album: %w", err)
 	}
-	return s.writeTagsForFiles(files)
+	return s.writeTagsForFiles(ctx, files, clear)
 }
 
 // WriteTagsForArtist is WriteTagsForAlbum scoped to every album artistID
 // owns — the artist page's own "Write tags" action.
-func (s *Scanner) WriteTagsForArtist(artistID int64) (written int, errs []string, err error) {
+func (s *Scanner) WriteTagsForArtist(ctx context.Context, artistID int64, clear bool) (written int, errs []string, err error) {
 	files, err := s.db.ListTrackFilesByArtist(artistID)
 	if err != nil {
 		return 0, nil, fmt.Errorf("list track files by artist: %w", err)
 	}
-	return s.writeTagsForFiles(files)
+	return s.writeTagsForFiles(ctx, files, clear)
 }
 
-func (s *Scanner) writeTagsForFiles(files []musiclibrary.TrackFile) (written int, errs []string, err error) {
+func (s *Scanner) writeTagsForFiles(ctx context.Context, files []musiclibrary.TrackFile, clear bool) (written int, errs []string, err error) {
+	coverCache := map[int64][]byte{}
 	errs = []string{}
 	for _, tf := range files {
 		if tf.MatchStatus == musiclibrary.StatusUnmatched {
 			continue
 		}
-		if werr := s.WriteTags(tf.ID); werr != nil {
+		if werr := s.writeTagsForFile(ctx, tf.ID, clear, coverCache); werr != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", tf.Path, werr))
 			continue
 		}

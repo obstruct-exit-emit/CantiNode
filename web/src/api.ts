@@ -286,6 +286,7 @@ export interface MusicAlbum {
   releaseDate: string;
   primaryType: string;
   description: string;
+  mood: string;
   // Absent (not merely falsy) until the description has actually been
   // looked up once — see internal/musiclibrary.Album's own doc comment.
   // Its presence, not description's own emptiness, is what tells the
@@ -765,10 +766,10 @@ export const api = {
       `/api/v1/music/album/${id}/organize`,
       { method: "POST" },
     ),
-  writeMusicTagsForAlbum: (id: number) =>
+  writeMusicTagsForAlbum: (id: number, clear = false) =>
     request<{ written: number; errors: string[] }>(
       `/api/v1/music/album/${id}/write-tags`,
-      { method: "POST" },
+      json({ clear }),
     ),
   scanMusicAlbum: (id: number) =>
     request<MusicScanResult>(`/api/v1/music/album/${id}/scan`, { method: "POST" }),
@@ -776,8 +777,11 @@ export const api = {
   // descriptionFetchedAt is unset — see that field's own doc comment.
   // Once fetched (even to nothing), the plain getMusicAlbum response
   // already carries the cached description for free.
+  // mood (TheAudioDB's own field, e.g. "Trippy") is cached alongside the
+  // description in the same response, for internal/tagwriter's own use —
+  // not currently surfaced in this view.
   getMusicAlbumDescription: (id: number) =>
-    request<{ description: string }>(`/api/v1/music/album/${id}/description`),
+    request<{ description: string; mood?: string }>(`/api/v1/music/album/${id}/description`),
   searchAlbumUpgrade: (id: number) =>
     request<{ releases: ReleaseCandidate[]; errors: string[] }>(`/api/v1/music/album/${id}/upgrade/search`),
   grabAlbumUpgrade: (
@@ -822,10 +826,10 @@ export const api = {
       `/api/v1/music/artist/${id}/organize`,
       { method: "POST" },
     ),
-  writeMusicTagsForArtist: (id: number) =>
+  writeMusicTagsForArtist: (id: number, clear = false) =>
     request<{ written: number; errors: string[] }>(
       `/api/v1/music/artist/${id}/write-tags`,
-      { method: "POST" },
+      json({ clear }),
     ),
   previewMoveMusicArtist: (id: number, rootFolderId: number) =>
     request<{ moves: ArtistMove[]; totalBytes: number }>(

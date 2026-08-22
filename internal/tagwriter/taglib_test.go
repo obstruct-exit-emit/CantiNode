@@ -130,7 +130,7 @@ func assertTags(t *testing.T, path string, tags Tags) {
 func TestWriteTagLibM4A(t *testing.T) {
 	path := copyFixture(t, "sample.m4a")
 	tags := fullTags()
-	if err := Write(path, tags); err != nil {
+	if err := Write(path, tags, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
@@ -143,7 +143,7 @@ func TestWriteTagLibM4A(t *testing.T) {
 func TestWriteTagLibMP3(t *testing.T) {
 	path := copyFixture(t, "sample.mp3")
 	tags := fullTags()
-	if err := Write(path, tags); err != nil {
+	if err := Write(path, tags, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
@@ -160,7 +160,7 @@ func TestWriteTagLibMP3(t *testing.T) {
 func TestWriteTagLibMP3NonASCIIText(t *testing.T) {
 	path := copyFixture(t, "sample.mp3")
 	artist := "Avantasia, Hansi Kürsch, Ronnie Atkins, Jørn Lande, Mille Petrozza"
-	if err := Write(path, Tags{Title: "Book of Shallows", Artist: artist, Album: "Moonglow"}); err != nil {
+	if err := Write(path, Tags{Title: "Book of Shallows", Artist: artist, Album: "Moonglow"}, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	got, err := tagreader.Read(path)
@@ -188,7 +188,7 @@ func TestWriteTagLibMP3PreservesUntrackedFields(t *testing.T) {
 		t.Fatal("fixture sample_tagged.mp3 is expected to already have a GENRE tag — test assumption broken")
 	}
 
-	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}); err != nil {
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func TestWriteTagLibMP3PreservesUntrackedFields(t *testing.T) {
 func TestWriteTagLibFLAC(t *testing.T) {
 	path := copyFixture(t, "sample.flac")
 	tags := fullTags()
-	if err := Write(path, tags); err != nil {
+	if err := Write(path, tags, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
@@ -232,7 +232,7 @@ func TestWriteTagLibFLACPreservesUntrackedFields(t *testing.T) {
 		t.Fatal("fixture sample_tagged.flac is expected to already have a GENRE tag — test assumption broken")
 	}
 
-	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}); err != nil {
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -251,7 +251,7 @@ func TestWriteTagLibFLACPreservesUntrackedFields(t *testing.T) {
 func TestWriteTagLibOGG(t *testing.T) {
 	path := copyFixture(t, "sample.ogg")
 	tags := fullTags()
-	if err := Write(path, tags); err != nil {
+	if err := Write(path, tags, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
@@ -260,7 +260,7 @@ func TestWriteTagLibOGG(t *testing.T) {
 func TestWriteTagLibDSF(t *testing.T) {
 	path := copyFixture(t, "sample.dsf")
 	tags := fullTags()
-	if err := Write(path, tags); err != nil {
+	if err := Write(path, tags, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
@@ -269,7 +269,7 @@ func TestWriteTagLibDSF(t *testing.T) {
 func TestWriteTagLibWAV(t *testing.T) {
 	path := copyFixture(t, "sample.wav")
 	tags := fullTags()
-	if err := Write(path, tags); err != nil {
+	if err := Write(path, tags, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
@@ -282,7 +282,7 @@ func TestWriteTagLibWAV(t *testing.T) {
 func TestWriteTagLibOpus(t *testing.T) {
 	path := copyFixture(t, "sample.opus")
 	tags := fullTags()
-	if err := Write(path, tags); err != nil {
+	if err := Write(path, tags, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	assertTags(t, path, tags)
@@ -304,7 +304,7 @@ func TestWriteTagLibPreservesUntrackedFields(t *testing.T) {
 		t.Fatal("fixture sample.dsf is expected to already have a GENRE tag — test assumption broken")
 	}
 
-	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}); err != nil {
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}, false); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -329,7 +329,7 @@ func TestWriteTagLibPreservesUntrackedFields(t *testing.T) {
 // have one).
 func TestWriteTagLibClearsEmptyField(t *testing.T) {
 	path := copyFixture(t, "sample.m4a")
-	if err := Write(path, Tags{Title: "T", AlbumArtist: "Stale Album Artist"}); err != nil {
+	if err := Write(path, Tags{Title: "T", AlbumArtist: "Stale Album Artist"}, false); err != nil {
 		t.Fatalf("seed write: %v", err)
 	}
 	seeded, err := tagreader.Read(path)
@@ -340,7 +340,7 @@ func TestWriteTagLibClearsEmptyField(t *testing.T) {
 		t.Fatalf("seed AlbumArtist = %q, want it to have taken", seeded.AlbumArtist)
 	}
 
-	if err := Write(path, Tags{Title: "T", AlbumArtist: ""}); err != nil {
+	if err := Write(path, Tags{Title: "T", AlbumArtist: ""}, false); err != nil {
 		t.Fatalf("clearing write: %v", err)
 	}
 	got, err := tagreader.Read(path)
@@ -352,5 +352,59 @@ func TestWriteTagLibClearsEmptyField(t *testing.T) {
 	}
 	if got.Title != "T" {
 		t.Errorf("Title = %q, want it to survive the clearing write", got.Title)
+	}
+}
+
+// TestWriteClearTrueWipesUntrackedFieldsFromMergeTruePreserves is the
+// regression/acceptance test for the explicit "wipe first" mode: the same
+// GENRE/COMPOSER a merge write (clear=false) leaves untouched must be
+// gone after a clear=true write of the exact same Tags — proving clear
+// actually reaches taglib.WriteOption, not just that the field-level
+// setFieldIfPresent logic happens to look the same either way.
+func TestWriteClearTrueWipesUntrackedFieldsFromMergeTruePreserves(t *testing.T) {
+	path := copyFixture(t, "sample_tagged.mp3")
+	before, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read fixture tags: %v", err)
+	}
+	if before[taglibpkg.Genre] == nil {
+		t.Fatal("fixture sample_tagged.mp3 is expected to already have a GENRE tag — test assumption broken")
+	}
+
+	if err := Write(path, Tags{Title: "New Title"}, true); err != nil {
+		t.Fatalf("Write (clear=true): %v", err)
+	}
+
+	after, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(after[taglibpkg.Genre]) != 0 {
+		t.Errorf("GENRE = %v after a clear=true write, want wiped", after[taglibpkg.Genre])
+	}
+	if len(after[taglibpkg.Composer]) != 0 {
+		t.Errorf("COMPOSER = %v after a clear=true write, want wiped", after[taglibpkg.Composer])
+	}
+	if got := after[taglibpkg.Title]; len(got) == 0 || got[0] != "New Title" {
+		t.Errorf("TITLE = %v, want [New Title] (clear must not remove fields the write itself sets)", got)
+	}
+}
+
+// TestWriteEmbedsCoverImage confirms Tags.CoverImage actually reaches the
+// file as a real embedded picture, readable back through taglib's own
+// image API — the mechanism internal/musicscanner's WriteTags relies on
+// to embed an album's cached cover art.
+func TestWriteEmbedsCoverImage(t *testing.T) {
+	path := copyFixture(t, "sample.mp3")
+	fakeJPEG := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xD9} // minimal JPEG SOI/APP0/EOI markers, no real image data
+	if err := Write(path, Tags{Title: "Cover Test", CoverImage: fakeJPEG}, false); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got, err := taglibpkg.ReadImage(path)
+	if err != nil {
+		t.Fatalf("ReadImage: %v", err)
+	}
+	if len(got) != len(fakeJPEG) {
+		t.Errorf("embedded image = %d bytes, want %d", len(got), len(fakeJPEG))
 	}
 }

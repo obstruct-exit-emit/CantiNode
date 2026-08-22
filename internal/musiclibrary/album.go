@@ -10,14 +10,16 @@ import (
 // Album is a library album (MusicBrainz release), matched to a specific
 // release MBID under ArtistID.
 //
-// Description/DescriptionFetchedAt are cached from internal/audiodb —
-// TheAudioDB, the only provider CantiNode has one from (MusicBrainz's own
-// release/release-group data carries no description-style field) —
-// fetched once, lazily, the first time the album detail page is actually
-// viewed (see internal/api's handleGetMusicAlbumDescription), same
+// Description/Mood/DescriptionFetchedAt are cached from internal/audiodb —
+// TheAudioDB, the only provider CantiNode has either from (MusicBrainz's
+// own release/release-group data carries neither field) — fetched once,
+// lazily, the first time the album detail page is actually viewed (see
+// internal/api's handleGetMusicAlbumDescription), same
 // cache-forever-after-one-try convention as Artist.Bio/MetadataFetchedAt:
 // DescriptionFetchedAt distinguishes "never tried" (nil) from "tried,
-// TheAudioDB had nothing" (non-nil, Description still "").
+// TheAudioDB had nothing" (non-nil, Description/Mood still ""). Mood
+// shares Description's own fetched-at flag rather than getting a second
+// one — both come from the exact same TheAudioDB response.
 type Album struct {
 	ID                   int64      `json:"id"`
 	ArtistID             int64      `json:"artistId"`
@@ -27,6 +29,7 @@ type Album struct {
 	ReleaseDate          string     `json:"releaseDate"`
 	PrimaryType          string     `json:"primaryType"`
 	Description          string     `json:"description"`
+	Mood                 string     `json:"mood"`
 	DescriptionFetchedAt *time.Time `json:"descriptionFetchedAt,omitempty"`
 	CreatedAt            time.Time  `json:"createdAt"`
 	UpdatedAt            time.Time  `json:"updatedAt"`
@@ -92,7 +95,7 @@ func scanAlbum(row interface{ Scan(...any) error }) (*Album, error) {
 	var a Album
 	var descriptionFetchedAt sql.NullTime
 	if err := row.Scan(&a.ID, &a.ArtistID, &a.MBID, &a.ReleaseGroupMBID, &a.Title, &a.ReleaseDate, &a.PrimaryType,
-		&a.Description, &descriptionFetchedAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		&a.Description, &a.Mood, &descriptionFetchedAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if descriptionFetchedAt.Valid {
@@ -169,7 +172,7 @@ func (s *Store) ReapOrphanedAlbum(albumID int64) error {
 	return s.DeleteAlbum(albumID)
 }
 
-const albumSelect = `SELECT id, artist_id, mbid, release_group_mbid, title, release_date, primary_type, description, description_fetched_at, created_at, updated_at FROM albums`
+const albumSelect = `SELECT id, artist_id, mbid, release_group_mbid, title, release_date, primary_type, description, mood, description_fetched_at, created_at, updated_at FROM albums`
 
 // GetAlbum returns a single album by ID, or ErrNotFound.
 func (s *Store) GetAlbum(id int64) (*Album, error) {
@@ -183,12 +186,12 @@ func (s *Store) GetAlbum(id int64) (*Album, error) {
 	return a, nil
 }
 
-// SetAlbumDescription records id's own TheAudioDB description — see
-// Album.Description's own doc comment for the caching convention.
-func (s *Store) SetAlbumDescription(id int64, description string, fetchedAt time.Time) error {
+// SetAlbumDescription records id's own TheAudioDB description and mood —
+// see Album.Description's own doc comment for the caching convention.
+func (s *Store) SetAlbumDescription(id int64, description, mood string, fetchedAt time.Time) error {
 	_, err := s.db.Exec(
-		`UPDATE albums SET description = ?, description_fetched_at = ?, updated_at = ? WHERE id = ?`,
-		description, fetchedAt, time.Now().UTC(), id)
+		`UPDATE albums SET description = ?, mood = ?, description_fetched_at = ?, updated_at = ? WHERE id = ?`,
+		description, mood, fetchedAt, time.Now().UTC(), id)
 	if err != nil {
 		return fmt.Errorf("set album description: %w", err)
 	}

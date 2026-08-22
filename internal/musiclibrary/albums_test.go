@@ -122,14 +122,14 @@ func TestSetAlbumDescription(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
-	if err := db.SetAlbumDescription(album.ID, "A metal opera concept album.", now); err != nil {
+	if err := db.SetAlbumDescription(album.ID, "A metal opera concept album.", "Epic", now); err != nil {
 		t.Fatalf("SetAlbumDescription: %v", err)
 	}
 	got, err := db.GetAlbum(album.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Description != "A metal opera concept album." || got.DescriptionFetchedAt == nil {
+	if got.Description != "A metal opera concept album." || got.Mood != "Epic" || got.DescriptionFetchedAt == nil {
 		t.Errorf("got = %+v", got)
 	}
 }

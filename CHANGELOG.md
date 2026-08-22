@@ -11,6 +11,23 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **A new "Write tags (clear first)" action, and "Write tags" (both
+  variants) now also embeds the album's own cover art and mood.**
+  The clear-first variant is a deliberate, explicit opt-in — confirm-gated
+  in the UI, since it's destructive and can't be undone — for wiping every
+  tag CantiNode doesn't itself manage (comments, lyrics, ReplayGain,
+  ratings, custom fields from other taggers, an existing embedded picture)
+  before writing, as opposed to the default merge, which only ever
+  touches the specific fields it sets. `go.senan.xyz/taglib` already had a
+  `Clear` write option built for exactly this. Cover art is embedded via
+  the same `coverart.Client` (TheAudioDB first, Cover Art Archive fallback)
+  the album page's own cover already uses — fetched once per album for a
+  bulk write, not once per track file, and best-effort the same way a
+  missing cover has never once blocked a match or a scan. Mood (e.g.
+  "Trippy") is TheAudioDB's own field, cached alongside the album
+  description CantiNode already fetches on an album's first page view —
+  no new fetch, just capturing a second field out of a response already
+  being read.
 - **"Write tags" now also embeds release country/status/media format, and
   the "Tags" popup now shows every field "Write tags" can write, not just
   the original eight.** Country/status/media are sourced from the same

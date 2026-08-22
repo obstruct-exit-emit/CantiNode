@@ -1,6 +1,7 @@
 package tagwriter
 
 import (
+	"fmt"
 	"strconv"
 
 	taglib "go.senan.xyz/taglib"
@@ -19,8 +20,10 @@ import (
 // file's existing tags rather than replacing the whole tag set, for
 // every format this function handles — confirmed live for both MP3 (a
 // GENRE/COMPOSER/embedded-art set survives a write untouched) and FLAC
-// (same, plus a seeded METADATA_BLOCK_PICTURE).
-func writeTagLib(path string, tags Tags) error {
+// (same, plus a seeded METADATA_BLOCK_PICTURE). clear passes taglib.Clear
+// instead, an explicit opt-in for a caller that wants a clean slate — see
+// Write's own doc comment.
+func writeTagLib(path string, tags Tags, clear bool) error {
 	set := map[string][]string{}
 	setField(set, taglib.Title, tags.Title)
 	setField(set, taglib.Artist, tags.Artist)
@@ -54,6 +57,7 @@ func writeTagLib(path string, tags Tags) error {
 	setFieldIfPresent(set, taglib.ReleaseCountry, tags.ReleaseCountry)
 	setFieldIfPresent(set, taglib.ReleaseStatus, tags.ReleaseStatus)
 	setFieldIfPresent(set, taglib.Media, tags.Media)
+	setFieldIfPresent(set, taglib.Mood, tags.Mood)
 	setField(set, taglib.MusicBrainzArtistID, tags.MusicBrainzArtistID)
 	setField(set, taglib.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
 	setField(set, taglib.MusicBrainzAlbumID, tags.MusicBrainzAlbumID)
@@ -66,7 +70,26 @@ func writeTagLib(path string, tags Tags) error {
 	// both M4A and OGG before this was wired in.
 	setField(set, taglib.MusicBrainzTrackID, tags.MusicBrainzRecordingID)
 
-	return taglib.WriteTags(path, set, 0)
+	var opts taglib.WriteOption
+	if clear {
+		opts = taglib.Clear
+	}
+	if err := taglib.WriteTags(path, set, opts); err != nil {
+		return err
+	}
+
+	// A separate call: embedded images are their own concept in TagLib,
+	// not part of the key-value tag map above, so Clear above never
+	// touches them either way. Writing at index 0 ("Front Cover")
+	// overwrites whatever was already there — deliberately unconditional
+	// on clear, since embedding real cover art is worth doing on an
+	// ordinary merge-mode write too, not just a clean-slate one.
+	if len(tags.CoverImage) > 0 {
+		if err := taglib.WriteImage(path, tags.CoverImage); err != nil {
+			return fmt.Errorf("write cover image: %w", err)
+		}
+	}
+	return nil
 }
 
 // setField always sets key — an explicit empty slice (rather than simply

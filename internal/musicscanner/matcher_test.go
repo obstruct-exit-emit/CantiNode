@@ -341,7 +341,7 @@ func newTestScanner(t *testing.T, lookupResponses map[string]mbRecording, search
 		t.Fatal(err)
 	}
 
-	s := New(db, mb, slog.Default(), "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
+	s := New(db, mb, nil, slog.Default(), "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false)
 	return s, *rf
 }
 
