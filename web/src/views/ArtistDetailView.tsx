@@ -436,25 +436,32 @@ export default function ArtistDetailView({
             >
               Write tags…
             </button>
-            {rootFolders.length > 1 && (
-              <select
-                value={moveTargetId}
-                disabled={busy || moving}
-                title="Move this artist's owned albums to a different root folder"
-                onChange={(e) => previewMove(e.target.value === "" ? "" : Number(e.target.value))}
-              >
-                <option value="">Move to…</option>
-                {rootFolders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            <button className="danger" disabled={busy} onClick={() => setConfirmRemove(!confirmRemove)}>
-              Remove artist
-            </button>
           </div>
+          <details className="disclosure">
+            <summary>Advanced</summary>
+            <div className="disclosure-body">
+              <div className="settings-actions">
+                {rootFolders.length > 1 && (
+                  <select
+                    value={moveTargetId}
+                    disabled={busy || moving}
+                    title="Move this artist's owned albums to a different root folder"
+                    onChange={(e) => previewMove(e.target.value === "" ? "" : Number(e.target.value))}
+                  >
+                    <option value="">Move to…</option>
+                    {rootFolders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button className="danger" disabled={busy} onClick={() => setConfirmRemove(!confirmRemove)}>
+                  Remove artist
+                </button>
+              </div>
+            </div>
+          </details>
           {notice && <p className="muted">{notice}</p>}
           {renamePlan && renamePlan.length > 0 && (
             <div className="rename-plan">

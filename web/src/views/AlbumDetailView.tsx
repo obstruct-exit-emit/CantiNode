@@ -371,10 +371,17 @@ export default function AlbumDetailView({
             >
               {showUpgrade ? "Hide upgrade search" : "Search upgrade"}
             </button>
-            <button className="danger" disabled={headerBusy} onClick={() => setConfirmRemove(!confirmRemove)}>
-              Remove album
-            </button>
           </div>
+          <details className="disclosure">
+            <summary>Advanced</summary>
+            <div className="disclosure-body">
+              <div className="settings-actions">
+                <button className="danger" disabled={headerBusy} onClick={() => setConfirmRemove(!confirmRemove)}>
+                  Remove album
+                </button>
+              </div>
+            </div>
+          </details>
           {notice && <p className="muted">{notice}</p>}
           {showUpgrade && (
             <ReleaseBrowser
