@@ -72,13 +72,32 @@ type PollResult struct {
 	Failed   int
 }
 
+// grabVanishedGrace bounds how soon after a grab PollOnce is willing to
+// conclude "not in the queue" means gone for good. Found live: a debrid
+// bridge (an NZB grab through TorBox's SABnzbd-compatible endpoint) can
+// take longer than one PollInterval to actually list an item it already
+// accepted — GrabRelease's own synchronous wait on the debrid service
+// (see download.downloadTimeout's doc comment) only covers the *submit*
+// call, not how soon the bridge's own queue/history reflects it afterward.
+// A grab still younger than this was, twice, wrongly failed and reverted
+// to "wanted" within a minute of being sent, on a completely healthy
+// release that the very next poll would have found — repeating on
+// consecutive days once autosearch re-grabbed the same still-wanted album,
+// with the actually-completed file just sitting unimported in the
+// download folder each time. Comfortably longer than PollInterval so a
+// slow bridge gets several looks before being given up on; a grab that's
+// genuinely gone (removed in the client, lost to a client restart) still
+// fails, just not on the very first miss.
+const grabVanishedGrace = 10 * time.Minute
+
 // PollOnce checks every "grabbed" (in-flight) grab against its download
 // client's current queue and acts on whichever ones have moved on: a
 // completed/seeded item gets imported (see importGrab), a failed one is
 // recorded as failed, and one that's vanished from its client's queue
-// entirely — without that client having simply failed to answer this pass
-// — is treated the same way (removed directly in the client, or lost to a
-// client restart).
+// entirely — without that client having simply failed to answer this pass,
+// and without the grab being fresh enough that the client just hasn't
+// caught up yet (see grabVanishedGrace) — is treated the same way (removed
+// directly in the client, or lost to a client restart).
 func (s *Service) PollOnce(ctx context.Context) PollResult {
 	var result PollResult
 
@@ -109,6 +128,9 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 		if !ok {
 			if failedClients[g.ClientConfigID] {
 				continue // that client just didn't answer this pass — not a true orphan
+			}
+			if grabbedAt, err := time.Parse(time.DateTime, g.GrabbedAt); err == nil && time.Since(grabbedAt) < grabVanishedGrace {
+				continue // too soon to conclude it's gone — see grabVanishedGrace
 			}
 			s.failGrab(g, "no longer in the download client's queue (removed there, or lost to a client restart)")
 			result.Failed++

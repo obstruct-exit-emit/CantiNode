@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"database/sql"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/database"
@@ -54,8 +56,12 @@ func mockSab(t *testing.T, storagePath, status string) (srv *httptest.Server, de
 
 // setup builds a full Service against temp databases/directories: a source
 // "download" directory with one real file (standing in for a finished
-// download's content) and a destination music root folder.
-func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musiclibrary.Store, string) {
+// download's content) and a destination music root folder. The raw *sql.DB
+// is returned alongside the stores that wrap it — needed by tests that must
+// reach past download.Store's own exported API, e.g. backdating a grab's
+// grabbed_at to simulate one that's been in flight a while (see
+// TestPollOnceFailsGrabPastGracePeriod).
+func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musiclibrary.Store, string, *sql.DB) {
 	t.Helper()
 	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -83,7 +89,7 @@ func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musi
 
 	cfg := &config.Config{}
 
-	return New(downloads, scanner, musicStore, cfg), dlStore, musicStore, destRoot
+	return New(downloads, scanner, musicStore, cfg), dlStore, musicStore, destRoot, db
 }
 
 func TestPollOnceImportsCompletedDownload(t *testing.T) {
@@ -103,7 +109,7 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	}
 
 	sab, deleteCalls := mockSab(t, albumDir, "Completed")
-	svc, dlStore, musicStore, destRoot := setup(t, sab)
+	svc, dlStore, musicStore, destRoot, _ := setup(t, sab)
 
 	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
 	if err != nil {
@@ -187,7 +193,7 @@ func TestImportGrabSkipsWhenCanceledBeforeCopy(t *testing.T) {
 	}
 
 	sab, _ := mockSab(t, albumDir, "Completed")
-	svc, dlStore, _, destRoot := setup(t, sab)
+	svc, dlStore, _, destRoot, _ := setup(t, sab)
 
 	g := download.GrabRecord{
 		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
@@ -242,7 +248,7 @@ func TestPollOnceAppliesPathMapping(t *testing.T) {
 	// "<src>/Mapped Album", i.e. albumDir itself.
 	remotePath := "/storage_1/downloads/torbox/cantinode/Mapped Album"
 	sab, _ := mockSab(t, remotePath, "Completed")
-	svc, dlStore, _, destRoot := setup(t, sab)
+	svc, dlStore, _, destRoot, _ := setup(t, sab)
 	svc.cfg = testConfigWithMapping(t, "/storage_1/downloads/torbox/cantinode", src)
 
 	if err := dlStore.AddGrab(&download.GrabRecord{
@@ -279,7 +285,7 @@ func testConfigWithMapping(t *testing.T, remote, local string) *config.Config {
 
 func TestPollOnceMarksClientReportedFailureAsFailed(t *testing.T) {
 	sab, _ := mockSab(t, "/does/not/matter", "Failed")
-	svc, dlStore, musicStore, _ := setup(t, sab)
+	svc, dlStore, musicStore, _, _ := setup(t, sab)
 
 	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
 	if err != nil {
@@ -326,7 +332,7 @@ func TestPollOnceMarksClientReportedFailureAsFailed(t *testing.T) {
 
 func TestPollOnceIgnoresGrabsStillInProgress(t *testing.T) {
 	sab, _ := mockSab(t, "/does/not/matter", "Downloading")
-	svc, dlStore, _, _ := setup(t, sab)
+	svc, dlStore, _, _, _ := setup(t, sab)
 
 	if err := dlStore.AddGrab(&download.GrabRecord{
 		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
@@ -351,9 +357,128 @@ func TestPollOnceIgnoresGrabsStillInProgress(t *testing.T) {
 	}
 }
 
+// mockSabEmpty fakes a client whose queue and history are both genuinely
+// empty — no slot with any nzo_id at all — the "this item isn't here"
+// half of the vanished-grab scenarios below, as opposed to mockSab, which
+// always reports exactly one slot for "nzo1".
+func mockSabEmpty(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("mode") {
+		case "queue":
+			w.Write([]byte(`{"queue":{"slots":[]}}`))
+		case "history":
+			w.Write([]byte(`{"history":{"slots":[]}}`))
+		default:
+			w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestPollOnceGivesFreshGrabGraceBeforeFailing is the regression test for a
+// real, live gap: a grab genuinely not (yet) in its client's queue used to
+// be failed and reverted to "wanted" on the very first miss — found live
+// against a real TorBox/SABnzbd bridge, which can take longer than one
+// PollInterval to actually list an item it already accepted, wrongly
+// failing a perfectly healthy download within a minute of grabbing it (see
+// grabVanishedGrace's own doc comment). A grab still younger than
+// grabVanishedGrace must be left alone (still "grabbed") when its client
+// item id isn't found, not immediately failed.
+func TestPollOnceGivesFreshGrabGraceBeforeFailing(t *testing.T) {
+	sab := mockSabEmpty(t)
+	svc, dlStore, musicStore, _, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatalf("set wanted album downloading: %v", err)
+	}
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+	// AddGrab stamps grabbed_at as "now" (the default this test relies on),
+	// so this grab is as fresh as it can be — well within grabVanishedGrace.
+
+	result := svc.PollOnce(t.Context())
+	if result.Failed != 0 {
+		t.Errorf("PollOnce result = %+v, want 0 failed — a fresh grab must get grace, not an immediate fail", result)
+	}
+	grabs, err := dlStore.ListGrabs(download.GrabStatusGrabbed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grabs) != 1 {
+		t.Fatalf("still-grabbed grabs = %+v, want exactly 1 untouched", grabs)
+	}
+	got, err := musicStore.GetWantedAlbum(wanted.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != musiclibrary.WantedStatusDownloading {
+		t.Errorf("wanted album status = %q, want it to stay %q while the grab is still within its grace period", got.Status, musiclibrary.WantedStatusDownloading)
+	}
+}
+
+// TestPollOnceFailsGrabPastGracePeriod confirms grabVanishedGrace only
+// delays a genuine failure, it doesn't suppress it: a grab old enough that
+// even a slow bridge should have listed it by now still gets failed and
+// its wanted album reverted, the same as before this grace period existed.
+func TestPollOnceFailsGrabPastGracePeriod(t *testing.T) {
+	sab := mockSabEmpty(t)
+	svc, dlStore, musicStore, _, db := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatalf("set wanted album downloading: %v", err)
+	}
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+	// Backdate past grabVanishedGrace — AddGrab itself always stamps "now"
+	// (grabbed_at's own DB default), so simulating an old grab needs a
+	// direct update afterward.
+	old := time.Now().UTC().Add(-2 * grabVanishedGrace).Format(time.DateTime)
+	if _, err := db.Exec(`UPDATE grabs SET grabbed_at = ? WHERE client_item_id = 'nzo1'`, old); err != nil {
+		t.Fatalf("backdate grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Failed != 1 {
+		t.Errorf("PollOnce result = %+v, want 1 failed — a grab this old must not get indefinite grace", result)
+	}
+	got, err := musicStore.GetWantedAlbum(wanted.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != musiclibrary.WantedStatusWanted {
+		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusWanted)
+	}
+}
+
 func TestPollOnceNoGrabsIsANoop(t *testing.T) {
 	sab, _ := mockSab(t, "/does/not/matter", "Completed")
-	svc, _, _, _ := setup(t, sab)
+	svc, _, _, _, _ := setup(t, sab)
 
 	result := svc.PollOnce(t.Context())
 	if result != (PollResult{}) {
@@ -528,7 +653,7 @@ func TestPollOnceMatchesItemIDCaseInsensitively(t *testing.T) {
 	// mockSab's history slot always reports nzo_id "nzo1" (lowercase); the
 	// grab below is recorded with the uppercase form on purpose.
 	sab, _ := mockSab(t, albumDir, "Completed")
-	svc, dlStore, _, _ := setup(t, sab)
+	svc, dlStore, _, _, _ := setup(t, sab)
 
 	if err := dlStore.AddGrab(&download.GrabRecord{
 		ClientConfigID: 1, ClientItemID: "NZO1", Title: "Test Album",
@@ -553,7 +678,7 @@ func TestPollOnceMatchesItemIDCaseInsensitively(t *testing.T) {
 // can never leave a track with nothing.
 func TestSwapUpgradedFilesReplacesOnlyMatchedTracks(t *testing.T) {
 	sab, _ := mockSab(t, "", "Completed")
-	svc, _, musicStore, root := setup(t, sab)
+	svc, _, musicStore, root, _ := setup(t, sab)
 
 	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
 	if err != nil {

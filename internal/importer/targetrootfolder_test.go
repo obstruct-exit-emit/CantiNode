@@ -13,7 +13,7 @@ import (
 // just because of where a later grab happened to land.
 func TestTargetRootFolderPrefersArtistExistingFolder(t *testing.T) {
 	sab, _ := mockSab(t, "", "Completed")
-	svc, _, musicStore, existingRootPath := setup(t, sab)
+	svc, _, musicStore, existingRootPath, _ := setup(t, sab)
 
 	existingRoots, err := musicStore.ListRootFolders()
 	if err != nil || len(existingRoots) != 1 {
@@ -72,7 +72,7 @@ func TestTargetRootFolderPrefersArtistExistingFolder(t *testing.T) {
 // folder is marked default.
 func TestTargetRootFolderFallsBackToDefaultForNewArtist(t *testing.T) {
 	sab, _ := mockSab(t, "", "Completed")
-	svc, _, musicStore, _ := setup(t, sab)
+	svc, _, musicStore, _, _ := setup(t, sab)
 
 	defaultRoot, err := musicStore.CreateRootFolder(t.TempDir(), "Default")
 	if err != nil {
@@ -106,7 +106,7 @@ func TestTargetRootFolderFallsBackToDefaultForNewArtist(t *testing.T) {
 // added, but must never leave an import with nowhere to go).
 func TestTargetRootFolderFallsBackToFirstWhenNoDefaultSet(t *testing.T) {
 	sab, _ := mockSab(t, "", "Completed")
-	svc, _, musicStore, _ := setup(t, sab)
+	svc, _, musicStore, _, _ := setup(t, sab)
 
 	roots, err := musicStore.ListRootFolders()
 	if err != nil || len(roots) != 1 {
