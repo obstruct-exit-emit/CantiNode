@@ -34,6 +34,7 @@ func fullTags() Tags {
 		Genre: "Electronic; IDM", ReleaseType: "Album",
 		ArtistSortName: "Boards of Canada", AlbumArtistSortName: "Boards of Canada",
 		ReleaseCountry: "GB", ReleaseStatus: "official", Media: "CD",
+		Composer:                  "Michael Sandison; Marcus Eoin",
 		MusicBrainzArtistID:       "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d",
 		AlbumArtistID:             "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d",
 		MusicBrainzAlbumID:        "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
@@ -74,6 +75,7 @@ func assertTagLibFields(t *testing.T, path string, tags Tags) {
 	check(taglibpkg.ReleaseCountry, tags.ReleaseCountry)
 	check(taglibpkg.ReleaseStatus, tags.ReleaseStatus)
 	check(taglibpkg.Media, tags.Media)
+	check(taglibpkg.Composer, tags.Composer)
 	check(taglibpkg.Date, tags.Date)
 	if tags.TrackTotal > 0 {
 		check("TRACKTOTAL", strconv.Itoa(tags.TrackTotal))
@@ -124,6 +126,9 @@ func assertTags(t *testing.T, path string, tags Tags) {
 	// own reader agreeing with itself.
 	if got.MusicBrainzRecordingID != tags.MusicBrainzRecordingID {
 		t.Errorf("MusicBrainzRecordingID = %q, want %q", got.MusicBrainzRecordingID, tags.MusicBrainzRecordingID)
+	}
+	if tags.Composer != "" && got.Composer != tags.Composer {
+		t.Errorf("Composer = %q, want %q", got.Composer, tags.Composer)
 	}
 }
 

@@ -360,6 +360,7 @@ export interface MusicTrackFileTags {
   releaseCountry?: string;
   releaseStatus?: string;
   media?: string;
+  composer?: string;
 }
 
 // TrackSuggestion is one proposed track_file → recording slot from

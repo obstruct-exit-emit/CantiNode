@@ -549,6 +549,7 @@ func recordingForReleaseTrack(ft flatTrack, release *musicbrainz.ReleaseWithTrac
 		Length:       ft.Recording.Length,
 		ArtistCredit: release.ArtistCredit,
 		Releases:     []musicbrainz.Release{release.AsRelease()},
+		Relations:    ft.Recording.Relations,
 	}
 }
 

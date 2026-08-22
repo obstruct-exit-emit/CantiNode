@@ -78,7 +78,7 @@ func TestUpsertTrackFileByPathInsertsThenUpdatesWithoutTouchingMatch(t *testing.
 
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 200000, "", "")
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 200000, "", "", "")
 	if err := db.SetTrackFileMatch(tf.ID, &track.ID, StatusMatched, 0.95); err != nil {
 		t.Fatalf("SetTrackFileMatch: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestSetTrackFileMatchClearsExpectedReleaseGroupOnUnmatch(t *testing.T) {
 
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "")
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "", "")
 	if err := db.SetTrackFileMatch(tf.ID, &track.ID, StatusMatched, 0.9); err != nil {
 		t.Fatalf("SetTrackFileMatch (match): %v", err)
 	}
@@ -228,7 +228,7 @@ func TestListTrackFilesByStatus(t *testing.T) {
 	}
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "")
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "", "")
 	if err := db.SetTrackFileMatch(matched.ID, &track.ID, StatusMatched, 0.9); err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestDeleteTrackFilesMissingReapsOrphanedAlbum(t *testing.T) {
 
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "")
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "", "")
 
 	gone, err := db.UpsertTrackFileByPath(rfID, "/music/gone.mp3", 1, "mp3", 128, 1000, "{}")
 	if err != nil {
@@ -337,7 +337,7 @@ func TestListTrackFilesByArtist(t *testing.T) {
 
 	artist, _ := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
 	album, _ := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Album", "2020", "Album")
-	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "")
+	track, _ := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "", "")
 
 	mine, err := db.UpsertTrackFileByPath(rfID, "/music/mine.mp3", 1, "mp3", 128, 1000, "{}")
 	if err != nil {
@@ -350,7 +350,7 @@ func TestListTrackFilesByArtist(t *testing.T) {
 	// A different artist's file must not show up.
 	other, _ := db.GetOrCreateArtist("b-mbid", "Other", "Other")
 	otherAlbum, _ := db.GetOrCreateAlbum(other.ID, "al2-mbid", "rg2-mbid", "Other Album", "2021", "Album")
-	otherTrack, _ := db.GetOrCreateTrack(otherAlbum.ID, "t2-mbid", "Other Song", 1, 1, 1000, "", "")
+	otherTrack, _ := db.GetOrCreateTrack(otherAlbum.ID, "t2-mbid", "Other Song", 1, 1, 1000, "", "", "")
 	otherFile, err := db.UpsertTrackFileByPath(rfID, "/music/other.mp3", 1, "mp3", 128, 1000, "{}")
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +385,7 @@ func TestListArtistsAndAlbumsOnlyShowMatchedContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "")
+	track, err := db.GetOrCreateTrack(album.ID, "t-mbid", "Song", 1, 1, 1000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,11 +448,11 @@ func TestCountOwnedAlbumsByArtist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track1, err := db.GetOrCreateTrack(album1.ID, "t-1-mbid", "Song One", 1, 1, 1000, "", "")
+	track1, err := db.GetOrCreateTrack(album1.ID, "t-1-mbid", "Song One", 1, 1, 1000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	track2, err := db.GetOrCreateTrack(album2.ID, "t-2-mbid", "Song Two", 1, 1, 1000, "", "")
+	track2, err := db.GetOrCreateTrack(album2.ID, "t-2-mbid", "Song Two", 1, 1, 1000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

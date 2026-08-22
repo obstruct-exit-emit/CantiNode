@@ -958,7 +958,7 @@ func TestScanRootFolderSingleRemainingFileSkipsReleaseSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "rec-existing", "Already Matched", 1, 1, 200000, "", "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "rec-existing", "Already Matched", 1, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1255,4 +1255,43 @@ func mustArtistID(t *testing.T, s *Scanner, mbid string) int64 {
 		t.Fatal(err)
 	}
 	return artist.ID
+}
+
+// TestRecordingForReleaseTrackPreservesRelations is the regression test for
+// a real bug caught during composer support's own implementation: the
+// synthesized Recording recordingForReleaseTrack builds for applyMatch
+// copied ID/Title/Length/Releases from ft.Recording but silently dropped
+// its Relations, so a track matched through the folder-consensus path
+// (matchEntriesToRelease, backed by LookupReleaseWithTracklist — the one
+// path expected to have real composer data for every track, not just the
+// direct-match single-recording path) would always resolve an empty
+// Composer despite the underlying MusicBrainz response actually carrying
+// the work-relation data.
+func TestRecordingForReleaseTrackPreservesRelations(t *testing.T) {
+	ft := flatTrack{
+		disc: 1,
+		ReleaseTrack: musicbrainz.ReleaseTrack{
+			Position: 1,
+			Title:    "Hallelujah",
+			Recording: musicbrainz.Recording{
+				ID:     "rec-1",
+				Title:  "Hallelujah",
+				Length: 240000,
+				Relations: []musicbrainz.Relation{
+					{
+						Type: "performance", TargetType: "work",
+						Work: &musicbrainz.Work{Relations: []musicbrainz.Relation{
+							{Type: "composer", TargetType: "artist", Artist: &musicbrainz.ArtistRef{ID: "cohen", Name: "Leonard Cohen"}},
+						}},
+					},
+				},
+			},
+		},
+	}
+	release := &musicbrainz.ReleaseWithTracklist{ID: "release-1"}
+
+	got := recordingForReleaseTrack(ft, release)
+	if got.Composer() != "Leonard Cohen" {
+		t.Errorf("recordingForReleaseTrack(...).Composer() = %q, want %q — Relations must survive the synthesized Recording", got.Composer(), "Leonard Cohen")
+	}
 }

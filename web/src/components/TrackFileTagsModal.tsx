@@ -52,6 +52,7 @@ export default function TrackFileTagsModal({
         ["Disc", disc],
         ["Year", tags.year ? String(tags.year) : ""],
         ["Genre", tags.genre ?? ""],
+        ["Composer", tags.composer ?? ""],
         ["Release Type", tags.releaseType ?? ""],
         ["Release Country", tags.releaseCountry ?? ""],
         ["Release Status", tags.releaseStatus ?? ""],

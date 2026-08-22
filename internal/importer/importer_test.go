@@ -563,11 +563,11 @@ func TestSwapUpgradedFilesReplacesOnlyMatchedTracks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trackReplaced, err := musicStore.GetOrCreateTrack(album.ID, "track-replaced-mbid", "Track One", 1, 1, 200000, "", "")
+	trackReplaced, err := musicStore.GetOrCreateTrack(album.ID, "track-replaced-mbid", "Track One", 1, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	trackUntouched, err := musicStore.GetOrCreateTrack(album.ID, "track-untouched-mbid", "Track Two", 2, 1, 200000, "", "")
+	trackUntouched, err := musicStore.GetOrCreateTrack(album.ID, "track-untouched-mbid", "Track Two", 2, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

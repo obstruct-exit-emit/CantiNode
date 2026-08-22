@@ -14,7 +14,7 @@ func TestGetOrCreateTrackCreatesThenReuses(t *testing.T) {
 		t.Fatalf("GetOrCreateAlbum: %v", err)
 	}
 
-	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000, "", "")
+	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000, "", "", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestGetOrCreateTrackCreatesThenReuses(t *testing.T) {
 		t.Errorf("AlbumID = %d, want %d", t1.AlbumID, album.ID)
 	}
 
-	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000, "", "")
+	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Alpha and Omega", 3, 1, 202000, "", "", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack (second call): %v", err)
 	}
@@ -63,7 +63,7 @@ func TestGetOrCreateTrackRefreshesArtistCreditOnExistingRow(t *testing.T) {
 
 	// First match: as if artist_credit_mbid didn't resolve correctly yet
 	// (the pre-fix behavior) — stored empty.
-	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "")
+	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack (first match): %v", err)
 	}
@@ -73,7 +73,7 @@ func TestGetOrCreateTrackRefreshesArtistCreditOnExistingRow(t *testing.T) {
 
 	// Re-match with the now-correctly-resolved MBID — same album/mbid, so
 	// this hits the existing row, not a fresh insert.
-	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "phil-collins-mbid")
+	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "phil-collins-mbid", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack (re-match): %v", err)
 	}
@@ -93,6 +93,64 @@ func TestGetOrCreateTrackRefreshesArtistCreditOnExistingRow(t *testing.T) {
 	}
 	if stored.Title != "In the Air Tonight" || stored.TrackNumber != 1 || stored.DiscNumber != 1 || stored.DurationMs != 200000 {
 		t.Errorf("non-credit fields changed on refresh: %+v", stored)
+	}
+}
+
+// TestGetOrCreateTrackComposerUpgradesButNeverBlanks covers composer's
+// asymmetric refresh rule (see GetOrCreateTrack's own doc comment): unlike
+// artist_credit/artist_credit_mbid, an empty composer on a later call means
+// "this match path had no relationship data" (e.g. the batched recording-
+// search path), not "confirmed no composer" — a re-match must be able to
+// upgrade a blank composer to a real one, but never regress a real one back
+// to blank.
+func TestGetOrCreateTrackComposerUpgradesButNeverBlanks(t *testing.T) {
+	db := newTestStore(t)
+
+	artist, err := db.GetOrCreateArtist("artist-mbid", "Jeff Buckley", "Buckley, Jeff")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	album, err := db.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Grace", "1994", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+
+	// First match via a path with no relationship data (e.g. the batched
+	// recording-search path) — composer stored blank.
+	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Hallelujah", 1, 1, 400000, "", "", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack (first match): %v", err)
+	}
+	if t1.Composer != "" {
+		t.Fatalf("Composer = %q, want empty on first insert", t1.Composer)
+	}
+
+	// Re-match via a richer path that resolved the real composer — must
+	// upgrade the existing row.
+	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Hallelujah", 1, 1, 400000, "", "", "Leonard Cohen")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack (re-match with composer): %v", err)
+	}
+	if t2.Composer != "Leonard Cohen" {
+		t.Errorf("Composer after upgrade = %q, want Leonard Cohen", t2.Composer)
+	}
+
+	// A later re-match via a path with no relationship data again must NOT
+	// blank out the composer already resolved.
+	t3, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Hallelujah", 1, 1, 400000, "", "", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack (re-match with no composer data): %v", err)
+	}
+	if t3.Composer != "Leonard Cohen" {
+		t.Errorf("Composer after a blank re-match = %q, want it to keep Leonard Cohen, not regress to blank", t3.Composer)
+	}
+
+	stored, err := db.GetTrack(t1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Composer != "Leonard Cohen" {
+		t.Errorf("stored Composer = %q, want Leonard Cohen (the upgrade must actually persist)", stored.Composer)
 	}
 }
 
@@ -122,11 +180,11 @@ func TestGetOrCreateTrackScopedPerAlbum(t *testing.T) {
 		t.Fatalf("GetOrCreateAlbum (single): %v", err)
 	}
 
-	albumTrack, err := db.GetOrCreateTrack(album.ID, "rec-change", "Change", 6, 1, 220000, "", "")
+	albumTrack, err := db.GetOrCreateTrack(album.ID, "rec-change", "Change", 6, 1, 220000, "", "", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack (album): %v", err)
 	}
-	singleTrack, err := db.GetOrCreateTrack(single.ID, "rec-change", "Change", 1, 1, 220000, "", "")
+	singleTrack, err := db.GetOrCreateTrack(single.ID, "rec-change", "Change", 1, 1, 220000, "", "", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack (single): %v", err)
 	}
@@ -140,7 +198,7 @@ func TestGetOrCreateTrackScopedPerAlbum(t *testing.T) {
 
 	// Re-fetching under the SAME album must still dedupe, same as before —
 	// only cross-album sharing changed.
-	again, err := db.GetOrCreateTrack(album.ID, "rec-change", "Change", 6, 1, 220000, "", "")
+	again, err := db.GetOrCreateTrack(album.ID, "rec-change", "Change", 6, 1, 220000, "", "", "")
 	if err != nil {
 		t.Fatalf("GetOrCreateTrack (album, second call): %v", err)
 	}

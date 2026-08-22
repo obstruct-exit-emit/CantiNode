@@ -434,7 +434,7 @@ func (s *Scanner) applyMatch(tf *musiclibrary.TrackFile, rec musicbrainz.Recordi
 	if trackArtistMBID == artist.MBID {
 		trackArtistMBID = ""
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, rec.ID, rec.Title, trackNumber, discNumber, int64(rec.Length), trackArtistCredit, trackArtistMBID)
+	track, err := s.db.GetOrCreateTrack(album.ID, rec.ID, rec.Title, trackNumber, discNumber, int64(rec.Length), trackArtistCredit, trackArtistMBID, rec.Composer())
 	if err != nil {
 		return fmt.Errorf("get or create track: %w", err)
 	}

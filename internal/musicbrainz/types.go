@@ -68,6 +68,64 @@ type Recording struct {
 	ArtistCredit []ArtistCredit `json:"artist-credit"`
 	Releases     []Release      `json:"releases"`
 	Score        int            `json:"score"`
+	// Relations is only populated when the request includes inc=
+	// work-rels+work-level-rels+artist-rels (LookupRecording,
+	// LookupReleaseWithTracklist) — used by Composer. MusicBrainz's search
+	// endpoint (BatchLookupRecordings, SearchRecordings) never returns
+	// relations regardless of inc, confirmed live — Composer is always ""
+	// for a Recording sourced that way.
+	Relations []Relation `json:"relations"`
+}
+
+// Relation is one MusicBrainz relationship edge. On a Recording (inc=
+// work-rels) TargetType is "work" and Work is populated; nested inside a
+// Work (inc=work-level-rels+artist-rels), TargetType is "artist" and
+// Artist is populated instead — see Recording.Composer.
+type Relation struct {
+	Type       string     `json:"type"`
+	TargetType string     `json:"target-type"`
+	Work       *Work      `json:"work,omitempty"`
+	Artist     *ArtistRef `json:"artist,omitempty"`
+}
+
+// Work is the composition underlying a Recording — a song can be
+// performed (recorded) many times, but MusicBrainz attaches composer/
+// writer credit to the Work, not the Recording. Relations here is only
+// populated via inc=work-level-rels+artist-rels.
+type Work struct {
+	ID        string     `json:"id"`
+	Title     string     `json:"title"`
+	Relations []Relation `json:"relations"`
+}
+
+// Composer returns r's composer/writer credit(s), joined with "; " —
+// every work-rel's linked Work, every artist-rel of type "composer" or
+// "writer" on that Work, in API order, deduplicated by artist ID (a
+// recording can link more than one work; a work can credit more than one
+// writer). Empty when Relations wasn't requested/populated — see
+// Relations' own doc comment.
+func (r Recording) Composer() string {
+	var names []string
+	seen := map[string]bool{}
+	for _, rel := range r.Relations {
+		if rel.TargetType != "work" || rel.Work == nil {
+			continue
+		}
+		for _, wrel := range rel.Work.Relations {
+			if wrel.TargetType != "artist" || wrel.Artist == nil {
+				continue
+			}
+			if wrel.Type != "composer" && wrel.Type != "writer" {
+				continue
+			}
+			if seen[wrel.Artist.ID] {
+				continue
+			}
+			seen[wrel.Artist.ID] = true
+			names = append(names, wrel.Artist.Name)
+		}
+	}
+	return strings.Join(names, "; ")
 }
 
 // PrimaryArtist returns the recording's first credited artist, or a zero

@@ -58,6 +58,7 @@ func writeTagLib(path string, tags Tags, clear bool) error {
 	setFieldIfPresent(set, taglib.ReleaseStatus, tags.ReleaseStatus)
 	setFieldIfPresent(set, taglib.Media, tags.Media)
 	setFieldIfPresent(set, taglib.Mood, tags.Mood)
+	setFieldIfPresent(set, taglib.Composer, tags.Composer)
 	setField(set, taglib.MusicBrainzArtistID, tags.MusicBrainzArtistID)
 	setField(set, taglib.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
 	setField(set, taglib.MusicBrainzAlbumID, tags.MusicBrainzAlbumID)

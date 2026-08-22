@@ -63,7 +63,7 @@ func TestWriteTagsEmbedsMatchedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestWriteTagsUsesPerTrackArtistCreditForVariousArtists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestWriteTagsUsesPerTrackArtistMBIDForVariousArtists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "phil-collins-mbid")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "In the Air Tonight", 1, 1, 200000, "Phil Collins", "phil-collins-mbid", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,11 +220,11 @@ func TestWriteTagsEmbedsGenreReleaseTypeSortNamesAndTotals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track1, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "")
+	track1, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 2, 1, 200000, "", ""); err != nil {
+	if _, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 2, 1, 200000, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -282,7 +282,7 @@ func TestWriteTagsEmbedsReleaseCountryStatusAndMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,11 +341,11 @@ func TestWriteTagsForAlbumSkipsUnmatchedAndWritesTheRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track1, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "")
+	track1, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	track2, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 2, 1, 200000, "", "")
+	track2, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 2, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,11 +422,11 @@ func TestWriteTagsForArtistCoversEveryAlbum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track1, err := s.db.GetOrCreateTrack(album1.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "")
+	track1, err := s.db.GetOrCreateTrack(album1.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	track2, err := s.db.GetOrCreateTrack(album2.ID, "t2-mbid", "Roygbiv", 1, 1, 200000, "", "")
+	track2, err := s.db.GetOrCreateTrack(album2.ID, "t2-mbid", "Roygbiv", 1, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestWriteTagsEmbedsAlbumCoverArt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,11 +534,11 @@ func TestWriteTagsForAlbumFetchesCoverOncePerAlbum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	track1, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "")
+	track1, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 1, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	track2, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 2, 1, 200000, "", "")
+	track2, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 2, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestWriteTagsEmbedsMood(t *testing.T) {
 	if err := s.db.SetAlbumDescription(album.ID, "A dark, hypnotic record.", "Trippy", time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,6 +617,50 @@ func TestWriteTagsEmbedsMood(t *testing.T) {
 	}
 	if vals := got[taglibpkg.Mood]; len(vals) == 0 || vals[0] != "Trippy" {
 		t.Errorf("Mood = %v, want [Trippy]", vals)
+	}
+}
+
+// TestWriteTagsEmbedsComposer confirms track.Composer (resolved from
+// MusicBrainz work-relations at match time — see
+// musicbrainz.Recording.Composer) reaches the file's own COMPOSER tag.
+func TestWriteTagsEmbedsComposer(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Jeff Buckley", "Buckley, Jeff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Grace", "1994", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Hallelujah", 1, 1, 200000, "", "", "Leonard Cohen")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(rf.Path, "song.mp3")
+	if err := os.WriteFile(path, []byte("fake mp3 audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.WriteTags(context.Background(), tf.ID, false); err != nil {
+		t.Fatalf("WriteTags: %v", err)
+	}
+
+	got, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("taglib ReadTags: %v", err)
+	}
+	if vals := got[taglibpkg.Composer]; len(vals) == 0 || vals[0] != "Leonard Cohen" {
+		t.Errorf("Composer = %v, want [Leonard Cohen]", vals)
 	}
 }
 

@@ -50,6 +50,7 @@ func readTagLib(path string) (*Tags, error) {
 		Media:                  firstTag(raw, taglib.Media),
 		TrackTotal:             leadingInt(firstTag(raw, "TRACKTOTAL")),
 		DiscTotal:              leadingInt(firstTag(raw, "DISCTOTAL")),
+		Composer:               firstTag(raw, taglib.Composer),
 	}, nil
 }
 

@@ -115,3 +115,89 @@ func TestBestReleaseNoReleasesReturnsZeroValue(t *testing.T) {
 		t.Errorf("BestRelease(\"\") on a recording with no releases = %+v, want a zero Release", got)
 	}
 }
+
+// TestRecordingComposerResolvesWorkLevelArtistRel mirrors the real shape
+// confirmed live against MusicBrainz for Jeff Buckley's "Hallelujah": the
+// recording links a Work via a "performance" relation, and the composer
+// credit lives on THAT Work's own relations, not the recording's — a
+// "lyricist" relation on the same work must not be picked up alongside
+// "composer".
+func TestRecordingComposerResolvesWorkLevelArtistRel(t *testing.T) {
+	rec := Recording{
+		Relations: []Relation{
+			{
+				Type:       "performance",
+				TargetType: "work",
+				Work: &Work{
+					ID:    "work-1",
+					Title: "Hallelujah",
+					Relations: []Relation{
+						{Type: "composer", TargetType: "artist", Artist: &ArtistRef{ID: "cohen", Name: "Leonard Cohen"}},
+						{Type: "lyricist", TargetType: "artist", Artist: &ArtistRef{ID: "cohen", Name: "Leonard Cohen"}},
+						{Type: "arrangement", TargetType: "work", Work: &Work{ID: "arr-work"}},
+					},
+				},
+			},
+		},
+	}
+
+	got := rec.Composer()
+	if got != "Leonard Cohen" {
+		t.Errorf("Composer() = %q, want %q", got, "Leonard Cohen")
+	}
+}
+
+// TestRecordingComposerDeduplicatesByArtistID confirms a work crediting the
+// same artist under both "composer" and "writer" (or any other combination
+// of the two recognized types) produces one name, not a repeated one.
+func TestRecordingComposerDeduplicatesByArtistID(t *testing.T) {
+	rec := Recording{
+		Relations: []Relation{
+			{
+				Type: "performance", TargetType: "work",
+				Work: &Work{Relations: []Relation{
+					{Type: "composer", TargetType: "artist", Artist: &ArtistRef{ID: "a1", Name: "Same Artist"}},
+					{Type: "writer", TargetType: "artist", Artist: &ArtistRef{ID: "a1", Name: "Same Artist"}},
+				}},
+			},
+		},
+	}
+
+	got := rec.Composer()
+	if got != "Same Artist" {
+		t.Errorf("Composer() = %q, want %q (deduplicated)", got, "Same Artist")
+	}
+}
+
+// TestRecordingComposerJoinsMultipleWriters confirms more than one distinct
+// writer on a work is joined, in API order.
+func TestRecordingComposerJoinsMultipleWriters(t *testing.T) {
+	rec := Recording{
+		Relations: []Relation{
+			{
+				Type: "performance", TargetType: "work",
+				Work: &Work{Relations: []Relation{
+					{Type: "writer", TargetType: "artist", Artist: &ArtistRef{ID: "a1", Name: "First Writer"}},
+					{Type: "writer", TargetType: "artist", Artist: &ArtistRef{ID: "a2", Name: "Second Writer"}},
+				}},
+			},
+		},
+	}
+
+	got := rec.Composer()
+	if got != "First Writer; Second Writer" {
+		t.Errorf("Composer() = %q, want %q", got, "First Writer; Second Writer")
+	}
+}
+
+// TestRecordingComposerEmptyWhenRelationsUnpopulated confirms a Recording
+// sourced from an endpoint that never returns relationship data (e.g.
+// BatchLookupRecordings/SearchRecordings, both search-endpoint-backed —
+// confirmed live to omit "relations" entirely regardless of inc params)
+// simply yields an empty Composer rather than panicking on nil Relations.
+func TestRecordingComposerEmptyWhenRelationsUnpopulated(t *testing.T) {
+	rec := Recording{ID: "rec-1"}
+	if got := rec.Composer(); got != "" {
+		t.Errorf("Composer() = %q, want empty string", got)
+	}
+}

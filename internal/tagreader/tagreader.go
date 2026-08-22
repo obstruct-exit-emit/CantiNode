@@ -69,6 +69,10 @@ type Tags struct {
 	ReleaseCountry      string `json:"releaseCountry,omitempty"`
 	ReleaseStatus       string `json:"releaseStatus,omitempty"`
 	Media               string `json:"media,omitempty"`
+	// Composer is read via dhowden/tag's own Composer() getter, unlike the
+	// fields above — no raw-key aliasing needed since dhowden/tag already
+	// normalizes it per format (ID3v2 TCOM, MP4, Vorbis, DSF).
+	Composer string `json:"composer,omitempty"`
 }
 
 // audioExtensions are the file extensions worth attempting to read — a
@@ -144,6 +148,7 @@ func fromMetadata(m tag.Metadata) *Tags {
 		DiscNumber:  discNum,
 		Year:        m.Year(),
 		Genre:       m.Genre(),
+		Composer:    m.Composer(),
 		Format:      strings.ToLower(string(m.FileType())),
 	}
 

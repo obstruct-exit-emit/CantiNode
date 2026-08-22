@@ -99,6 +99,12 @@ type Tags struct {
 	// "Melancholic") — TheAudioDB's own field, cached alongside the
 	// album's description.
 	Mood string
+	// Composer is the track's composer/writer credit, resolved from
+	// MusicBrainz work-relations — see musicbrainz.Recording.Composer.
+	// Often blank: only ever resolved via a direct recording/release
+	// lookup, not the batched recording-search path used for a folder of
+	// already-tagged files (see migration 033's own comment).
+	Composer string
 	// CoverImage, when non-empty, is embedded as the file's front cover —
 	// separate from every other field above since taglib writes an
 	// embedded image through its own dedicated call, not the same

@@ -125,7 +125,24 @@ const sampleReleaseWithTracklistJSON = `{
 					"recording": {
 						"id": "e9aea3cf-0b24-4f6d-89f1-990446b0b739",
 						"title": "I Looked Away",
-						"length": 186533
+						"length": 186533,
+						"relations": [
+							{
+								"type": "performance",
+								"target-type": "work",
+								"work": {
+									"id": "work-i-looked-away",
+									"title": "I Looked Away",
+									"relations": [
+										{
+											"type": "composer",
+											"target-type": "artist",
+											"artist": {"id": "clapton", "name": "Eric Clapton"}
+										}
+									]
+								}
+							}
+						]
 					}
 				},
 				{
@@ -164,6 +181,11 @@ func TestLookupReleaseWithTracklist(t *testing.T) {
 	if !strings.Contains(gotInc, "recordings") {
 		t.Errorf("inc = %q, want it to request recordings", gotInc)
 	}
+	for _, want := range []string{"recording-level-rels", "work-rels", "work-level-rels", "artist-rels"} {
+		if !strings.Contains(gotInc, want) {
+			t.Errorf("inc = %q, want it to contain %q (needed for each track's Recording.Composer)", gotInc, want)
+		}
+	}
 
 	if len(rel.Media) != 1 {
 		t.Fatalf("len(Media) = %d, want 1", len(rel.Media))
@@ -183,6 +205,9 @@ func TestLookupReleaseWithTracklist(t *testing.T) {
 	}
 	if medium.Tracks[0].Recording.Length != 186533 {
 		t.Errorf("track[0].Recording.Length = %d, want the recording's own (not the release track's) length 186533", medium.Tracks[0].Recording.Length)
+	}
+	if got := medium.Tracks[0].Recording.Composer(); got != "Eric Clapton" {
+		t.Errorf("track[0].Recording.Composer() = %q, want %q", got, "Eric Clapton")
 	}
 	if rel.PrimaryArtist().Name != "Derek and the Dominos" {
 		t.Errorf("PrimaryArtist().Name = %q", rel.PrimaryArtist().Name)

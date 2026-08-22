@@ -34,26 +34,38 @@ type Track struct {
 	// carry). Written into a file's own "MusicBrainz Artist Id" tag
 	// instead of the album artist's — see internal/tagwriter.
 	ArtistCreditMBID string `json:"artistCreditMbid,omitempty"`
+	// Composer is the track's composer/writer credit, resolved via
+	// MusicBrainz work-relations (musicbrainz.Recording.Composer) — empty
+	// when a match never had relationship data available (the batched
+	// recording-search path; see migration 033's own comment).
+	Composer string `json:"composer,omitempty"`
 }
 
-const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit, artist_credit_mbid FROM tracks`
+const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit, artist_credit_mbid, composer FROM tracks`
 
 // GetOrCreateTrack returns albumID's existing track for mbid, inserting
 // one if none exists yet under this album specifically. Every field
-// except artistCredit/artistCreditMBID is only ever stored at insert time
-// — an existing track keeps its own title/track number/disc number/
-// duration regardless of what a later match call passes in.
+// except artistCredit/artistCreditMBID/composer is only ever stored at
+// insert time — an existing track keeps its own title/track number/disc
+// number/duration regardless of what a later match call passes in.
 //
-// artistCredit/artistCreditMBID are the exception: an existing row gets
-// them refreshed to whatever this call resolved, whenever they differ.
-// Found live: these two started out "insert-time only" like everything
-// else, so a track matched before artist_credit_mbid existed (or before
-// applyMatch correctly resolved it — see migration 031) stayed wrong
-// forever, since nothing short of deleting and recreating the row would
-// ever update it. Re-matching (an explicit clear+rematch, or any future
-// resolution logic getting smarter) now actually corrects a track's own
-// stored display credit/ID instead of leaving a stale first-match value
-// stuck in place indefinitely.
+// artistCredit/artistCreditMBID are refreshed to whatever this call
+// resolved, whenever they differ. Found live: these two started out
+// "insert-time only" like everything else, so a track matched before
+// artist_credit_mbid existed (or before applyMatch correctly resolved it
+// — see migration 031) stayed wrong forever, since nothing short of
+// deleting and recreating the row would ever update it. Re-matching (an
+// explicit clear+rematch, or any future resolution logic getting
+// smarter) now actually corrects a track's own stored display credit/ID
+// instead of leaving a stale first-match value stuck in place
+// indefinitely.
+//
+// composer is refreshed the same way but only ever upgraded, never
+// blanked: an empty composer here means "this match path had no
+// relationship data" (e.g. the batched recording-search path — see
+// migration 033), not "confirmed no composer" — a track already carrying
+// a real composer credit from an earlier, richer match keeps it even if
+// re-matched later via a path that can't supply one.
 //
 // Scoped to (albumID, mbid), not mbid alone — found live: the same
 // MusicBrainz recording legitimately appearing on two different releases
@@ -65,18 +77,23 @@ const trackSelect = `SELECT id, album_id, mbid, title, track_number, disc_number
 // cause. One recording can now have one track row per album it actually
 // belongs to — mirrors idx_albums_artist_release_group's own per-artist
 // scoping for the identical reason (see migration 030).
-func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber, discNumber int, durationMs int64, artistCredit, artistCreditMBID string) (*Track, error) {
+func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber, discNumber int, durationMs int64, artistCredit, artistCreditMBID, composer string) (*Track, error) {
 	existing, err := s.getTrackByAlbumAndMBID(albumID, mbid)
 	if err == nil {
-		if existing.ArtistCredit != artistCredit || existing.ArtistCreditMBID != artistCreditMBID {
+		newComposer := existing.Composer
+		if composer != "" {
+			newComposer = composer
+		}
+		if existing.ArtistCredit != artistCredit || existing.ArtistCreditMBID != artistCreditMBID || existing.Composer != newComposer {
 			now := time.Now().UTC()
 			if _, err := s.db.Exec(
-				`UPDATE tracks SET artist_credit = ?, artist_credit_mbid = ?, updated_at = ? WHERE id = ?`,
-				artistCredit, artistCreditMBID, now, existing.ID); err != nil {
+				`UPDATE tracks SET artist_credit = ?, artist_credit_mbid = ?, composer = ?, updated_at = ? WHERE id = ?`,
+				artistCredit, artistCreditMBID, newComposer, now, existing.ID); err != nil {
 				return nil, fmt.Errorf("refresh track artist credit: %w", err)
 			}
 			existing.ArtistCredit = artistCredit
 			existing.ArtistCreditMBID = artistCreditMBID
+			existing.Composer = newComposer
 			existing.UpdatedAt = now
 		}
 		return existing, nil
@@ -87,9 +104,9 @@ func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber,
 
 	now := time.Now().UTC()
 	res, err := s.db.Exec(
-		`INSERT INTO tracks (album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit, artist_credit_mbid)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		albumID, mbid, title, trackNumber, discNumber, durationMs, now, now, artistCredit, artistCreditMBID)
+		`INSERT INTO tracks (album_id, mbid, title, track_number, disc_number, duration_ms, created_at, updated_at, artist_credit, artist_credit_mbid, composer)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		albumID, mbid, title, trackNumber, discNumber, durationMs, now, now, artistCredit, artistCreditMBID, composer)
 	if err != nil {
 		return nil, fmt.Errorf("insert track: %w", err)
 	}
@@ -101,13 +118,14 @@ func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber,
 		ID: id, AlbumID: albumID, MBID: mbid, Title: title,
 		TrackNumber: trackNumber, DiscNumber: discNumber, DurationMs: durationMs,
 		CreatedAt: now, UpdatedAt: now, ArtistCredit: artistCredit, ArtistCreditMBID: artistCreditMBID,
+		Composer: composer,
 	}, nil
 }
 
 func (s *Store) getTrackByAlbumAndMBID(albumID int64, mbid string) (*Track, error) {
 	var t Track
 	err := s.db.QueryRow(trackSelect+` WHERE album_id = ? AND mbid = ?`, albumID, mbid).
-		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID)
+		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID, &t.Composer)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -121,7 +139,7 @@ func (s *Store) getTrackByAlbumAndMBID(albumID int64, mbid string) (*Track, erro
 func (s *Store) GetTrack(id int64) (*Track, error) {
 	var t Track
 	err := s.db.QueryRow(trackSelect+` WHERE id = ?`, id).
-		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID)
+		Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID, &t.Composer)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -144,7 +162,7 @@ func (s *Store) ListTracksByAlbum(albumID int64) ([]Track, error) {
 	out := []Track{}
 	for rows.Next() {
 		var t Track
-		if err := rows.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID); err != nil {
+		if err := rows.Scan(&t.ID, &t.AlbumID, &t.MBID, &t.Title, &t.TrackNumber, &t.DiscNumber, &t.DurationMs, &t.CreatedAt, &t.UpdatedAt, &t.ArtistCredit, &t.ArtistCreditMBID, &t.Composer); err != nil {
 			return nil, fmt.Errorf("scan track: %w", err)
 		}
 		out = append(out, t)

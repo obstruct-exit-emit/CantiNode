@@ -119,6 +119,7 @@ func TestReadFLACNewFields(t *testing.T) {
 		"MEDIA":                     "CD",
 		"TRACKTOTAL":                "12",
 		"DISCTOTAL":                 "1",
+		"COMPOSER":                  "Michael Sandison; Marcus Eoin",
 	})
 
 	tags, err := Read(path)
@@ -154,6 +155,9 @@ func TestReadFLACNewFields(t *testing.T) {
 	}
 	if tags.DiscTotal != 1 {
 		t.Errorf("DiscTotal = %d, want 1", tags.DiscTotal)
+	}
+	if tags.Composer != "Michael Sandison; Marcus Eoin" {
+		t.Errorf("Composer = %q", tags.Composer)
 	}
 }
 
@@ -296,6 +300,7 @@ func TestReadID3v2NewFieldAliases(t *testing.T) {
 	path := buildID3v23File(t, [][]byte{
 		id3v2Frame("TIT2", tFrameContent("Alpha and Omega")),
 		id3v2Frame("TCON", tFrameContent("Electronic; IDM")),
+		id3v2Frame("TCOM", tFrameContent("Michael Sandison; Marcus Eoin")),
 		id3v2Frame("TSOP", tFrameContent("Boards of Canada")),
 		id3v2Frame("TSO2", tFrameContent("Boards of Canada")),
 		id3v2Frame("TMED", tFrameContent("CD")),
@@ -313,6 +318,9 @@ func TestReadID3v2NewFieldAliases(t *testing.T) {
 	}
 	if tags.Genre != "Electronic; IDM" {
 		t.Errorf("Genre = %q", tags.Genre)
+	}
+	if tags.Composer != "Michael Sandison; Marcus Eoin" {
+		t.Errorf("Composer = %q (from TCOM)", tags.Composer)
 	}
 	if tags.ArtistSortName != "Boards of Canada" {
 		t.Errorf("ArtistSortName = %q, want Boards of Canada (from raw TSOP)", tags.ArtistSortName)

@@ -38,6 +38,7 @@ func seedTags(t *testing.T, path string) {
 		taglib.ReleaseCountry:            {"GB"},
 		taglib.ReleaseStatus:             {"official"},
 		taglib.Media:                     {"CD"},
+		taglib.Composer:                  {"Michael Sandison; Marcus Eoin"},
 		"TRACKTOTAL":                     {"12"},
 		"DISCTOTAL":                      {"1"},
 		taglib.MusicBrainzArtistID:       {"8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d"},
@@ -122,6 +123,9 @@ func assertReadTags(t *testing.T, path, wantFormat string) {
 	}
 	if got.DiscTotal != 1 {
 		t.Errorf("DiscTotal = %d, want 1", got.DiscTotal)
+	}
+	if got.Composer != "Michael Sandison; Marcus Eoin" {
+		t.Errorf("Composer = %q", got.Composer)
 	}
 }
 

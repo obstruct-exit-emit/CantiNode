@@ -11,6 +11,29 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **"Write tags" now also embeds composer/writer credit, resolved from
+  MusicBrainz's own work-relationship data.** MusicBrainz attaches
+  composer/writer credit to a recording's underlying *Work*, not the
+  recording itself, so resolving it needs relationship data
+  (`inc=work-rels+work-level-rels+artist-rels` on a direct recording/
+  release lookup) that CantiNode never requested before — added to
+  `LookupRecording` and `LookupReleaseWithTracklist` (the latter also
+  needs `recording-level-rels`, confirmed live, since relations are being
+  requested for recordings nested inside a release response rather than
+  the top-level entity). Deliberately left out of
+  `BatchLookupRecordings`: MusicBrainz's search endpoint never returns
+  relationship data regardless of `inc` params (confirmed live), so a
+  file matched through the batched recording-search path (an already-
+  tagged folder's fast path — see the batch-lookup entry below) simply
+  gets no composer rather than paying for a second per-track lookup that
+  would defeat the point of batching. New `Track.Composer` (migration
+  033) is refreshed on a re-match the same asymmetric way as
+  `artist_credit`/`artist_credit_mbid`, but can only ever be *upgraded*,
+  never blanked — an empty composer from a later match means "this path
+  had no relationship data," not "confirmed no composer," so a track
+  already carrying a real credit from an earlier, richer match keeps it.
+  The "Tags" popup shows it too, same read-back symmetry as every other
+  field "Write tags" can write.
 - **A new "Write tags (clear first)" action, and "Write tags" (both
   variants) now also embeds the album's own cover art and mood.**
   The clear-first variant is a deliberate, explicit opt-in — confirm-gated

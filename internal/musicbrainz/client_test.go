@@ -75,6 +75,11 @@ func TestLookupRecording(t *testing.T) {
 	if gotInc == "" {
 		t.Error("expected an inc= query parameter requesting artist-credits/releases")
 	}
+	for _, want := range []string{"work-rels", "work-level-rels", "artist-rels"} {
+		if !strings.Contains(gotInc, want) {
+			t.Errorf("inc = %q, want it to contain %q (needed for Recording.Composer)", gotInc, want)
+		}
+	}
 
 	if rec.Title != "Alpha and Omega" {
 		t.Errorf("Title = %q", rec.Title)
@@ -88,6 +93,60 @@ func TestLookupRecording(t *testing.T) {
 	}
 	if rel.ReleaseGroup.PrimaryType != "Album" {
 		t.Errorf("ReleaseGroup.PrimaryType = %q", rel.ReleaseGroup.PrimaryType)
+	}
+}
+
+// sampleRecordingWithComposerJSON is shaped like the real payload verified
+// live against MusicBrainz (GET /recording/{mbid}?inc=work-rels+work-level-
+// rels+artist-rels for Jeff Buckley's "Hallelujah"): the recording's own
+// relations link a Work via a "performance" relation, and that Work's own
+// nested relations carry the actual composer/lyricist artist credits — a
+// second, unrelated "arrangement" relation to another Work is included to
+// confirm it's correctly ignored.
+const sampleRecordingWithComposerJSON = `{
+	"id": "2beb05a2-ba1e-4bc7-92d4-944475e17a81",
+	"title": "Hallelujah",
+	"relations": [
+		{
+			"type": "performance",
+			"target-type": "work",
+			"work": {
+				"id": "9d0296b2-e2d6-3aaa-8e38-7f15d38ed906",
+				"title": "Hallelujah",
+				"relations": [
+					{
+						"type": "composer",
+						"target-type": "artist",
+						"artist": {"id": "65314b12-0e08-43fa-ba33-baaa7b874c15", "name": "Leonard Cohen"}
+					},
+					{
+						"type": "lyricist",
+						"target-type": "artist",
+						"artist": {"id": "65314b12-0e08-43fa-ba33-baaa7b874c15", "name": "Leonard Cohen"}
+					},
+					{
+						"type": "arrangement",
+						"target-type": "work",
+						"work": {"id": "445fb970-463d-407d-b2ff-48bab2c8979e", "title": "Hallelujah"}
+					}
+				]
+			}
+		}
+	]
+}`
+
+func TestLookupRecordingDecodesComposerFromWorkRelations(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleRecordingWithComposerJSON))
+	})
+
+	rec, err := c.LookupRecording(t.Context(), "2beb05a2-ba1e-4bc7-92d4-944475e17a81")
+	if err != nil {
+		t.Fatalf("LookupRecording: %v", err)
+	}
+	if got := rec.Composer(); got != "Leonard Cohen" {
+		t.Errorf("Composer() = %q, want %q", got, "Leonard Cohen")
 	}
 }
 

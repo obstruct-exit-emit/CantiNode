@@ -89,12 +89,13 @@ func NewClientWithBaseURL(appVersion, contactEmail, baseURL string) *Client {
 }
 
 // LookupRecording fetches a single recording by MBID, with its artist
-// credit and associated releases — used when a scanned file's own tags
-// already carry a MusicBrainz recording ID (the high-confidence,
-// direct-match path in internal/scanner).
+// credit, associated releases, and composer/writer work-relations (see
+// Recording.Composer) — used when a scanned file's own tags already carry
+// a MusicBrainz recording ID (the high-confidence, direct-match path in
+// internal/scanner).
 func (c *Client) LookupRecording(ctx context.Context, mbid string) (*Recording, error) {
 	body, err := c.get(ctx, "/recording/"+url.PathEscape(mbid), url.Values{
-		"inc": {"artist-credits+releases+release-groups"},
+		"inc": {"artist-credits+releases+release-groups+work-rels+work-level-rels+artist-rels"},
 		"fmt": {"json"},
 	})
 	if err != nil {
@@ -489,10 +490,15 @@ func buildReleaseQuery(artist, release string) string {
 // full medium/track breakdown — used once a target release has been
 // chosen (either a file's own embedded release MBID, or the top
 // SearchReleases candidate) to slot every local file in a folder into a
-// specific track position within that one release.
+// specific track position within that one release. Also requests each
+// nested recording's composer/writer work-relations (see
+// Recording.Composer) — recording-level-rels is required here (unlike
+// LookupRecording, where it's implicit) specifically because relations are
+// being requested for recordings nested inside a release lookup, not the
+// top-level entity.
 func (c *Client) LookupReleaseWithTracklist(ctx context.Context, mbid string) (*ReleaseWithTracklist, error) {
 	body, err := c.get(ctx, "/release/"+url.PathEscape(mbid), url.Values{
-		"inc": {"recordings+artist-credits+release-groups"},
+		"inc": {"recordings+artist-credits+release-groups+recording-level-rels+work-rels+work-level-rels+artist-rels"},
 		"fmt": {"json"},
 	})
 	if err != nil {

@@ -13,9 +13,9 @@ import (
 
 // WriteTags embeds trackFileID's matched metadata (artist/album/track
 // names, track/disc numbers, genre, release type, sort names, track/disc
-// totals, release country/status/media, mood, cover art, and every
-// MusicBrainz ID CantiNode already resolved for it) back into the file's
-// own tags — see internal/tagwriter's package doc comment for exactly
+// totals, release country/status/media, mood, composer, cover art, and
+// every MusicBrainz ID CantiNode already resolved for it) back into the
+// file's own tags — see internal/tagwriter's package doc comment for exactly
 // which formats this supports. Requires the file to already be matched;
 // there's nothing to write otherwise. clear requests a full wipe of
 // everything this function doesn't itself set, rather than the default
@@ -136,6 +136,7 @@ func (s *Scanner) writeTagsForFile(ctx context.Context, trackFileID int64, clear
 		ReleaseStatus:             releaseStatus,
 		Media:                     media,
 		Mood:                      album.Mood,
+		Composer:                  track.Composer,
 		CoverImage:                s.coverImageForAlbum(ctx, album, coverCache),
 		MusicBrainzArtistID:       trackArtistMBID,
 		AlbumArtistID:             artist.MBID,
