@@ -96,7 +96,7 @@ function TrackArtistCredit({ credit, trackTitle }: { credit: string; trackTitle:
           setShowCredits(true);
         }}
       >
-        {featuring.length} featuring
+        {featuring.length} Featuring
       </button>
       {showCredits && (
         <TrackCreditsModal trackTitle={trackTitle} names={featuring} onClose={() => setShowCredits(false)} />

@@ -341,7 +341,7 @@ button.link {
    every other row's "owned" lands in. */
 .track-row-actions {
   display: grid;
-  grid-template-columns: 5rem 3.4rem 3.4rem 4.6rem 4.4rem;
+  grid-template-columns: 6.2rem 3.4rem 3.4rem 4.6rem 4.4rem;
   gap: 0.4rem;
   align-items: center;
   justify-items: center;
@@ -355,8 +355,12 @@ button.link {
   margin-left: 0;
 }
 
+/* "N Featuring" is wider than col-credits' fixed track was originally
+   sized for ("N credits") — without this, the button's own text wraps
+   onto two lines instead of overflowing or shrinking the fixed track. */
 .track-row-actions .col-credits {
   grid-column: 1;
+  white-space: nowrap;
 }
 
 .track-row-actions .col-tags {
