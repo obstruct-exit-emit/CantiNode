@@ -483,16 +483,6 @@ export default function ArtistDetailView({
                 {rootFolders.find((f) => f.id === moveTargetId)?.name ?? "the chosen root folder"}. Files stay
                 at the same relative path, just under the new root — this does not reorganize them.
               </p>
-              <ul className="rows">
-                {movePlan.moves.map((m) => (
-                  <li key={m.fileId}>
-                    <div className="move">
-                      <span className="file-path muted">{m.from}</span>
-                      <span className="file-path">→ {m.to}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
               <div className="settings-actions">
                 <button disabled={moving} onClick={applyMove}>
                   {moving ? "Moving…" : "Move"}
