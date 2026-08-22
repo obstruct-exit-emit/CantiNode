@@ -202,7 +202,7 @@ function AppInner() {
           <h1 className="brand">🎵 CantiNode</h1>
           <SidebarSearch onSearch={(q) => go({ name: "search", q })} />
           <nav>
-            {hasMusicRoot && <div className="nav-group">Libraries</div>}
+            {hasMusicRoot && <div className="nav-group">Library</div>}
             {hasMusicRoot && navButton({ name: "library" }, "Music", "🎵")}
             {hasMusicRoot && navButton({ name: "unmatched" }, "Unmatched Files", "❓")}
             <div className="nav-group">App</div>
@@ -374,8 +374,8 @@ function SidebarSearch({ onSearch }: { onSearch: (q: string) => void }) {
       }}
     >
       <input
-        placeholder="🔍 Search libraries…"
-        aria-label="Search all libraries"
+        placeholder="🔍 Search your library…"
+        aria-label="Search your library"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
