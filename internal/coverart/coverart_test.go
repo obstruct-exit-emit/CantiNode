@@ -257,6 +257,107 @@ func TestGetFrontCoverFallsBackToCoverArtArchiveWhenAudioDBHasNothing(t *testing
 	}
 }
 
+// TestGetFrontCoverTriesAudioDBDespiteAnExistingCoverArtArchiveSentinel is
+// the regression test for a real bug found live: two Blind Melon albums
+// stayed permanently cover-less because a "no cover art" sentinel Cover
+// Art Archive had already written (in this test, simulating one cached
+// before TheAudioDB support was ever wired up) blocked GetFrontCover from
+// trying TheAudioDB at all — even once TheAudioDB support existed and
+// genuinely had the art. TheAudioDB must always get its own independent
+// look, not be shut out by Cover Art Archive's own sentinel.
+func TestGetFrontCoverTriesAudioDBDespiteAnExistingCoverArtArchiveSentinel(t *testing.T) {
+	caaRequests := 0
+	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caaRequests++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(caa.Close)
+
+	var audiodbSrv *httptest.Server
+	audiodbSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/thumb.jpg" {
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Write([]byte("audiodb thumb bytes"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(audioDBAlbumJSON(audiodbSrv.URL + "/thumb.jpg")))
+	}))
+	t.Cleanup(audiodbSrv.Close)
+
+	// Seed call: no AudioDB client wired up at all (as if this build
+	// predates TheAudioDB support, or as if it were simply nil) — Cover
+	// Art Archive 404s and caches its own sentinel for this release, the
+	// same state a real pre-existing installation would already have on
+	// disk.
+	cacheDir := t.TempDir()
+	seed := NewClient(cacheDir, "cantinode-test/0.1", nil)
+	seed.baseURL = caa.URL
+	if _, _, err := seed.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("seed call err = %v, want ErrNoCoverArt", err)
+	}
+	if caaRequests != 1 {
+		t.Fatalf("caaRequests = %d, want 1 after the seed call", caaRequests)
+	}
+
+	// Same on-disk cache, but now with TheAudioDB wired up and genuinely
+	// having the art — the pre-existing Cover Art Archive sentinel must
+	// not block trying it.
+	adb := audiodb.NewClientWithBaseURL("test-key", audiodbSrv.URL)
+	c := NewClient(cacheDir, "cantinode-test/0.1", adb)
+	c.baseURL = caa.URL
+
+	path, _, err := c.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid")
+	if err != nil {
+		t.Fatalf("GetFrontCover with AudioDB now available: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "audiodb thumb bytes" {
+		t.Errorf("cached content = %q, want TheAudioDB's own thumb", data)
+	}
+}
+
+// TestGetFrontCoverCachesAudioDBMissSeparatelyFromCoverArtArchive confirms
+// the fix above doesn't reopen the cost noCoverRecheckAfter exists to
+// avoid: a release genuinely missing from both sources must still only be
+// queried once per source, not on every call.
+func TestGetFrontCoverCachesAudioDBMissSeparatelyFromCoverArtArchive(t *testing.T) {
+	caaRequests := 0
+	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caaRequests++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(caa.Close)
+
+	audiodbRequests := 0
+	audiodbSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		audiodbRequests++
+		w.Write([]byte(audioDBAlbumJSON("")))
+	}))
+	t.Cleanup(audiodbSrv.Close)
+
+	adb := audiodb.NewClientWithBaseURL("test-key", audiodbSrv.URL)
+	c := NewClient(t.TempDir(), "cantinode-test/0.1", adb)
+	c.baseURL = caa.URL
+
+	if _, _, err := c.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("first call err = %v, want ErrNoCoverArt", err)
+	}
+	if _, _, err := c.GetFrontCover(t.Context(), "release-group-mbid", "release-mbid"); !errors.Is(err, ErrNoCoverArt) {
+		t.Fatalf("second call err = %v, want ErrNoCoverArt", err)
+	}
+
+	if audiodbRequests != 1 {
+		t.Errorf("audiodbRequests = %d, want 1 — a confirmed AudioDB miss must be cached too, not re-checked on every call", audiodbRequests)
+	}
+	if caaRequests != 1 {
+		t.Errorf("caaRequests = %d, want 1", caaRequests)
+	}
+}
+
 // TestGetFrontCoverSkipsAudioDBWithoutReleaseGroupMBID covers a caller
 // that only has the release MBID in hand (releaseGroupMBID == "") — must
 // go straight to Cover Art Archive without ever querying TheAudioDB.

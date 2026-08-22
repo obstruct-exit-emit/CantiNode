@@ -33,15 +33,30 @@ var ErrNoCoverArt = errors.New("coverart: no cover art for this release")
 // mtime is the other one — see noCoverRecheckAfter).
 const noCoverSentinelExt = ".nocover"
 
-// noCoverRecheckAfter bounds how long a "no cover art" sentinel is trusted
-// before hasNoCoverSentinel treats it as stale and GetFrontCover tries
-// again live — found live: Cover Art Archive's own catalog isn't static,
-// community members add art to a release after the fact, so a real 404
-// from months ago isn't a permanent answer the way, say, "this MBID
-// doesn't exist" would be. Deliberately not zero (that would mean never
-// caching a miss at all, hammering both providers on every single page
-// view for a release that stays genuinely uncovered) and not too short
-// (30 days keeps this a rare, not routine, re-check).
+// noAudioDBSentinelExt marks a release GROUP (TheAudioDB doesn't
+// distinguish specific editions, so this is keyed by releaseGroupMBID, not
+// releaseMBID like noCoverSentinelExt) TheAudioDB has confirmed has no
+// album thumb — kept as its own file, separate from noCoverSentinelExt,
+// specifically so a release cached as "Cover Art Archive has nothing"
+// *before* TheAudioDB support existed (or before TheAudioDB itself gained
+// this release) doesn't also silently mean "TheAudioDB has nothing" —
+// found live: two Blind Melon albums stayed permanently cover-less because
+// GetFrontCover's old single-sentinel design let an old Cover Art Archive
+// 404 skip trying TheAudioDB at all, even though TheAudioDB genuinely had
+// both. See GetFrontCover's own doc comment for the two sentinels' full
+// interaction.
+const noAudioDBSentinelExt = ".noaudiodb"
+
+// noCoverRecheckAfter bounds how long a "no cover art" sentinel — either
+// kind, noCoverSentinelExt or noAudioDBSentinelExt — is trusted before
+// GetFrontCover tries that source again live — found live: neither Cover
+// Art Archive's nor TheAudioDB's catalog is static, community members add
+// art to a release after the fact (and TheAudioDB's own catalog keeps
+// growing), so a real miss from months ago isn't a permanent answer the
+// way, say, "this MBID doesn't exist" would be. Deliberately not zero
+// (that would mean never caching a miss at all, hammering both providers
+// on every single page view for a release that stays genuinely uncovered)
+// and not too short (30 days keeps this a rare, not routine, re-check).
 const noCoverRecheckAfter = 30 * 24 * time.Hour
 
 const defaultBaseURL = "https://coverartarchive.org"
@@ -91,10 +106,22 @@ func NewClientWithBaseURL(cacheDir, userAgent, baseURL string, audiodbClient *au
 // falling back to Cover Art Archive, by the specific releaseMBID, when
 // TheAudioDB doesn't have one. Cached to disk (under releaseMBID's
 // identity, whichever source it actually came from) on first request.
-// Returns ErrNoCoverArt if neither source has it (also cached, so this
-// doesn't hit the network again for the same release). releaseGroupMBID
-// may be empty to skip straight to Cover Art Archive (e.g. a caller that
-// only has the release MBID in hand).
+// Returns ErrNoCoverArt if neither source has it. releaseGroupMBID may be
+// empty to skip straight to Cover Art Archive (e.g. a caller that only has
+// the release MBID in hand).
+//
+// The two sources are negative-cached separately (noAudioDBSentinelExt,
+// keyed by releaseGroupMBID; noCoverSentinelExt, keyed by releaseMBID) and
+// TheAudioDB is always tried first, ahead of Cover Art Archive's own
+// sentinel check — found live: with one shared sentinel gating both
+// sources, a release Cover Art Archive had already 404'd (cached before
+// TheAudioDB support existed, or before TheAudioDB itself gained this
+// release) permanently skipped ever trying TheAudioDB too, even on a
+// build that could have found it, for up to noCoverRecheckAfter. Querying
+// TheAudioDB first every time a cover is genuinely missing would reopen
+// exactly the "hammer the network for a release that's never getting
+// art" cost that sentinel exists to avoid — so TheAudioDB gets its own
+// independent miss-cache instead of sharing Cover Art Archive's.
 func (c *Client) GetFrontCover(ctx context.Context, releaseGroupMBID, releaseMBID string) (path string, contentType string, err error) {
 	if releaseMBID == "" {
 		return "", "", fmt.Errorf("coverart: releaseMBID must not be empty")
@@ -103,23 +130,30 @@ func (c *Client) GetFrontCover(ctx context.Context, releaseGroupMBID, releaseMBI
 	if cached, ct, ok := c.checkCache(releaseMBID); ok {
 		return cached, ct, nil
 	}
-	if c.hasNoCoverSentinel(releaseMBID) {
-		return "", "", ErrNoCoverArt
-	}
 
-	if c.audiodb != nil && releaseGroupMBID != "" {
+	if c.audiodb != nil && releaseGroupMBID != "" && !c.hasNoAudioDBSentinel(releaseGroupMBID) {
 		meta, err := c.audiodb.LookupAlbumByReleaseGroupMBID(ctx, releaseGroupMBID)
-		// A TheAudioDB failure (network, rate limit, etc.) degrades to the
-		// Cover Art Archive fallback below rather than failing the whole
-		// request — the same "best-effort, never worse than before this
-		// existed" spirit as every other TheAudioDB call in this codebase.
-		if err == nil && meta != nil && meta.ThumbURL != "" {
+		switch {
+		case err != nil:
+			// A TheAudioDB failure (network, rate limit, etc.) degrades to
+			// the Cover Art Archive fallback below rather than failing the
+			// whole request, and isn't cached as a miss — the same "best-
+			// effort, never worse than before this existed" spirit as every
+			// other TheAudioDB call in this codebase. A genuine "no thumb"
+			// answer (the other case below) is a real result worth caching;
+			// a transient failure to even ask isn't.
+		case meta == nil || meta.ThumbURL == "":
+			c.writeNoAudioDBSentinel(releaseGroupMBID)
+		default:
 			if path, ct, err := c.downloadAndCache(ctx, meta.ThumbURL, releaseMBID); err == nil {
 				return path, ct, nil
 			}
 		}
 	}
 
+	if c.hasNoCoverSentinel(releaseMBID) {
+		return "", "", ErrNoCoverArt
+	}
 	return c.fetchFromCoverArtArchive(ctx, releaseMBID)
 }
 
@@ -127,7 +161,13 @@ func (c *Client) GetFrontCover(ctx context.Context, releaseGroupMBID, releaseMBI
 // extensions) and its no-cover sentinel, if either exists — used when an
 // artist is removed so its albums' cover art doesn't outlive the artist
 // (see internal/api's handleRemoveMusicArtist). Not an error if nothing
-// was cached for this release to begin with.
+// was cached for this release to begin with. Deliberately doesn't also
+// remove a noAudioDBSentinelExt file for the release's group: that
+// sentinel carries no identity of its own beyond a MusicBrainz release
+// group MBID (the same content-addressed answer holds regardless of which
+// artist row happens to reference it), so a stray one outliving the
+// artist that first triggered it is harmless — a saved lookup if the same
+// release group is ever added again, not stale data.
 func (c *Client) DeleteCached(releaseMBID string) error {
 	if releaseMBID == "" {
 		return nil
@@ -167,6 +207,29 @@ func (c *Client) hasNoCoverSentinel(releaseMBID string) bool {
 		return false
 	}
 	return time.Since(info.ModTime()) < noCoverRecheckAfter
+}
+
+// hasNoAudioDBSentinel is hasNoCoverSentinel for TheAudioDB's own miss
+// cache — same staleness rule (noCoverRecheckAfter), keyed by
+// releaseGroupMBID instead of releaseMBID (see noAudioDBSentinelExt).
+func (c *Client) hasNoAudioDBSentinel(releaseGroupMBID string) bool {
+	info, err := os.Stat(filepath.Join(c.cacheDir, releaseGroupMBID+noAudioDBSentinelExt))
+	if err != nil {
+		return false
+	}
+	return time.Since(info.ModTime()) < noCoverRecheckAfter
+}
+
+// writeNoAudioDBSentinel records that TheAudioDB has confirmed no album
+// thumb for releaseGroupMBID — best-effort: a write failure here just
+// means the next call pays for another live lookup, not a correctness
+// problem worth surfacing as an error GetFrontCover would otherwise have
+// to decide how to handle.
+func (c *Client) writeNoAudioDBSentinel(releaseGroupMBID string) {
+	if err := os.MkdirAll(c.cacheDir, 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(c.cacheDir, releaseGroupMBID+noAudioDBSentinelExt), nil, 0o644)
 }
 
 var extToContentType = map[string]string{
