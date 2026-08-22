@@ -30,13 +30,13 @@ type NamingSettings struct {
 	// MusicFile is a single template (not folder+file) since
 	// internal/musicscanner.FormatPath renders one path — folder
 	// separators included — from artist/album/track in one placeholder
-	// pass, same as {Artist}/{Album}/{TrackNumber} - {Title}.{Ext}.
+	// pass, same as {Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}.
 	MusicFile string `yaml:"music_file" json:"musicFile"`
 }
 
 func defaultNaming() NamingSettings {
 	return NamingSettings{
-		MusicFile: "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}",
+		MusicFile: "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}",
 	}
 }
 

@@ -11,6 +11,15 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **The default naming template now includes the release year:
+  `{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}`** (previously
+  `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}`, no year at all) — a
+  library organized under the old default now has two same-named album
+  folders across different years read as unrelated by anything walking
+  the filesystem by path alone. Only changes the *default* — an install
+  with an already-customized `naming.music_file` in `config.yaml` is
+  unaffected; a fresh install, or one that's never touched the naming
+  settings, picks this up as soon as it upgrades.
 - **Auto-match now falls back to the filename, then the containing folders,
   when a file's own tags don't have Artist/Album** — before this, a file
   with blank tags (no Artist/Album, and for the per-file fuzzy path no

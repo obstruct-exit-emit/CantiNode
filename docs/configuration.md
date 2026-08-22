@@ -17,7 +17,7 @@ auth:                  # present once a login account is added
       role: admin      # admin | member (omitted = admin; the default user is
                        #   always admin). Members can't reach settings/accounts
 naming:
-  music_file: "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}"
+  music_file: "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}"
 music:
   organize_on_match: false       # move/rename a file the instant it's matched
                                  #   during a scan (default: off — review first)
@@ -191,13 +191,13 @@ every write into a no-op for any config that predates the feature.
 Tokens: `{Artist}`, `{ArtistSortName}`, `{Album}`, `{ReleaseType}`, `{Year}`,
 `{Date}`, `{TrackNumber}`, `{DiscNumber}`, `{Title}`, `{TrackArtist}`,
 `{Ext}`. One template renders the whole path (folder separators included) in
-a single pass, so `{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}` produces
-both the folder structure and the filename together — add `{DiscNumber}` for
+a single pass, so the default —
+`{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}` — produces both
+the folder structure and the filename together. Add `{DiscNumber}` for
 a multi-disc album (e.g.
-`{Artist}/{Album}/Disc {DiscNumber}/{TrackNumber} - {Title}.{Ext}`) or
-`{Year}` to fold the release year into a folder or filename (e.g.
-`{Artist}/{Album} ({Year})/...`). `{Date}` is the same idea as `{Year}` but
-the full release date instead of a 4-digit year. `{ArtistSortName}` is the
+`{Artist}/{Album} ({Year})/Disc {DiscNumber}/{TrackNumber} - {Title}.{Ext}`).
+`{Date}` is the same idea as `{Year}` but the full release date instead of
+a 4-digit year. `{ArtistSortName}` is the
 artist's sort name (e.g. "Beatles, The"), useful for alphabetizing folders
 by an artist's real name rather than a leading "The". `{ReleaseType}` is the
 album's MusicBrainz primary type (Album/EP/Single/Compilation/...), useful

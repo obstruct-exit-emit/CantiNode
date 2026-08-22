@@ -26,12 +26,13 @@ func TestPutNamingSettingsTakesEffectImmediately(t *testing.T) {
 		map[string]string{"mediaType": "music", "path": rootDir}, &rf), http.StatusCreated)
 
 	// seedMusicAlbumFixture's own fixture values (Artist "Boards of
-	// Canada", Album "Geogaddi", TrackNumber 1, Title "Ready Lets Go")
-	// render, under the default template, to exactly this path — so the
-	// track file starts out already "organized" under the default
-	// template.
+	// Canada", Album "Geogaddi", TrackNumber 1, Title "Ready Lets Go",
+	// no release date set — FormatPath's own "0000" placeholder for a
+	// missing/short ReleaseDate) render, under the default template, to
+	// exactly this path — so the track file starts out already
+	// "organized" under the default template.
 	artistID := seedMusicArtist(t, a, "naming-test")
-	defaultPath := filepath.Join(rootDir, "Boards of Canada", "Geogaddi", "01 - Ready Lets Go.flac")
+	defaultPath := filepath.Join(rootDir, "Boards of Canada", "Geogaddi (0000)", "01 - Ready Lets Go.flac")
 	_, trackFileID := seedMusicAlbumFixture(t, a, artistID, rf.ID, defaultPath)
 
 	var preview struct {
