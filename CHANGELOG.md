@@ -10,6 +10,23 @@ once the pre-1.0 hardening (see [ROADMAP](ROADMAP.md)) wraps up.
 Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardening
 in progress. Highlights from the hardening period, newest first:
 
+### Fixed
+- **A transport-level MusicBrainz request failure (a timeout, a connection
+  reset, a DNS blip) used to bypass `Client.get`'s own retry loop entirely**
+  — the loop only ever re-examined a bad HTTP status code
+  (`retryableStatus`), never whether the request failed to complete in the
+  first place. Found live investigating why adding Elvis Presley
+  intermittently left the artist with no discography or bio cached at
+  all: his catalog is an outlier (1,342 release groups — `BrowseArtistReleaseGroups`
+  needs ~14 sequential paginated requests to fetch it), and needing that
+  many requests for one logical operation raises the odds any single one
+  hits a transient blip, which used to fail the *entire* operation instead
+  of just that one page. Now retried the same way a 503/429/502/504 already
+  is, up to the existing `maxRetries` — except when the caller's own
+  context is already done, where retrying can't help and the original
+  `ctx.Err()` surfaces immediately instead of burning the remaining
+  attempts.
+
 ### Added
 - **Settings → Music → MusicBrainz now has a "Server URL" field** pointing
   CantiNode at a MusicBrainz-API-compatible mirror instead of the real

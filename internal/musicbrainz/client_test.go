@@ -1,6 +1,7 @@
 package musicbrainz
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -591,6 +592,77 @@ func TestGetDoesNotRetryNonTransientStatus(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("calls = %d, want exactly 1 — a 404 is never transient, so it must not be retried", calls)
+	}
+}
+
+// TestGetRetriesTransportErrorThenSucceeds is the regression test for a
+// real bug found live: get's retry loop only ever re-examined
+// retryableStatus, so a transport-level failure (doGet returning a
+// non-nil err — a connection reset, a timeout against c.httpClient's own
+// 15s deadline, a DNS blip) bypassed retrying entirely and failed the
+// whole call on the very first blip. Found investigating why adding Elvis
+// Presley (1,342 release groups — an exceptionally prolific outlier,
+// needing ~14 sequential BrowseArtistReleaseGroups pages) intermittently
+// left the artist with no discography/bio cached at all: the more
+// requests one logical operation needs, the higher the odds any single
+// one hits a transient blip, which used to be fatal to the entire
+// operation instead of just that one page.
+func TestGetRetriesTransportErrorThenSucceeds(t *testing.T) {
+	var calls int
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			// Hijack and close without writing a response at all — a
+			// genuine transport-level failure on the client side (an EOF/
+			// connection-reset error from http.Client.Do), not an HTTP
+			// status code.
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("test server's ResponseWriter does not support hijacking")
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn.Close()
+			return
+		}
+		w.Write([]byte(sampleRecordingJSON))
+	})
+
+	rec, err := c.LookupRecording(t.Context(), "some-mbid")
+	if err != nil {
+		t.Fatalf("expected the third attempt to succeed, got: %v", err)
+	}
+	if rec.Title != "Alpha and Omega" {
+		t.Errorf("Title = %q, want the decoded sample response", rec.Title)
+	}
+	if calls != 3 {
+		t.Errorf("calls = %d, want exactly 3 (2 transport failures + 1 success)", calls)
+	}
+}
+
+// TestGetDoesNotRetryWhenContextIsDone confirms a transport error that
+// coincides with the caller's own context already being expired/canceled
+// surfaces ctx.Err() immediately rather than burning remaining retries
+// against a request that can no longer succeed.
+func TestGetDoesNotRetryWhenContextIsDone(t *testing.T) {
+	var calls int
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		time.Sleep(50 * time.Millisecond) // longer than ctx's own deadline below
+		w.Write([]byte(sampleRecordingJSON))
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+
+	_, err := c.LookupRecording(ctx, "some-mbid")
+	if err == nil {
+		t.Fatal("expected an error when ctx expires mid-request")
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want exactly 1 — retrying after ctx is already done wastes attempts on a request that can't succeed", calls)
 	}
 }
 

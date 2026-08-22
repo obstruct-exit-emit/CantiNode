@@ -541,12 +541,22 @@ func escapeQuoted(s string) string {
 // error (see retryable) before giving up — 2 retries (3 attempts total).
 const maxRetries = 2
 
-// get issues one MusicBrainz request, retrying a transient server-side
-// error (503 "busy", 429, 502, 504 — all observed from the public
-// musicbrainz.org server under normal load, not a sign anything is
-// actually wrong) with a short backoff before surfacing it, instead of
-// bubbling the very first blip straight up as a hard error a user has to
-// notice and manually retry themselves.
+// get issues one MusicBrainz request, retrying a transient failure — a
+// server-side status (503 "busy", 429, 502, 504 — all observed from the
+// public musicbrainz.org server under normal load, not a sign anything is
+// actually wrong) or a transport-level error (a request timing out against
+// c.httpClient's own 15s deadline, a connection reset, a DNS blip) — with
+// a short backoff before surfacing it, instead of bubbling the very first
+// blip straight up as a hard error a user has to notice and manually retry
+// themselves. Found live: BrowseArtistReleaseGroups paginating an
+// exceptionally prolific artist's discography (Elvis Presley — 1,342
+// release groups, ~14 sequential requests) needs only one of those
+// requests to hit a transport-level blip to fail the entire fetch, since a
+// doGet error used to bypass this retry loop entirely — the loop only
+// ever re-examined retryableStatus, never whether doGet returned an error
+// in the first place. The more requests one logical operation needs, the
+// higher the odds any single one hits a transient blip, which is exactly
+// backwards from where retry coverage matters most.
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
 	u := c.baseURL + path + "?" + query.Encode()
 
@@ -566,7 +576,16 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 
 		body, status, err := c.doGet(ctx, u, path)
 		if err != nil {
-			return nil, err
+			// ctx itself being done (the caller's own deadline/cancellation,
+			// distinct from c.httpClient's own shorter per-request timeout)
+			// means retrying can't help — surface that specific case
+			// immediately rather than spending remaining attempts against
+			// a context that's already gone.
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			lastErr = err
+			continue
 		}
 		if status == http.StatusOK {
 			return body, nil
