@@ -79,8 +79,18 @@ type UnmatchedFileGroup struct {
 	// files under sibling CD1/CD2/Disc-N subfolders of the same multi-disc
 	// album — their shared parent directory instead, so the unmatched-files
 	// review page groups exactly the same way ScanRootFolder's own
-	// automatic matching does (see groupMultiDiscFolders).
+	// automatic matching does (see groupMultiDiscFolders). Absolute, kept
+	// this way deliberately: two different root folders could otherwise
+	// share a same-named subfolder and wrongly merge into one group if
+	// this were root-relative instead.
 	GroupKey string `json:"groupKey"`
+	// GroupPath is GroupKey with its own root folder's path stripped off
+	// the front — display-only, so the review page can show where a file
+	// actually lives without the noise (or the accidental disk-layout
+	// disclosure) of its full on-disk path. Empty when the file sits
+	// directly in the root folder itself, or when its root folder
+	// couldn't be resolved for some reason.
+	GroupPath string `json:"groupPath"`
 }
 
 // ListUnmatchedWithGroups returns every currently unmatched track file,
@@ -112,9 +122,40 @@ func (s *Scanner) ListUnmatchedWithGroups() ([]UnmatchedFileGroup, error) {
 		}
 	}
 
+	rootPaths := make(map[int64]string) // cached per root folder, not re-queried per file
 	out := make([]UnmatchedFileGroup, len(files))
 	for i, f := range files {
-		out[i] = UnmatchedFileGroup{TrackFile: f, GroupKey: keyByID[f.ID]}
+		root, ok := rootPaths[f.RootFolderID]
+		if !ok {
+			if rf, err := s.db.GetRootFolder(f.RootFolderID); err == nil {
+				root = filepath.Clean(rf.Path)
+			}
+			rootPaths[f.RootFolderID] = root
+		}
+		key := keyByID[f.ID]
+		out[i] = UnmatchedFileGroup{TrackFile: f, GroupKey: key, GroupPath: rootRelativeDir(key, root)}
 	}
 	return out, nil
+}
+
+// rootRelativeDir strips root as a prefix from dir for display — dir
+// itself (GroupKey) needs to stay the full absolute path for correctness
+// (see its own doc comment), but showing that whole on-disk path in the
+// UI is noisy and tells the user nothing about their actual library
+// structure. "" both when the file sits directly in the root folder
+// (nothing to show) and when root couldn't be resolved at all (falls
+// back to the unmodified dir instead, never worse than before this
+// existed).
+func rootRelativeDir(dir, root string) string {
+	if root == "" {
+		return dir
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return dir
+	}
+	if rel == "." {
+		return ""
+	}
+	return filepath.ToSlash(rel)
 }

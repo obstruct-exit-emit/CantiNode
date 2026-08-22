@@ -57,6 +57,19 @@ func artistAlbumFromFilename(path string) (artist, album string) {
 // unrelated to any real artist). Both return "" if the root folder lookup
 // itself fails, or the corresponding folder level doesn't exist within
 // the root folder.
+//
+// When there's no separate artist-level folder, the album folder's own
+// name gets one more try before giving up on Artist entirely: a single
+// release folder named "Artist - Album" (a common torrent/scene naming
+// convention — a whole release landing in one folder, never split into
+// nested Artist/Album directories) is split accordingly. Only attempted
+// when nothing above already supplied an artist, so a genuine nested
+// Artist/Album structure is never second-guessed — and only on an exact
+// two-part split, the same ambiguity guard artistAlbumFromFilename uses,
+// since a real single-title album that happens to contain its own " - "
+// (e.g. "Kind of Blue - Legacy Edition") is indistinguishable from this
+// pattern by text alone; the match-confidence threshold downstream is
+// what catches a wrong guess either way.
 func (s *Scanner) artistAlbumFromPath(tf *musiclibrary.TrackFile) (artist, album string) {
 	rf, err := s.db.GetRootFolder(tf.RootFolderID)
 	if err != nil {
@@ -72,8 +85,32 @@ func (s *Scanner) artistAlbumFromPath(tf *musiclibrary.TrackFile) (artist, album
 	artistDir := filepath.Dir(albumDir)
 	if isStrictlyWithin(root, artistDir) {
 		artist = cleanFolderName(filepath.Base(artistDir))
+		return artist, album
+	}
+
+	if a, al, ok := splitArtistAlbum(album); ok {
+		return a, al
 	}
 	return artist, album
+}
+
+// splitArtistAlbum splits a single folder name of the form "Artist -
+// Album" into its two parts. Requires exactly one " - " occurrence — two
+// or more (or none) is too ambiguous to confidently pick apart, so it's
+// left as a single album name instead (see artistAlbumFromPath's own use
+// — this is only tried once nothing else has already supplied an
+// artist).
+func splitArtistAlbum(name string) (artist, album string, ok bool) {
+	parts := strings.Split(name, " - ")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	artist = strings.TrimSpace(parts[0])
+	album = strings.TrimSpace(parts[1])
+	if artist == "" || album == "" {
+		return "", "", false
+	}
+	return artist, album, true
 }
 
 // isStrictlyWithin reports whether dir is a real descendant of root — not

@@ -80,6 +80,18 @@ func TestArtistAlbumFromPath(t *testing.T) {
 			wantAlbum:  "Discovery",
 		},
 		{
+			name:       "single release folder encoding Artist - Album",
+			relPath:    filepath.Join("Toro y Moi - Anything in Return [2013] [FLAC]", "01 - Harm in Change.flac"),
+			wantArtist: "Toro y Moi",
+			wantAlbum:  "Anything in Return",
+		},
+		{
+			name:       "a folder name with more than one dash is left unsplit",
+			relPath:    filepath.Join("Talking Heads - Stop Making Sense - Special Edition", "01 - Psycho Killer.flac"),
+			wantArtist: "",
+			wantAlbum:  "Talking Heads - Stop Making Sense - Special Edition",
+		},
+		{
 			name:       "file sits directly in the root folder",
 			relPath:    "01 - Some Loose Track.flac",
 			wantArtist: "",

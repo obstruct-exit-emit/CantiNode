@@ -126,6 +126,32 @@ func TestListUnmatchedWithGroupsMergesMultiDiscFolders(t *testing.T) {
 	}
 }
 
+// TestListUnmatchedWithGroupsPathIsRootRelative confirms GroupPath strips
+// the file's own root folder path off the front of GroupKey — the review
+// page's own display value, so it never has to show (or leak) a file's
+// full on-disk path — while a file sitting directly in the root folder
+// itself gets an empty GroupPath rather than ".".
+func TestListUnmatchedWithGroupsPathIsRootRelative(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	nested := seedUnmatchedFile(t, s, rf, "Khruangbin/Con Todo El Mundo/01.flac", `{"Artist":"Khruangbin"}`)
+	loose := seedUnmatchedFile(t, s, rf, "loose.flac", `{}`)
+
+	got, err := s.ListUnmatchedWithGroups()
+	if err != nil {
+		t.Fatalf("ListUnmatchedWithGroups: %v", err)
+	}
+	byID := map[int64]UnmatchedFileGroup{}
+	for _, g := range got {
+		byID[g.ID] = g
+	}
+	if want := "Khruangbin/Con Todo El Mundo"; byID[nested].GroupPath != want {
+		t.Errorf("nested file GroupPath = %q, want %q", byID[nested].GroupPath, want)
+	}
+	if byID[loose].GroupPath != "" {
+		t.Errorf("file directly in the root folder GroupPath = %q, want empty", byID[loose].GroupPath)
+	}
+}
+
 func TestSuggestMatchesOmitsUnslottableFiles(t *testing.T) {
 	s, rf := setupOrganizeScanner(t)
 	good := seedUnmatchedFile(t, s, rf, "a.flac", `{"TrackNumber":1}`)

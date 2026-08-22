@@ -329,9 +329,14 @@ export interface MusicTrackFile {
 }
 
 // UnmatchedTrackFile is MusicTrackFile plus the folder "group key" the
-// server computed for it — see listUnmatchedTrackFiles.
+// server computed for it — see listUnmatchedTrackFiles. groupPath is the
+// same folder with its own root folder's path stripped off the front —
+// display-only, so the review page can show where a file lives without
+// its full on-disk path; empty when the file sits directly in its root
+// folder.
 export interface UnmatchedTrackFile extends MusicTrackFile {
   groupKey: string;
+  groupPath: string;
 }
 
 // MusicTrackFileTags is a track file's own embedded tags, read live off

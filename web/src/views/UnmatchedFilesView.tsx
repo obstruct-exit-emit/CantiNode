@@ -81,8 +81,8 @@ function tagConsensus(files: UnmatchedTrackFile[]): { artist: string; album: str
   const albumCounts = new Map<string, number>();
   for (const f of files) {
     const tags = parseTags(f.tagsJson);
-    const artist = (tags.AlbumArtist || tags.Artist || "").trim();
-    const album = stripDiscSuffix((tags.Album || "").trim());
+    const artist = (tags.albumArtist || tags.artist || "").trim();
+    const album = stripDiscSuffix((tags.album || "").trim());
     if (artist) artistCounts.set(artist, (artistCounts.get(artist) ?? 0) + 1);
     if (album) albumCounts.set(album, (albumCounts.get(album) ?? 0) + 1);
   }
@@ -128,10 +128,10 @@ function pickBestVersionByFileCount(
 // pre-filling the search form beats making someone retype what the file
 // already told the scanner.
 interface FileTags {
-  Title?: string;
-  Artist?: string;
-  AlbumArtist?: string;
-  Album?: string;
+  title?: string;
+  artist?: string;
+  albumArtist?: string;
+  album?: string;
 }
 
 function parseTags(json: string): FileTags {
@@ -263,16 +263,18 @@ export default function UnmatchedFilesView({ onError }: { onError: (message: str
           {filtered.length === 0 && <p className="muted">No files match the filter.</p>}
           {sortedDirs.map((dir) => {
             const groupFiles = groups.get(dir)!;
+            // groupPath is the same for every file in this group (they
+            // all share one groupKey, and so one root folder) — display
+            // only, with the root folder's own path stripped off so this
+            // never dumps a full on-disk path into the UI (see
+            // internal/musicscanner.rootRelativeDir).
+            const displayPath = groupFiles[0].groupPath;
             return (
               <div key={dir}>
                 <div className="card-head">
-                  {sortedDirs.length > 1 ? (
-                    <h3 className="group-heading">
-                      {dir || "(root)"} ({groupFiles.length})
-                    </h3>
-                  ) : (
-                    <span />
-                  )}
+                  <h3 className="group-heading" title={dir}>
+                    {displayPath || "(root)"} ({groupFiles.length})
+                  </h3>
                   <button
                     className={autoMatchDir === dir ? "toggle on" : "toggle"}
                     onClick={() => setAutoMatchDir(autoMatchDir === dir ? null : dir)}
@@ -862,16 +864,16 @@ function UnmatchedFileRow({
 }) {
   const tags = parseTags(file.tagsJson);
   const { name } = splitPath(file.path);
-  const tagArtist = tags.Artist || tags.AlbumArtist || "";
+  const tagArtist = tags.artist || tags.albumArtist || "";
   const label =
-    tagArtist || tags.Album || tags.Title
-      ? [tagArtist, tags.Album, tags.Title].filter(Boolean).join(" – ")
+    tagArtist || tags.album || tags.title
+      ? [tagArtist, tags.album, tags.title].filter(Boolean).join(" – ")
       : name;
 
   const [open, setOpen] = useState(false);
   const [artist, setArtist] = useState(tagArtist);
-  const [album, setAlbum] = useState(tags.Album ?? "");
-  const [title, setTitle] = useState(tags.Title ?? "");
+  const [album, setAlbum] = useState(tags.album ?? "");
+  const [title, setTitle] = useState(tags.title ?? "");
   const [results, setResults] = useState<MusicBrainzRecordingResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
