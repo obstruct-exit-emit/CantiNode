@@ -66,6 +66,38 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// TrackArtistCredit renders a track's own artist-credit — internal/
+// musicscanner's joinArtistCredit flattens a MusicBrainz artist-credit
+// (which can run to half a dozen names on a guest-vocalist-heavy track,
+// Avantasia being the extreme case) into one ", "-joined string, since
+// that's all the API ever sends; there's no structured list to work with
+// here, only this split. Just the first name shows by default, with a
+// "+N credits" toggle to reveal the rest — keeps a normal single-artist
+// track (still the common case) looking exactly as it always has.
+function TrackArtistCredit({ credit }: { credit: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const names = credit.split(", ");
+  if (names.length <= 1) {
+    return <span className="muted"> — {credit}</span>;
+  }
+  return (
+    <>
+      <span className="muted"> — {names[0]}</span>
+      {expanded && <span className="muted">, {names.slice(1).join(", ")}</span>}
+      <button
+        className="toggle"
+        style={{ marginLeft: "0.4rem" }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((v) => !v);
+        }}
+      >
+        {expanded ? "Hide credits" : `+${names.length - 1} credits`}
+      </button>
+    </>
+  );
+}
+
 // Full-page album detail: header with cover art, release info, and
 // album-scoped Scan/Organize/Write tags/Remove actions (unlike the artist
 // page's versions, these never touch a sibling album's files), then its
@@ -396,9 +428,7 @@ export default function AlbumDetailView({
                     <span>
                       {t.discNumber > 1 ? `${t.discNumber}.` : ""}
                       {String(t.trackNumber).padStart(2, "0")} — {t.title}
-                      {t.artistCredit && (
-                        <span className="muted"> — {t.artistCredit}</span>
-                      )}
+                      {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} />}
                       {single && (
                         <>
                           <span className="pill">{single.format}</span>
