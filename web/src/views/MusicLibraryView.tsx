@@ -3,6 +3,12 @@ import { api, proxiedImage, type MusicArtist, type MusicBrainzArtistResult } fro
 import { PosterGridSkeleton } from "../components/Skeleton";
 import { SortSelect, DirectionButtons, sortArtists, defaultDirFor, type SortDir } from "../components/SortControl";
 
+// Library display: "grid" (current default, large covers), "compact" (same
+// grid, smaller covers), or "list" (a plain name + status row) — mirrors
+// ArtistDetailView's own AlbumsView toggle, one level up (artists instead
+// of albums).
+type LibraryView = "grid" | "compact" | "list";
+
 // The Music library — a *arr-style poster grid of artists; clicking one
 // opens their full detail page (albums, tracks, missing releases). Mirrors
 // BooksLibraryView's shape, adapted to musiclibrary's Artist/Album/Track
@@ -24,6 +30,7 @@ export default function MusicLibraryView({
   const [visible, setVisible] = useState(60);
   const [sort, setSort] = useState("name");
   const [sortDir, setSortDir] = useState<SortDir>(defaultDirFor("name"));
+  const [view, setView] = useState<LibraryView>("grid");
   const changeSort = (key: string) => {
     setSort(key);
     setSortDir(defaultDirFor(key));
@@ -142,6 +149,19 @@ export default function MusicLibraryView({
                         }}
                       />
                     )}
+                    <span className="view-toggle">
+                      {(["grid", "compact", "list"] as const).map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          className={view === v ? "toggle on" : "toggle"}
+                          onClick={() => setView(v)}
+                          title={v === "grid" ? "Covers" : v === "compact" ? "Smaller covers" : "List"}
+                        >
+                          {v === "grid" ? "Grid" : v === "compact" ? "Compact" : "List"}
+                        </button>
+                      ))}
+                    </span>
                     {artists.length > 1 && (
                       <>
                         <SortSelect
@@ -159,30 +179,58 @@ export default function MusicLibraryView({
                     )}
                   </div>
                 )}
-                <div className="poster-grid">
-                  {filtered.slice(0, visible).map((a) => (
-                    <button key={a.id} className="poster-card" onClick={() => onOpenArtist(a.id)}>
-                      {a.imageUrl ? (
-                        <img className="poster" src={proxiedImage(a.imageUrl)} alt="" loading="lazy" />
-                      ) : (
-                        <div className="poster fallback">{a.name.charAt(0)}</div>
-                      )}
-                      <span className="poster-title">{a.name}</span>
-                      <span className="poster-sub">
-                        {a.totalAlbumCount ? (
-                          <>
-                            {a.ownedAlbumCount ?? 0}/{a.totalAlbumCount} owned
-                          </>
+                {view === "list" ? (
+                  <ul className="rows">
+                    {filtered.slice(0, visible).map((a) => (
+                      <li key={a.id}>
+                        <div className="row">
+                          <button className="link" onClick={() => onOpenArtist(a.id)}>
+                            {a.name}
+                          </button>
+                          <span className="row-actions">
+                            <span className="muted">
+                              {a.totalAlbumCount ? (
+                                <>
+                                  {a.ownedAlbumCount ?? 0}/{a.totalAlbumCount} owned
+                                </>
+                              ) : (
+                                <>
+                                  {a.ownedAlbumCount ?? 0} album{(a.ownedAlbumCount ?? 0) === 1 ? "" : "s"}
+                                </>
+                              )}
+                            </span>
+                            {!a.isMonitored && <span className="muted">unmonitored</span>}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className={view === "compact" ? "poster-grid compact" : "poster-grid"}>
+                    {filtered.slice(0, visible).map((a) => (
+                      <button key={a.id} className="poster-card" onClick={() => onOpenArtist(a.id)}>
+                        {a.imageUrl ? (
+                          <img className="poster" src={proxiedImage(a.imageUrl)} alt="" loading="lazy" />
                         ) : (
-                          <>
-                            {a.ownedAlbumCount ?? 0} album{(a.ownedAlbumCount ?? 0) === 1 ? "" : "s"}
-                          </>
+                          <div className="poster fallback">{a.name.charAt(0)}</div>
                         )}
-                        {!a.isMonitored && " · unmonitored"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                        <span className="poster-title">{a.name}</span>
+                        <span className="poster-sub">
+                          {a.totalAlbumCount ? (
+                            <>
+                              {a.ownedAlbumCount ?? 0}/{a.totalAlbumCount} owned
+                            </>
+                          ) : (
+                            <>
+                              {a.ownedAlbumCount ?? 0} album{(a.ownedAlbumCount ?? 0) === 1 ? "" : "s"}
+                            </>
+                          )}
+                          {!a.isMonitored && " · unmonitored"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {filtered.length === 0 && <p className="muted">No artists match the filter.</p>}
                 {filtered.length > visible && (
                   <button className="toggle show-more" onClick={() => setVisible(visible + 120)}>
