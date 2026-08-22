@@ -67,16 +67,26 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// TrackArtistCredit renders a track's own artist-credit — internal/
+// TrackArtistCredit renders a track's own featured guests — internal/
 // musicscanner's joinArtistCredit flattens a MusicBrainz artist-credit
 // (which can run to half a dozen names on a guest-vocalist-heavy track,
 // Avantasia being the extreme case) into one ", "-joined string, since
 // that's all the API ever sends; there's no structured list to work with
-// here, only this split. Nothing shows on the row itself — just a button
-// naming the total count, opening TrackCreditsModal for the actual names.
+// here, only this split. The credit's own first name is always the
+// recording's primary artist (already the album's own artist whenever
+// this even renders — see applyMatch's blanking rule), so it's dropped
+// here rather than re-listed as one of the "featuring" names. Nothing
+// shows on the row itself — just a button naming the featured count,
+// opening TrackCreditsModal for the actual names. Renders nothing at all
+// when there's no one left to feature (a track whose only stored credit
+// is a single differing performer — e.g. a Various Artists compilation
+// track — rather than an added guest).
 function TrackArtistCredit({ credit, trackTitle }: { credit: string; trackTitle: string }) {
   const [showCredits, setShowCredits] = useState(false);
-  const names = credit.split(", ");
+  const featuring = credit.split(", ").slice(1);
+  if (featuring.length === 0) {
+    return null;
+  }
   return (
     <>
       <button
@@ -86,10 +96,10 @@ function TrackArtistCredit({ credit, trackTitle }: { credit: string; trackTitle:
           setShowCredits(true);
         }}
       >
-        {names.length} {names.length === 1 ? "credit" : "credits"}
+        {featuring.length} featuring
       </button>
       {showCredits && (
-        <TrackCreditsModal trackTitle={trackTitle} names={names} onClose={() => setShowCredits(false)} />
+        <TrackCreditsModal trackTitle={trackTitle} names={featuring} onClose={() => setShowCredits(false)} />
       )}
     </>
   );
