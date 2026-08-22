@@ -383,6 +383,13 @@ export default function AlbumDetailView({
           <ul className="rows">
             {tracks.map((t) => {
               const tfiles = files[t.id] ?? [];
+              // The common case (one file per track) shows format/size and
+              // the Tags button right on the track's own row, alongside
+              // "owned" — a track with more than one file (a stray
+              // duplicate import, most commonly) falls back to a nested row
+              // per file below, since "owned" can't point at just one of
+              // them.
+              const single = tfiles.length === 1 ? tfiles[0] : null;
               return (
                 <li key={t.id}>
                   <div className="row">
@@ -392,25 +399,43 @@ export default function AlbumDetailView({
                       {t.artistCredit && (
                         <span className="muted"> — {t.artistCredit}</span>
                       )}
+                      {single && (
+                        <span className="muted">
+                          {" "}
+                          — {single.format} · {formatBytes(single.sizeBytes)}
+                        </span>
+                      )}
                     </span>
-                    <span className={tfiles.length > 0 ? "owned yes" : "owned no"}>
-                      {tfiles.length > 0 ? "owned" : "no file"}
+                    <span className="row-actions">
+                      <span className={tfiles.length > 0 ? "owned yes" : "owned no"}>
+                        {tfiles.length > 0 ? "owned" : "no file"}
+                      </span>
+                      {single && (
+                        <button
+                          className="toggle"
+                          title="Show this file's own embedded tags"
+                          onClick={() => setTagsFile(single)}
+                        >
+                          Tags
+                        </button>
+                      )}
                     </span>
                   </div>
-                  {tfiles.map((f) => (
-                    <div className="row nested" key={f.id}>
-                      <span className="muted" title={f.path}>
-                        {f.format} · {formatBytes(f.sizeBytes)}
-                      </span>
-                      <button
-                        className="link"
-                        title="Show this file's own embedded tags"
-                        onClick={() => setTagsFile(f)}
-                      >
-                        Tags
-                      </button>
-                    </div>
-                  ))}
+                  {tfiles.length > 1 &&
+                    tfiles.map((f) => (
+                      <div className="row nested" key={f.id}>
+                        <span className="muted" title={f.path}>
+                          {f.format} · {formatBytes(f.sizeBytes)}
+                        </span>
+                        <button
+                          className="toggle"
+                          title="Show this file's own embedded tags"
+                          onClick={() => setTagsFile(f)}
+                        >
+                          Tags
+                        </button>
+                      </div>
+                    ))}
                 </li>
               );
             })}
