@@ -8,6 +8,20 @@
 // the matching/scanning pipeline requests today — a real follow-up
 // feature, not something this modal can show from data CantiNode
 // already has.
+//
+// Each name gets a Wikipedia link, the same "toggle" pill style as the
+// MusicBrainz/TheAudioDB links on the artist/album pages — a direct
+// title guess, not a search, same as those two link straight to a known
+// ID rather than a search result. There's no MBID per credited name
+// here (joinArtistCredit already flattened that away), so unlike those
+// two this can land on a disambiguation or "no exact match" page for an
+// ambiguous name; Wikipedia's own page handles that gracefully. Room to
+// add more per-name link providers later, the same way the header links
+// could grow past just these two.
+function wikipediaURL(name: string): string {
+  return `https://en.wikipedia.org/wiki/${encodeURIComponent(name.replace(/ /g, "_"))}`;
+}
+
 export default function TrackCreditsModal({
   trackTitle,
   names,
@@ -26,7 +40,12 @@ export default function TrackCreditsModal({
         </p>
         <ul className="credits-list">
           {names.map((name, i) => (
-            <li key={i}>{name}</li>
+            <li key={i}>
+              <span>{name}</span>
+              <a className="toggle" href={wikipediaURL(name)} target="_blank" rel="noreferrer" title={`Search Wikipedia for ${name}`}>
+                Wikipedia ↗
+              </a>
+            </li>
           ))}
         </ul>
         <div className="settings-actions">

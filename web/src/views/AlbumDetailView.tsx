@@ -72,28 +72,21 @@ function titleCase(s: string): string {
 // (which can run to half a dozen names on a guest-vocalist-heavy track,
 // Avantasia being the extreme case) into one ", "-joined string, since
 // that's all the API ever sends; there's no structured list to work with
-// here, only this split. Just the first name shows by default, with a
-// "+N credits" button opening TrackCreditsModal for the rest — keeps a
-// normal single-artist track (still the common case) looking exactly as
-// it always has.
+// here, only this split. Nothing shows on the row itself — just a button
+// naming the total count, opening TrackCreditsModal for the actual names.
 function TrackArtistCredit({ credit, trackTitle }: { credit: string; trackTitle: string }) {
   const [showCredits, setShowCredits] = useState(false);
   const names = credit.split(", ");
-  if (names.length <= 1) {
-    return <span className="muted"> — {credit}</span>;
-  }
   return (
     <>
-      <span className="muted"> — {names[0]}</span>
       <button
-        className="toggle"
-        style={{ marginLeft: "0.4rem" }}
+        className="toggle col-credits"
         onClick={(e) => {
           e.stopPropagation();
           setShowCredits(true);
         }}
       >
-        +{names.length - 1} credits
+        {names.length} {names.length === 1 ? "credit" : "credits"}
       </button>
       {showCredits && (
         <TrackCreditsModal trackTitle={trackTitle} names={names} onClose={() => setShowCredits(false)} />
@@ -447,21 +440,23 @@ export default function AlbumDetailView({
                     <span>
                       {t.discNumber > 1 ? `${t.discNumber}.` : ""}
                       {String(t.trackNumber).padStart(2, "0")} — {t.title}
-                      {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} trackTitle={t.title} />}
                     </span>
                     <span className="track-row-actions">
+                      {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} trackTitle={t.title} />}
                       {single && (
                         <>
                           <span className="pill col-format">{single.format}</span>
                           <span className="pill col-size">{formatBytes(single.sizeBytes)}</span>
-                          <button
-                            className="toggle col-tags"
-                            title="Show this file's own embedded tags"
-                            onClick={() => setTagsFile(single)}
-                          >
-                            Tags
-                          </button>
                         </>
+                      )}
+                      {single && (
+                        <button
+                          className="toggle col-tags"
+                          title="Show this file's own embedded tags"
+                          onClick={() => setTagsFile(single)}
+                        >
+                          Tags
+                        </button>
                       )}
                       <span className={`col-owned ${tfiles.length > 0 ? "owned yes" : "owned no"}`}>
                         {tfiles.length > 0 ? "owned" : "no file"}
