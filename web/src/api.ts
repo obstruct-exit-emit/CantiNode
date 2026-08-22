@@ -346,9 +346,19 @@ export interface MusicTrackFileTags {
   year: number;
   format: string;
   musicBrainzArtistId: string;
+  albumArtistId?: string;
   musicBrainzAlbumId: string;
   musicBrainzReleaseGroupId: string;
   musicBrainzRecordingId: string;
+  genre?: string;
+  releaseType?: string;
+  artistSortName?: string;
+  albumArtistSortName?: string;
+  trackTotal?: number;
+  discTotal?: number;
+  releaseCountry?: string;
+  releaseStatus?: string;
+  media?: string;
 }
 
 // TrackSuggestion is one proposed track_file → recording slot from

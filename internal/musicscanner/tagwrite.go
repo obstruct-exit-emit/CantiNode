@@ -1,6 +1,7 @@
 package musicscanner
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,10 +11,11 @@ import (
 
 // WriteTags embeds trackFileID's matched metadata (artist/album/track
 // names, track/disc numbers, genre, release type, sort names, track/disc
-// totals, and every MusicBrainz ID CantiNode already resolved for it)
-// back into the file's own tags — see internal/tagwriter's package doc
-// comment for exactly which formats this supports. Requires the file to
-// already be matched; there's nothing to write otherwise.
+// totals, release country/status/media, and every MusicBrainz ID
+// CantiNode already resolved for it) back into the file's own tags — see
+// internal/tagwriter's package doc comment for exactly which formats this
+// supports. Requires the file to already be matched; there's nothing to
+// write otherwise.
 func (s *Scanner) WriteTags(trackFileID int64) error {
 	tf, err := s.db.GetTrackFile(trackFileID)
 	if err != nil {
@@ -88,6 +90,19 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 		genre = strings.Join(artist.Genres, "; ")
 	}
 
+	// Best-effort: the version cache is fetched lazily (the album page's
+	// own edition picker, first view onward), so it may genuinely not
+	// exist yet for this release group, or not yet include this specific
+	// release. Either way, leaving country/status/media blank (via
+	// setFieldIfPresent) is correct — there's nothing wrong to report, just
+	// nothing cached yet to write.
+	var releaseCountry, releaseStatus, media string
+	if v, err := s.db.GetReleaseGroupVersionByRelease(album.ReleaseGroupMBID, album.MBID); err == nil {
+		releaseCountry, releaseStatus, media = v.Country, v.Status, v.MediaSummary
+	} else if !errors.Is(err, musiclibrary.ErrNotFound) {
+		return fmt.Errorf("get release version: %w", err)
+	}
+
 	tags := tagwriter.Tags{
 		Title:                     track.Title,
 		Artist:                    trackArtist,
@@ -102,6 +117,9 @@ func (s *Scanner) WriteTags(trackFileID int64) error {
 		ReleaseType:               album.PrimaryType,
 		ArtistSortName:            artistSortName,
 		AlbumArtistSortName:       artist.SortName,
+		ReleaseCountry:            releaseCountry,
+		ReleaseStatus:             releaseStatus,
+		Media:                     media,
 		MusicBrainzArtistID:       trackArtistMBID,
 		AlbumArtistID:             artist.MBID,
 		MusicBrainzAlbumID:        album.MBID,

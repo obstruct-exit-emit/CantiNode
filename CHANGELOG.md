@@ -11,6 +11,37 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Added
+- **"Write tags" now also embeds release country/status/media format, and
+  the "Tags" popup now shows every field "Write tags" can write, not just
+  the original eight.** Country/status/media are sourced from the same
+  `release_group_versions` cache that already backs the album page's own
+  edition/pressing picker — no new fetch, just reading data already
+  sitting there, once that cache has actually been populated for the
+  release group (fetched lazily on an album's first view, so a handful of
+  albums may not have it cached yet — in which case these three tags are
+  simply omitted, not written wrong). New
+  `Store.GetReleaseGroupVersionByRelease` looks up the *specific* release
+  actually matched, not just the release group's representative version —
+  the pressing owned isn't necessarily the one MusicBrainz or CantiNode
+  would pick as canonical.
+
+  `tagreader.Tags` (and the "Tags" popup, which is this same struct) gains
+  matching read-back support for genre, release type, sort names, totals,
+  release country/status/media, and the album-artist ID — genre reads via
+  dhowden/tag's own `Genre()` getter; everything else needed a new
+  alias-based lookup, since the same logical field lands under a
+  different raw key depending on format (confirmed live against a real
+  write of each): Vorbis comments (FLAC/OGG) use the short, direct name
+  (`releasetype`, `artistsort`, ...); MP4/M4A and ID3v2 (MP3/DSF) both
+  fall back to TagLib's older, MusicBrainz-prefixed custom-field
+  convention (`MusicBrainz Album Type`, `MusicBrainz Album Release
+  Country`, ...) for the fields that have no dedicated frame/atom of
+  their own — except artist sort name, album artist sort name, and media,
+  which ID3v2 does have a dedicated frame for (`TSOP`/`TSO2`/`TMED`) and
+  so exposes under that raw frame ID instead, not a human-readable name.
+  `extractMusicBrainzIDs` (the shared raw-field lookup, despite its name
+  already generic beforehand) is renamed `extractRawTextFields` to match
+  what it's actually for now.
 - **"Write tags" now embeds genre, release type, artist/album-artist sort
   names, track/disc totals, and the full release date — not just the
   4-digit year — plus fixes a real ID mismatch on Various Artists tracks.**

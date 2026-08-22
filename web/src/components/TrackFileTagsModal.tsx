@@ -39,16 +39,28 @@ export default function TrackFileTagsModal({
     };
   }, [fileId]);
 
+  const track = tags?.trackTotal ? `${tags.trackNumber || "—"} of ${tags.trackTotal}` : String(tags?.trackNumber || "—");
+  const disc = tags?.discTotal ? `${tags.discNumber || "—"} of ${tags.discTotal}` : String(tags?.discNumber || "—");
+
   const fields: [string, string][] = tags
     ? [
         ["Title", tags.title],
         ["Artist", tags.artist],
         ["Album Artist", tags.albumArtist],
         ["Album", tags.album],
-        ["Track / Disc", `${tags.trackNumber || "—"} / ${tags.discNumber || "—"}`],
+        ["Track", track],
+        ["Disc", disc],
         ["Year", tags.year ? String(tags.year) : ""],
+        ["Genre", tags.genre ?? ""],
+        ["Release Type", tags.releaseType ?? ""],
+        ["Release Country", tags.releaseCountry ?? ""],
+        ["Release Status", tags.releaseStatus ?? ""],
+        ["Media", tags.media ?? ""],
+        ["Artist Sort Name", tags.artistSortName ?? ""],
+        ["Album Artist Sort Name", tags.albumArtistSortName ?? ""],
         ["Format", tags.format],
         ["MusicBrainz Artist ID", tags.musicBrainzArtistId],
+        ["MusicBrainz Album Artist ID", tags.albumArtistId ?? ""],
         ["MusicBrainz Album ID", tags.musicBrainzAlbumId],
         ["MusicBrainz Release Group ID", tags.musicBrainzReleaseGroupId],
         ["MusicBrainz Recording ID", tags.musicBrainzRecordingId],

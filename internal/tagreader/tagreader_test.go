@@ -102,6 +102,61 @@ func TestReadFLACVorbisComments(t *testing.T) {
 	}
 }
 
+// TestReadFLACNewFields covers the Vorbis-comment side of the same fields
+// TestReadID3v2NewFieldAliases covers for ID3v2 — here every key is
+// already the plain, direct name (no aliasing needed), confirmed against
+// a real file written by internal/tagwriter.
+func TestReadFLACNewFields(t *testing.T) {
+	path := buildFLACFile(t, map[string]string{
+		"TITLE":                     "Alpha and Omega",
+		"GENRE":                     "Electronic; IDM",
+		"RELEASETYPE":               "Album",
+		"ARTISTSORT":                "Boards of Canada",
+		"ALBUMARTISTSORT":           "Boards of Canada",
+		"MUSICBRAINZ_ALBUMARTISTID": "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d",
+		"RELEASECOUNTRY":            "GB",
+		"RELEASESTATUS":             "official",
+		"MEDIA":                     "CD",
+		"TRACKTOTAL":                "12",
+		"DISCTOTAL":                 "1",
+	})
+
+	tags, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if tags.Genre != "Electronic; IDM" {
+		t.Errorf("Genre = %q", tags.Genre)
+	}
+	if tags.ReleaseType != "Album" {
+		t.Errorf("ReleaseType = %q", tags.ReleaseType)
+	}
+	if tags.ArtistSortName != "Boards of Canada" {
+		t.Errorf("ArtistSortName = %q", tags.ArtistSortName)
+	}
+	if tags.AlbumArtistSortName != "Boards of Canada" {
+		t.Errorf("AlbumArtistSortName = %q", tags.AlbumArtistSortName)
+	}
+	if tags.AlbumArtistID != "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d" {
+		t.Errorf("AlbumArtistID = %q", tags.AlbumArtistID)
+	}
+	if tags.ReleaseCountry != "GB" {
+		t.Errorf("ReleaseCountry = %q", tags.ReleaseCountry)
+	}
+	if tags.ReleaseStatus != "official" {
+		t.Errorf("ReleaseStatus = %q", tags.ReleaseStatus)
+	}
+	if tags.Media != "CD" {
+		t.Errorf("Media = %q", tags.Media)
+	}
+	if tags.TrackTotal != 12 {
+		t.Errorf("TrackTotal = %d, want 12", tags.TrackTotal)
+	}
+	if tags.DiscTotal != 1 {
+		t.Errorf("DiscTotal = %d, want 1", tags.DiscTotal)
+	}
+}
+
 func TestReadFLACWithoutMusicBrainzIDs(t *testing.T) {
 	path := buildFLACFile(t, map[string]string{
 		"TITLE":  "Untagged Song",
@@ -229,6 +284,65 @@ func TestReadID3v2Tags(t *testing.T) {
 	}
 }
 
+// TestReadID3v2NewFieldAliases covers the fields whose ID3v2 raw key
+// doesn't match their Vorbis/MP4 name (see extractRawTextFields's own doc
+// comment): a field with its own dedicated ID3v2 frame (TSOP/TSO2/TMED)
+// decodes to a plain string keyed by that raw frame ID, and one that only
+// exists as a custom field (release type/status/country, album artist
+// id, track/disc totals) goes through TXXX under TagLib's own, older
+// MusicBrainz-prefixed naming for some of these — confirmed live against
+// a real file written by internal/tagwriter.
+func TestReadID3v2NewFieldAliases(t *testing.T) {
+	path := buildID3v23File(t, [][]byte{
+		id3v2Frame("TIT2", tFrameContent("Alpha and Omega")),
+		id3v2Frame("TCON", tFrameContent("Electronic; IDM")),
+		id3v2Frame("TSOP", tFrameContent("Boards of Canada")),
+		id3v2Frame("TSO2", tFrameContent("Boards of Canada")),
+		id3v2Frame("TMED", tFrameContent("CD")),
+		id3v2Frame("TXXX", txxxFrameContent("MusicBrainz Album Type", "Album")),
+		id3v2Frame("TXXX", txxxFrameContent("MusicBrainz Album Artist Id", "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d")),
+		id3v2Frame("TXXX", txxxFrameContent("MusicBrainz Album Release Country", "GB")),
+		id3v2Frame("TXXX", txxxFrameContent("MusicBrainz Album Status", "official")),
+		id3v2Frame("TXXX", txxxFrameContent("TRACKTOTAL", "12")),
+		id3v2Frame("TXXX", txxxFrameContent("DISCTOTAL", "1")),
+	})
+
+	tags, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if tags.Genre != "Electronic; IDM" {
+		t.Errorf("Genre = %q", tags.Genre)
+	}
+	if tags.ArtistSortName != "Boards of Canada" {
+		t.Errorf("ArtistSortName = %q, want Boards of Canada (from raw TSOP)", tags.ArtistSortName)
+	}
+	if tags.AlbumArtistSortName != "Boards of Canada" {
+		t.Errorf("AlbumArtistSortName = %q, want Boards of Canada (from raw TSO2)", tags.AlbumArtistSortName)
+	}
+	if tags.Media != "CD" {
+		t.Errorf("Media = %q, want CD (from raw TMED)", tags.Media)
+	}
+	if tags.ReleaseType != "Album" {
+		t.Errorf("ReleaseType = %q, want Album (from TXXX MusicBrainz Album Type)", tags.ReleaseType)
+	}
+	if tags.AlbumArtistID != "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d" {
+		t.Errorf("AlbumArtistID = %q", tags.AlbumArtistID)
+	}
+	if tags.ReleaseCountry != "GB" {
+		t.Errorf("ReleaseCountry = %q", tags.ReleaseCountry)
+	}
+	if tags.ReleaseStatus != "official" {
+		t.Errorf("ReleaseStatus = %q", tags.ReleaseStatus)
+	}
+	if tags.TrackTotal != 12 {
+		t.Errorf("TrackTotal = %d, want 12", tags.TrackTotal)
+	}
+	if tags.DiscTotal != 1 {
+		t.Errorf("DiscTotal = %d, want 1", tags.DiscTotal)
+	}
+}
+
 func TestReadID3v2WithoutMusicBrainzIDs(t *testing.T) {
 	path := buildID3v23File(t, [][]byte{
 		id3v2Frame("TIT2", tFrameContent("Untagged Song")),
@@ -252,12 +366,12 @@ func TestReadID3v2WithoutMusicBrainzIDs(t *testing.T) {
 // with 4 leading NUL bytes still attached. Confirmed against a real file
 // written by go.senan.xyz/taglib (which itself writes the standard,
 // correct 8-byte header) before this fix landed. Vorbis comments hit the
-// same code path in extractMusicBrainzIDs but are never affected (plain
+// same code path in extractRawTextFields but are never affected (plain
 // UTF-8 text has no legitimate reason to start with a NUL byte), so this
 // only needs a synthetic map mimicking dhowden/tag's specific MP4
 // mis-parse, not a full binary fixture.
 func TestExtractMusicBrainzIDsTrimsMP4FreeformPadding(t *testing.T) {
-	got := extractMusicBrainzIDs(map[string]interface{}{
+	got := extractRawTextFields(map[string]interface{}{
 		"MusicBrainz Album Id": "\x00\x00\x00\x00a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
 	})
 	want := "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"

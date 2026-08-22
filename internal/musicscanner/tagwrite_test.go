@@ -222,6 +222,66 @@ func TestWriteTagsEmbedsGenreReleaseTypeSortNamesAndTotals(t *testing.T) {
 	check("DISCTOTAL", "1")
 }
 
+// TestWriteTagsEmbedsReleaseCountryStatusAndMedia covers the last of the
+// "are we writing everything MusicBrainz supplies" gaps: release country,
+// status, and media format, sourced from the same release_group_versions
+// cache that already backs the album page's own edition/pressing picker —
+// no new fetch, just reading data that was already sitting there once
+// that cache is populated for the exact release matched (not just any
+// version of the release group).
+func TestWriteTagsEmbedsReleaseCountryStatusAndMedia(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.ReplaceReleaseGroupVersions("rg-mbid", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-mbid", ReleaseMBID: "al-mbid", Title: "Geogaddi", Country: "GB", Status: "official", MediaSummary: "2×CD", IsRepresentative: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(rf.Path, "song.mp3")
+	if err := os.WriteFile(path, []byte("fake mp3 audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, 1, "mp3", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.WriteTags(tf.ID); err != nil {
+		t.Fatalf("WriteTags: %v", err)
+	}
+
+	got, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("taglib ReadTags: %v", err)
+	}
+	check := func(key, want string) {
+		t.Helper()
+		vals := got[key]
+		if len(vals) == 0 || vals[0] != want {
+			t.Errorf("%s = %v, want [%s]", key, vals, want)
+		}
+	}
+	check(taglibpkg.ReleaseCountry, "GB")
+	check(taglibpkg.ReleaseStatus, "official")
+	check(taglibpkg.Media, "2×CD")
+}
+
 // TestWriteTagsForAlbumSkipsUnmatchedAndWritesTheRest is the regression
 // test for the album page's new bulk "Write tags" action (replacing the
 // per-file button): every matched file in the album gets its tags

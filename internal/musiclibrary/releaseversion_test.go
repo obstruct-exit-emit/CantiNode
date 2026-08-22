@@ -44,6 +44,20 @@ func TestReplaceAndListReleaseGroupVersions(t *testing.T) {
 		t.Errorf("representative = %q, want rel-official", rep.ReleaseMBID)
 	}
 
+	nonRep, err := s.GetReleaseGroupVersionByRelease("rg-1", "rel-remaster")
+	if err != nil {
+		t.Fatalf("GetReleaseGroupVersionByRelease: %v", err)
+	}
+	if nonRep.Title != "The Wall (Remaster)" {
+		t.Errorf("GetReleaseGroupVersionByRelease(rel-remaster).Title = %q, want The Wall (Remaster)", nonRep.Title)
+	}
+	if _, err := s.GetReleaseGroupVersionByRelease("rg-1", "rel-never-cached"); err != ErrNotFound {
+		t.Errorf("GetReleaseGroupVersionByRelease(unknown release) err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetReleaseGroupVersionByRelease("rg-unknown", "rel-official"); err != ErrNotFound {
+		t.Errorf("GetReleaseGroupVersionByRelease(unknown release group) err = %v, want ErrNotFound", err)
+	}
+
 	// A second Replace wholesale swaps the set, not merges it.
 	if err := s.ReplaceReleaseGroupVersions("rg-1", []ReleaseGroupVersion{
 		{ReleaseGroupMBID: "rg-1", ReleaseMBID: "rel-only", Title: "The Wall", IsRepresentative: true},

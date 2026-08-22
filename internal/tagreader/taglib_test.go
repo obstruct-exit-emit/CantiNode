@@ -31,7 +31,17 @@ func seedTags(t *testing.T, path string) {
 		taglib.TrackNumber:               {"3"},
 		taglib.DiscNumber:                {"1"},
 		taglib.Date:                      {"2002-02-04"},
+		taglib.Genre:                     {"Electronic; IDM"},
+		taglib.ReleaseType:               {"Album"},
+		taglib.ArtistSort:                {"Boards of Canada"},
+		taglib.AlbumArtistSort:           {"Boards of Canada"},
+		taglib.ReleaseCountry:            {"GB"},
+		taglib.ReleaseStatus:             {"official"},
+		taglib.Media:                     {"CD"},
+		"TRACKTOTAL":                     {"12"},
+		"DISCTOTAL":                      {"1"},
 		taglib.MusicBrainzArtistID:       {"8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d"},
+		taglib.MusicBrainzAlbumArtistID:  {"8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d"},
 		taglib.MusicBrainzAlbumID:        {"a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"},
 		taglib.MusicBrainzReleaseGroupID: {"11111111-2222-3333-4444-555555555555"},
 		taglib.MusicBrainzTrackID:        {"66666666-7777-8888-9999-000000000000"},
@@ -82,6 +92,36 @@ func assertReadTags(t *testing.T, path, wantFormat string) {
 	}
 	if got.MusicBrainzRecordingID != "66666666-7777-8888-9999-000000000000" {
 		t.Errorf("MusicBrainzRecordingID = %q", got.MusicBrainzRecordingID)
+	}
+	if got.Genre != "Electronic; IDM" {
+		t.Errorf("Genre = %q", got.Genre)
+	}
+	if got.ReleaseType != "Album" {
+		t.Errorf("ReleaseType = %q", got.ReleaseType)
+	}
+	if got.ArtistSortName != "Boards of Canada" {
+		t.Errorf("ArtistSortName = %q", got.ArtistSortName)
+	}
+	if got.AlbumArtistSortName != "Boards of Canada" {
+		t.Errorf("AlbumArtistSortName = %q", got.AlbumArtistSortName)
+	}
+	if got.ReleaseCountry != "GB" {
+		t.Errorf("ReleaseCountry = %q", got.ReleaseCountry)
+	}
+	if got.ReleaseStatus != "official" {
+		t.Errorf("ReleaseStatus = %q", got.ReleaseStatus)
+	}
+	if got.Media != "CD" {
+		t.Errorf("Media = %q", got.Media)
+	}
+	if got.AlbumArtistID != "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d" {
+		t.Errorf("AlbumArtistID = %q", got.AlbumArtistID)
+	}
+	if got.TrackTotal != 12 {
+		t.Errorf("TrackTotal = %d, want 12", got.TrackTotal)
+	}
+	if got.DiscTotal != 1 {
+		t.Errorf("DiscTotal = %d, want 1", got.DiscTotal)
 	}
 }
 

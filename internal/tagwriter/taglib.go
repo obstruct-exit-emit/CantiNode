@@ -47,6 +47,13 @@ func writeTagLib(path string, tags Tags) error {
 	setFieldIfPresent(set, taglib.ReleaseType, tags.ReleaseType)
 	setFieldIfPresent(set, taglib.ArtistSort, tags.ArtistSortName)
 	setFieldIfPresent(set, taglib.AlbumArtistSort, tags.AlbumArtistSortName)
+	// Same reasoning as Genre/ReleaseType/sort names above: only cached
+	// once the release version picker's own cache has actually been
+	// fetched for this release group, so blank means "nothing cached yet,"
+	// not "there's genuinely no country/status/media."
+	setFieldIfPresent(set, taglib.ReleaseCountry, tags.ReleaseCountry)
+	setFieldIfPresent(set, taglib.ReleaseStatus, tags.ReleaseStatus)
+	setFieldIfPresent(set, taglib.Media, tags.Media)
 	setField(set, taglib.MusicBrainzArtistID, tags.MusicBrainzArtistID)
 	setField(set, taglib.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
 	setField(set, taglib.MusicBrainzAlbumID, tags.MusicBrainzAlbumID)

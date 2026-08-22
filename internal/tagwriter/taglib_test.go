@@ -33,6 +33,7 @@ func fullTags() Tags {
 		TrackTotal: 12, DiscTotal: 1, Date: "2002-02-04",
 		Genre: "Electronic; IDM", ReleaseType: "Album",
 		ArtistSortName: "Boards of Canada", AlbumArtistSortName: "Boards of Canada",
+		ReleaseCountry: "GB", ReleaseStatus: "official", Media: "CD",
 		MusicBrainzArtistID:       "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d",
 		AlbumArtistID:             "8b19a412-58a1-40e1-8c1d-9e3ea50e0f9d",
 		MusicBrainzAlbumID:        "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
@@ -70,6 +71,9 @@ func assertTagLibFields(t *testing.T, path string, tags Tags) {
 	check(taglibpkg.ArtistSort, tags.ArtistSortName)
 	check(taglibpkg.AlbumArtistSort, tags.AlbumArtistSortName)
 	check(taglibpkg.MusicBrainzAlbumArtistID, tags.AlbumArtistID)
+	check(taglibpkg.ReleaseCountry, tags.ReleaseCountry)
+	check(taglibpkg.ReleaseStatus, tags.ReleaseStatus)
+	check(taglibpkg.Media, tags.Media)
 	check(taglibpkg.Date, tags.Date)
 	if tags.TrackTotal > 0 {
 		check("TRACKTOTAL", strconv.Itoa(tags.TrackTotal))

@@ -34,12 +34,22 @@ func readTagLib(path string) (*Tags, error) {
 		Year:                      leadingInt(firstTag(raw, taglib.Date)),
 		Format:                    "wav",
 		MusicBrainzArtistID:       firstTag(raw, taglib.MusicBrainzArtistID),
+		AlbumArtistID:             firstTag(raw, taglib.MusicBrainzAlbumArtistID),
 		MusicBrainzAlbumID:        firstTag(raw, taglib.MusicBrainzAlbumID),
 		MusicBrainzReleaseGroupID: firstTag(raw, taglib.MusicBrainzReleaseGroupID),
 		// "MusicBrainz Track Id" is the ecosystem-standard (if confusingly
 		// named) tag for a recording's MBID — see internal/tagwriter's own
 		// use of the same taglib.MusicBrainzTrackID constant when writing.
 		MusicBrainzRecordingID: firstTag(raw, taglib.MusicBrainzTrackID),
+		Genre:                  firstTag(raw, taglib.Genre),
+		ReleaseType:            firstTag(raw, taglib.ReleaseType),
+		ArtistSortName:         firstTag(raw, taglib.ArtistSort),
+		AlbumArtistSortName:    firstTag(raw, taglib.AlbumArtistSort),
+		ReleaseCountry:         firstTag(raw, taglib.ReleaseCountry),
+		ReleaseStatus:          firstTag(raw, taglib.ReleaseStatus),
+		Media:                  firstTag(raw, taglib.Media),
+		TrackTotal:             leadingInt(firstTag(raw, "TRACKTOTAL")),
+		DiscTotal:              leadingInt(firstTag(raw, "DISCTOTAL")),
 	}, nil
 }
 

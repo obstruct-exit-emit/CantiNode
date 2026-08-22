@@ -87,6 +87,14 @@ type Tags struct {
 	// AlbumArtist themselves do.
 	ArtistSortName      string
 	AlbumArtistSortName string
+	// ReleaseCountry/ReleaseStatus/Media describe the specific edition
+	// matched (e.g. "US", "official", "2×CD") — sourced from whichever
+	// release version cache already backs the album page's own edition
+	// picker, so a caller with nothing cached for this exact release
+	// simply leaves these blank rather than guessing.
+	ReleaseCountry string
+	ReleaseStatus  string
+	Media          string
 
 	// MusicBrainz IDs, written back so a future rescan recognizes this
 	// file by direct MBID match (see internal/scanner's matcher)

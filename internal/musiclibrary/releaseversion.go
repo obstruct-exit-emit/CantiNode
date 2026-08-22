@@ -183,6 +183,27 @@ func (s *Store) GetRepresentativeReleaseVersion(releaseGroupMBID string) (*Relea
 	return &v, nil
 }
 
+// GetReleaseGroupVersionByRelease returns the specific cached version
+// matching releaseMBID exactly — the edition actually owned/matched, as
+// opposed to GetRepresentativeReleaseVersion's "whichever one MusicBrainz
+// or CantiNode considers canonical." ErrNotFound covers both "this
+// release group's versions were never cached" and "they were, but this
+// particular release isn't among them" — internal/musicscanner's WriteTags
+// treats both the same way (best-effort: leave the country/status/media
+// tags blank rather than fail the whole write).
+func (s *Store) GetReleaseGroupVersionByRelease(releaseGroupMBID, releaseMBID string) (*ReleaseGroupVersion, error) {
+	v, err := scanReleaseGroupVersion(s.db.QueryRow(
+		releaseGroupVersionSelect+` WHERE release_group_mbid = ? AND release_mbid = ?`,
+		releaseGroupMBID, releaseMBID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get release group version by release: %w", err)
+	}
+	return &v, nil
+}
+
 // ReleaseGroupMBIDsStillReferenced filters releaseGroupMBIDs down to the
 // subset that still have an artist_release_groups row for ANY artist — used
 // before purging shared caches on artist removal (see internal/api's
