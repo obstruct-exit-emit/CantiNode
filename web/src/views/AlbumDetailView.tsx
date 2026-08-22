@@ -444,12 +444,6 @@ export default function AlbumDetailView({
                     <span className="track-row-actions">
                       {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} trackTitle={t.title} />}
                       {single && (
-                        <>
-                          <span className="pill col-format">{single.format}</span>
-                          <span className="pill col-size">{formatBytes(single.sizeBytes)}</span>
-                        </>
-                      )}
-                      {single && (
                         <button
                           className="toggle col-tags"
                           title="Show this file's own embedded tags"
@@ -457,6 +451,12 @@ export default function AlbumDetailView({
                         >
                           Tags
                         </button>
+                      )}
+                      {single && (
+                        <>
+                          <span className="pill col-format">{single.format}</span>
+                          <span className="pill col-size">{formatBytes(single.sizeBytes)}</span>
+                        </>
                       )}
                       <span className={`col-owned ${tfiles.length > 0 ? "owned yes" : "owned no"}`}>
                         {tfiles.length > 0 ? "owned" : "no file"}
