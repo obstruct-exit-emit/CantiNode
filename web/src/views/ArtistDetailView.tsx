@@ -26,8 +26,8 @@ import {
   defaultDirFor,
   type SortDir,
 } from "../components/SortControl";
+import WriteTagsDialog from "../components/WriteTagsDialog";
 import { formatBytes, formatDuration } from "../format";
-import { useUi } from "../ui";
 
 // Albums section display: "grid" (current default, large covers), "compact"
 // (same grid, smaller covers), or "list" (a plain title + status row).
@@ -103,7 +103,6 @@ export default function ArtistDetailView({
   onBack: () => void;
   onOpenAlbum: (albumId: number) => void;
 }) {
-  const { confirmDlg } = useUi();
   const [artist, setArtist] = useState<MusicArtist | null>(null);
   const [albums, setAlbums] = useState<MusicAlbum[]>([]);
   const [wanted, setWanted] = useState<WantedAlbum[]>([]);
@@ -115,6 +114,7 @@ export default function ArtistDetailView({
   const [removingWanted, setRemovingWanted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [showWriteTags, setShowWriteTags] = useState(false);
   const [notice, setNotice] = useState("");
   const [renamePlan, setRenamePlan] = useState<RenameMove[] | null>(null);
   const [rootFolders, setRootFolders] = useState<RootFolder[]>([]);
@@ -272,18 +272,9 @@ export default function ArtistDetailView({
       .finally(() => setBusy(false));
   };
 
-  const writeTagsClearFirst = async () => {
-    if (
-      await confirmDlg({
-        title: "Write tags (clear first)",
-        message:
-          "This wipes every tag CantiNode doesn't itself manage — embedded cover art (a fresh one is re-embedded from each album's own cached cover, if available), comments, lyrics, ReplayGain, ratings, custom fields from other taggers — before writing, across every album this artist owns. The regular \"Write tags\" merges instead and never touches those. This cannot be undone.",
-        confirmLabel: "Clear and write",
-        danger: true,
-      })
-    ) {
-      writeTags(true);
-    }
+  const confirmWriteTags = (clear: boolean) => {
+    setShowWriteTags(false);
+    writeTags(clear);
   };
 
   // previewMove loads what a move to the just-picked root folder would do
@@ -438,15 +429,12 @@ export default function ArtistDetailView({
             <button disabled={busy} onClick={previewOrganize} title="Preview naming-template moves for this artist's files only">
               Organize…
             </button>
-            <button disabled={busy} onClick={() => writeTags(false)} title="Write this artist's matched metadata back into every owned file's own tags">
-              Write tags
-            </button>
             <button
               disabled={busy}
-              onClick={writeTagsClearFirst}
-              title="Write tags after wiping everything CantiNode doesn't manage — embedded art, comments, lyrics, custom fields, ..."
+              onClick={() => setShowWriteTags(true)}
+              title="Write this artist's matched metadata back into every owned file's own tags"
             >
-              Write tags (clear first)
+              Write tags…
             </button>
             {rootFolders.length > 1 && (
               <select
@@ -674,6 +662,9 @@ export default function ArtistDetailView({
       </section>
 
       <MissingAlbumsCard artistId={id} onChanged={refreshMissingAndWanted} onError={onError} refreshKey={reloadTick} />
+      {showWriteTags && (
+        <WriteTagsDialog scope="artist" onConfirm={confirmWriteTags} onClose={() => setShowWriteTags(false)} />
+      )}
     </>
   );
 }

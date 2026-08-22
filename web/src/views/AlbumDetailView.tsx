@@ -12,8 +12,8 @@ import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import TrackFileTagsModal from "../components/TrackFileTagsModal";
+import WriteTagsDialog from "../components/WriteTagsDialog";
 import { formatBytes } from "../format";
-import { useUi } from "../ui";
 
 // commonBasePath returns the deepest directory every one of paths shares —
 // e.g. two discs' worth of files under .../Moonglow (2CD)/CD1/... and
@@ -81,7 +81,6 @@ export default function AlbumDetailView({
   onError: (message: string) => void;
   onBack: () => void;
 }) {
-  const { confirmDlg } = useUi();
   const [album, setAlbum] = useState<MusicAlbum | null>(null);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [files, setFiles] = useState<Record<number, MusicTrackFile[]>>({});
@@ -93,6 +92,7 @@ export default function AlbumDetailView({
   const [description, setDescription] = useState("");
   const [versionLabel, setVersionLabel] = useState("");
   const [tagsFile, setTagsFile] = useState<MusicTrackFile | null>(null);
+  const [showWriteTags, setShowWriteTags] = useState(false);
 
   const reload = useCallback(() => {
     Promise.all([api.getMusicAlbum(id), api.listMusicTracks(id)])
@@ -227,18 +227,9 @@ export default function AlbumDetailView({
       .finally(() => setHeaderBusy(false));
   };
 
-  const writeTagsClearFirst = async () => {
-    if (
-      await confirmDlg({
-        title: "Write tags (clear first)",
-        message:
-          "This wipes every tag CantiNode doesn't itself manage — embedded cover art (a fresh one is re-embedded from the album's own cached cover, if available), comments, lyrics, ReplayGain, ratings, custom fields from other taggers — before writing. The regular \"Write tags\" merges instead and never touches those. This cannot be undone.",
-        confirmLabel: "Clear and write",
-        danger: true,
-      })
-    ) {
-      writeTags(true);
-    }
+  const confirmWriteTags = (clear: boolean) => {
+    setShowWriteTags(false);
+    writeTags(clear);
   };
 
   const year = album.releaseDate ? album.releaseDate.slice(0, 4) : "";
@@ -325,15 +316,12 @@ export default function AlbumDetailView({
             <button disabled={headerBusy} onClick={previewOrganize} title="Preview naming-template moves for this album's files only">
               Organize…
             </button>
-            <button disabled={headerBusy} onClick={() => writeTags(false)} title="Write this album's matched metadata back into every file's own tags">
-              Write tags
-            </button>
             <button
               disabled={headerBusy}
-              onClick={writeTagsClearFirst}
-              title="Write tags after wiping everything CantiNode doesn't manage — embedded art, comments, lyrics, custom fields, ..."
+              onClick={() => setShowWriteTags(true)}
+              title="Write this album's matched metadata back into every file's own tags"
             >
-              Write tags (clear first)
+              Write tags…
             </button>
             <button
               className={showUpgrade ? "toggle on" : ""}
@@ -433,6 +421,9 @@ export default function AlbumDetailView({
           fileName={tagsFile.path.split("/").pop() ?? tagsFile.path}
           onClose={() => setTagsFile(null)}
         />
+      )}
+      {showWriteTags && (
+        <WriteTagsDialog scope="album" onConfirm={confirmWriteTags} onClose={() => setShowWriteTags(false)} />
       )}
     </>
   );
