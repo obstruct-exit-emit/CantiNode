@@ -55,5 +55,18 @@ add a root folder for it.
 - Local image cache: provider art is downloaded on add/refresh and served
   from CantiNode, surviving provider link rot.
 
+## Documentation
+
+| | |
+|---|---|
+| [Installation](installation.md) | Linux, from source |
+| [Quickstart](quickstart.md) | First-run walkthrough |
+| [Libraries](libraries.md) | How the music library behaves |
+| [Acquisition](acquisition.md) | Indexers, native sources, scoring, download clients |
+| [Configuration](configuration.md) | config.yaml, auth & roles, naming, backups, HTTPS |
+| [API](api.md) | The full REST API — everything the UI does is scriptable |
+| [Development](development.md) | Building, layout, contributing |
+| [Roadmap](../ROADMAP.md) | Development history and what's next |
+
 Start with [Installation](installation.md), then the
 [Quickstart](quickstart.md).

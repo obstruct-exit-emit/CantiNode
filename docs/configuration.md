@@ -33,6 +33,21 @@ music:
                                  #   recommended
   audiodb_api_key: ""            # TheAudioDB key for artist bio/photo lookup;
                                  #   empty uses TheAudioDB's public test key
+  musicbrainz_base_url: ""       # point at a self-hosted MusicBrainz-API-
+                                 #   compatible mirror instead of the real
+                                 #   musicbrainz.org; empty (default) uses
+                                 #   the real one. Applied at startup only —
+                                 #   changing it needs a restart. Not a way
+                                 #   to borrow someone else's infrastructure:
+                                 #   CantiNode ships with no mirror to
+                                 #   suggest here, only the knob for one you
+                                 #   run yourself
+tag_write:              # which "Write tags" fields actually get embedded —
+                        #   omit entirely for the default (nothing disabled,
+                        #   every field written); see "Tags to write" below
+  disable_genre: false
+  disable_composer: false
+  # ...one disable_<field> per tagwriter.Tags field, all default false
 timings:                                # background cadences — omit for defaults
   health_interval_minutes: 15           # health checks (5–1440); see below
   wanted_search_mode: daily             # daily (default) or interval; see below
@@ -114,6 +129,12 @@ and where artist bio/photo lookups come from:
 - **TheAudioDB API key** — optional; an empty key falls back to TheAudioDB's
   shared public test key, which can rate-limit under heavier use. A free key
   removes that limit.
+- **MusicBrainz server URL** — optional; points CantiNode at a self-hosted
+  MusicBrainz-API-compatible mirror instead of the real musicbrainz.org.
+  Blank (the default) always uses the real one. This is for an operator
+  who genuinely runs their own mirror — CantiNode has no bundled or
+  recommended one to suggest here. Applied only when the server starts,
+  so changing it needs a restart, same as the two fields above.
 - **Organize on match** — off by default. When on, a scan moves/renames a
   file into the naming template immediately once it's matched, instead of
   waiting for you to review the scan and run Organize yourself.
@@ -133,6 +154,37 @@ and where artist bio/photo lookups come from:
 
 The same page has a **Clear image cache** button — see
 [Image cache](#image-cache) below.
+
+## Tags to write
+
+**Settings → Music → Tags to write** controls which fields the "Write
+tags" action (per-album, or per-artist across every album it owns — see
+[Libraries](libraries.md#write-tags)) actually embeds into a file. Every field is on
+by default; switch one off to leave it alone entirely — a disabled field
+is never set and never cleared, the same treatment a field CantiNode
+simply has no data for yet already gets. This doesn't change what a scan
+matches or what's shown in the UI, only what a write actually touches on
+disk.
+
+The fields, grouped the way the settings page shows them:
+
+- **Core**: Title, Artist, Album Artist, Album, Track Number, Disc Number,
+  Date, Track Total, Disc Total
+- **Best-effort metadata**: Genre, Release Type, Artist Sort Name, Album
+  Artist Sort Name, Release Country, Release Status, Media, Mood, Composer
+- **Cover art**: Cover Image
+- **MusicBrainz IDs**: Artist ID, Album Artist ID, Album ID, Release Group
+  ID, Recording ID
+
+In `config.yaml` this is the `tag_write:` block, one `disable_<field>: true`
+per field you want to turn off (see the example above) — the keys are
+named `disable_*` rather than `enable_*` on purpose: a config written
+before this section existed (or one that simply never touches it) has no
+`tag_write` key at all, and with `disable_*` keys that reads back as
+"nothing disabled" — every field still written, matching every install's
+behavior before this setting existed. `enable_*` keys would have inverted
+that: a missing key would read as `false` (not enabled), silently turning
+every write into a no-op for any config that predates the feature.
 
 ## Naming template
 

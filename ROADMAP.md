@@ -279,6 +279,68 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    wanted album or an upgrade, which is every music grab) — expands the
    same `ReleaseBrowser` the album page itself uses, right there in
    Activity, instead of sending the user off to find the album by hand.
+10. [x] **Composer credit in "Write tags"** — done 2026-08-22: resolved
+    from MusicBrainz's own work-relationship data (a recording's linked
+    Work carries composer/writer credit, not the recording itself), via
+    direct recording/release lookups. Deliberately left blank for a file
+    matched through the batched recording-search fast path — MusicBrainz's
+    search endpoint never returns relationship data regardless of `inc`
+    params (confirmed live), so paying for a second per-track lookup just
+    for composer would defeat the point of batching. Once resolved it's
+    only ever upgraded on a re-match, never blanked, so a track that
+    already has a real credit keeps it even if later re-matched via a path
+    that can't supply one.
+11. [x] **Per-field "Tags to Write" toggle** — done 2026-08-22: Settings →
+    Music → "Tags to Write" lets every field "Write tags" can embed
+    (title, artist, genre, composer, cover art, MusicBrainz IDs, ...) be
+    switched off individually, all on by default. A disabled field is
+    left completely untouched by a write — never set, never cleared —
+    the same treatment a field CantiNode simply has no data for cached
+    yet already gets.
+12. [x] **"Retry cover art" and a real fix for the bug it works around** —
+    done 2026-08-22: found live that two Blind Melon albums stayed
+    permanently cover-less because a stale Cover Art Archive "no cover"
+    result (cached before TheAudioDB support ever existed) blocked
+    `GetFrontCover` from trying TheAudioDB at all, even once it genuinely
+    had the art. Both sources now get their own independent negative
+    cache. A small retry control also sits right over an album's missing
+    cover (the album page and every artist page's albums grid) for a
+    manual re-check on demand, rather than waiting out either source's
+    own ~30-day stale-miss window.
+13. [x] **MusicBrainz self-hosted mirror setting** — done 2026-08-22:
+    Settings → Music → MusicBrainz gets a "Server URL" field, blank by
+    default (the real musicbrainz.org). For an operator who runs their
+    own MusicBrainz-API-compatible mirror — not a way to borrow anyone
+    else's infrastructure; CantiNode ships with no bundled or suggested
+    mirror to point this at.
+14. [x] **Background-operation audit** — done 2026-08-22: a deliberate
+    pass over every action that can outlive the request that started it
+    (write tags, organize, move to a different root folder, a full scan,
+    grabbing a release, adding an artist). Found and fixed the one real
+    gap: grabbing a release still tied its download-client submission to
+    the browser's own request context, so a page refresh mid-grab could
+    abandon an add that would otherwise have landed — the same class of
+    bug an earlier fix (decoupling match-approval from the browser's
+    request context) had already addressed elsewhere. Also found and
+    fixed that the MusicBrainz client's retry logic only ever covered a
+    bad HTTP status code, never a transport-level failure (a timeout, a
+    connection reset) — invisible for an ordinary artist, but a real
+    problem for an outlier-prolific one (Elvis Presley's 1,342 release
+    groups need ~14 sequential paginated requests, raising the odds any
+    single one hits a transient blip) that used to fail the whole
+    operation instead of just that one page.
+15. [x] **Folder/filename fallback for auto-match** — done 2026-08-22: a
+    file with blank Artist/Album tags used to be left unmatched no matter
+    how well-organized its folder structure was. Now falls back to the
+    filename (only when it has 3+ `" - "`-separated segments — a plain
+    two-segment name is too ambiguous to guess which part is which), then
+    the containing folders (album folder, then artist folder one level
+    up, bounded by the file's own root folder so a flat layout never
+    mistakes the root folder's own name for an artist). Matching input
+    only — a file's own cached/displayed tags are never touched by it.
+    Reaches both the per-file fuzzy path and the whole-folder consensus
+    path, so a whole album of completely untagged files can now reach a
+    match from its folder structure alone.
 
 ## Future 💡
 

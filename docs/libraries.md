@@ -12,7 +12,8 @@ Browsing: library grid (artists) → **artist page** → **album**.
 
 The artist page has a photo, bio, a **monitored/unmonitored** toggle, and
 artist-scoped actions (**Refresh metadata**, **Scan files** — see the note
-on scan scope below, **Organize…**, **Remove artist**) — each touches only
+on scan scope below, **Organize…**, **Write tags…** — see
+[Write tags](#write-tags) below, **Remove artist**) — each touches only
 this artist. Below that: one **Albums** grid (Grid/Compact/List views,
 sortable by release date or title) holding both owned and wanted albums
 together, badged **owned**/**wanted**/**downloading**, and a **Missing**
@@ -20,7 +21,8 @@ section for the rest of the discography. Cover art shows for wanted and
 missing albums too, not just owned ones — resolved via each release
 group's cached representative release (see
 [Release versions](#release-versions) below), fetched and cached the first
-time it's shown.
+time it's shown. See [Cover art](#cover-art) below for where that art
+actually comes from and what to do when a specific album's is missing.
 
 Adding an artist pulls their discography as metadata only — nothing is
 auto-monitored or auto-wanted, so a freshly added artist's whole discography
@@ -44,13 +46,23 @@ newly-released album shows up in Missing without you having to click
 other gap, never auto-wanted.
 
 An album's own page shows its cover and tracklist, each track's matched
-file(s) with per-file **organize**, **write tags**, and **delete** actions,
-plus its own album-scoped actions: **Scan files** and **Organize…** (both
-genuinely scoped to just this album's own folder — see below), **Remove
-album**, and (once **upgrades allowed** is on for the profile and this
-album's format hasn't already met its cutoff) **Search upgrade** to look
-for and grab a better release than what's currently owned. There's no
-monitor toggle here — wanting/monitoring both live at the artist level.
+file(s) with its format/size and a **Tags** button — a read-only popup of
+that file's own embedded tags, read live off disk (not the database's own
+cached snapshot, which goes stale the moment a "Write tags" run changes
+what's actually on the file). Organize, write-tags, and delete are no
+longer per-file actions: **Scan files** and **Organize…** are the album's
+own album-scoped actions (both genuinely scoped to just this album's own
+folder — see below), **Write tags…** (see [Write tags](#write-tags)
+below) is bulk across every file the album owns, and there's no per-file
+delete here at all — only **Remove album**'s own "Also delete its files
+from disk" checkbox (see below), or the
+[Unmatched Files](#existing-file-import-unmatched-files) review queue for
+a file that was never matched to anything. Rounding out the album page:
+**Remove album**, and (once **upgrades allowed** is on for the profile
+and this album's format hasn't already met its cutoff) **Search
+upgrade** to look for and grab a better release than what's currently
+owned. There's no monitor toggle here — wanting/monitoring both live at
+the artist level.
 
 Refreshing metadata never enrolls, un-enrolls, or re-monitors anything —
 only bio/photo/cover-art/new-release metadata update.
@@ -62,7 +74,14 @@ all. **Remove album** (the album's own page) is narrower on purpose: it
 only removes that one album's ownership record, leaving the artist's
 cached discography metadata (including that same album's cached versions
 and cover art) alone, since the artist and the rest of its discography are
-still here.
+still here. Both offer an "Also delete its/their files from disk" checkbox
+— off by default, so removing the library record alone never touches
+anything on disk unless you explicitly ask it to.
+
+Both the album and artist pages also link out — **MusicBrainz ↗** (the
+release group's or artist's own MusicBrainz page) and **TheAudioDB ↗**
+(when TheAudioDB has an entry for it; hidden otherwise) — for anyone who
+wants to check or correct the underlying metadata at the source.
 
 ## Adding via a MusicBrainz series link
 
@@ -117,10 +136,23 @@ disc's own Album tag carries a different per-disc suffix ("Album CD 1" vs
 "Album CD 2"). A folder bundling genuinely different albums together (a
 discography/box-set dump) is left ungrouped instead — grouping only kicks
 in when the discs actually agree on the same album. Then by **fuzzy title
-search** (typo- and word-order-tolerant) for anything left. Files that
-still can't be confidently placed land in an **Unmatched** list for manual
-review. A newly-discovered artist (one your files matched to, that you
-hadn't explicitly monitored) gets its metadata cached automatically too.
+search** (typo- and word-order-tolerant) for anything left — and this is
+where a file's own tags get a last assist if they're incomplete: a file
+with no usable Artist/Album in its own tags falls back to its filename
+(only when it has at least three `" - "`-separated segments — Artist,
+Album, then a track number and/or title; a plain two-segment "Artist -
+Title" name is too ambiguous to guess which part is which, so it's left
+alone), then the folders it's sitting in (the album folder, then the
+artist folder one level up — stopping at the root folder, so a flat
+layout with no separate artist-level folder never mistakes the root
+folder's own name for an artist). This only ever supplies search input;
+it never changes what's actually cached or shown as the file's own
+embedded tags, and it feeds the whole-folder matching above too — a
+whole folder of otherwise completely untagged files can reach a match
+from its own folder structure alone. Files that still can't be
+confidently placed land in an **Unmatched** list for manual review. A
+newly-discovered artist (one your files matched to, that you hadn't
+explicitly monitored) gets its metadata cached automatically too.
 
 A file CantiNode grabbed itself skips the whole-folder search step
 entirely — it already knows which album it searched for, so it resolves
@@ -140,9 +172,9 @@ resolves its real per-track performer separately and correctly re-files it
 under the release's own credit instead. Each track keeps its own real
 performing-artist credit from MusicBrainz too (shown on the album page
 whenever it differs from the album's own artist), not just the
-compilation's shared one — **write tags** on a compilation track embeds
-that same per-track credit as its file's `ARTIST` tag, leaving
-`ALBUMARTIST` as the compilation identity.
+compilation's shared one — a bulk **Write tags…** embeds each
+compilation track's own per-track credit as its file's `ARTIST` tag,
+leaving `ALBUMARTIST` as the compilation identity.
 
 **Unmatched Files** (sidebar, under Libraries) is the review queue for
 whatever a scan couldn't place, grouped by folder — a merged CD1/CD2 pair
@@ -184,6 +216,60 @@ layout, track count) and full tracklist gets cached the first time an
 artist's discography is synced — monitoring, an explicit refresh, or the
 backfill sweep that runs on the next scan for an artist added before this
 existed — so picking among them afterward never calls MusicBrainz again.
+
+## Cover art
+
+Resolved from two sources: TheAudioDB is tried first (keyed by the
+release group as a whole, since TheAudioDB doesn't distinguish specific
+editions the way MusicBrainz does), falling back to the Cover Art
+Archive (keyed by the exact release CantiNode owns) whenever TheAudioDB
+doesn't have it. Whichever source answers, the image is cached to disk
+so the same release is never re-fetched. The two sources keep separate
+"neither has it" records — found live that sharing one record between
+them meant an old Cover Art Archive miss (recorded before TheAudioDB
+support even existed) could block ever trying TheAudioDB at all, even
+once it genuinely had the art. Either record self-heals after about 30
+days, but you don't have to wait: a small **⟳** control appears right
+over an album's cover — on the album page and on every cover tile in an
+artist's own Albums grid — the moment it fails to load, forcing an
+immediate fresh check of both sources instead.
+
+## Write tags
+
+Embeds an album's (or a whole artist's) matched metadata back into every
+owned file's own tags — title, artist, album, track/disc numbers and
+totals, genre, release type, sort names, release country/status/media,
+mood, composer, cover art, and every MusicBrainz ID CantiNode has
+resolved for it. **Write tags…** (on the album page, or an artist page
+for every album it owns) opens a small options window with two modes:
+
+- **Merge** (the default) — only ever sets the fields above; anything
+  else already on the file (comments, lyrics, ReplayGain, ratings, a
+  custom field from another tagger) is left completely alone.
+- **Clear first** — wipes everything CantiNode doesn't itself manage
+  before writing, for a genuinely clean-slate file. Confirm-gated in the
+  UI (it's destructive and can't be undone) — a deliberate, explicit
+  opt-in, never the default.
+
+Every field above can be switched off individually under **Settings →
+Music → Tags to write** (all on by default) — a disabled field is never
+set and never cleared by either mode, the same treatment a field
+CantiNode simply has no data for yet already gets. See
+[Configuration](configuration.md#tags-to-write).
+
+Composer specifically is only ever resolved via a direct recording/
+release lookup (not the batched search MusicBrainz's public API uses for
+a whole folder of already-tagged files, which never returns
+relationship data at all, regardless of what's asked for) — a file
+matched that way simply gets no composer rather than an extra,
+batching-defeating lookup per track. Once resolved, a later re-match can
+only ever *add* a composer credit, never remove one already stored.
+
+Each track's own file(s) also have a read-only **Tags** button (next to
+its format/size, on the album page) showing exactly what's embedded on
+that file right now, read live off disk rather than from CantiNode's own
+cached snapshot — the two can disagree the moment a "Write tags" run
+changes what's actually on the file, until the next scan re-reads it.
 
 ## Scanning & organizing
 
