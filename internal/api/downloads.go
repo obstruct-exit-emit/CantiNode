@@ -20,6 +20,23 @@ import (
 // unrecorded.
 const downloadTimeout = 150 * time.Second
 
+// downloadCtx deliberately takes no *http.Request and does NOT derive from a
+// handler's own r.Context() — same reasoning as metadataCtx/artistRefreshCtx
+// (see shared.go's own doc comment on that pattern), applied to the one place
+// in this package with an identical failure mode: handleGrabWantedMusicAlbum/
+// handleGrabAlbumUpgrade can legitimately run for most of downloadTimeout's
+// 150s waiting on a debrid bridge, per this file's own doc comment above on
+// why that bound is generous in the first place — a browser navigating away
+// or refreshing during that wait used to cancel the add outright, the exact
+// "abandon adds that then land unrecorded" outcome downloadTimeout exists to
+// avoid, just reached by a different route (client disconnect) than a too-
+// tight timeout. Once the server has accepted a grab enough to start
+// submitting it, that submission should finish (or hit downloadTimeout)
+// regardless of whether the browser that asked for it is still around.
+func (s *server) downloadCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), downloadTimeout)
+}
+
 func writeDownloadError(w http.ResponseWriter, err error) {
 	if errors.Is(err, download.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "download client not found")

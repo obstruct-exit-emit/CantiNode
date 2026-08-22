@@ -1880,7 +1880,7 @@ func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
+	ctx, cancel := s.downloadCtx()
 	defer cancel()
 	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, wanted.ID, 0, "music")
 	if err != nil {
@@ -2053,7 +2053,7 @@ func (s *server) handleGrabAlbumUpgrade(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
+	ctx, cancel := s.downloadCtx()
 	defer cancel()
 	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, 0, id, "music")
 	if errors.Is(err, download.ErrNoClient) {
