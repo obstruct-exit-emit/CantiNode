@@ -132,7 +132,7 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 			if grabbedAt, err := time.Parse(time.DateTime, g.GrabbedAt); err == nil && time.Since(grabbedAt) < grabVanishedGrace {
 				continue // too soon to conclude it's gone — see grabVanishedGrace
 			}
-			s.failGrab(g, "no longer in the download client's queue (removed there, or lost to a client restart)")
+			s.failGrab(g, "no longer in the download client's queue (removed there, or lost to a client restart)", false)
 			result.Failed++
 			continue
 		}
@@ -144,7 +144,7 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 				result.Failed++
 			}
 		case "failed":
-			s.failGrab(g, "download client reported it failed")
+			s.failGrab(g, "download client reported it failed", true)
 			result.Failed++
 		}
 	}
@@ -168,10 +168,29 @@ func queueKey(configID int64, itemID string) string {
 // album, reverts that album back to "wanted" so the user can search again
 // and try a different release — the same as if it had never been grabbed,
 // rather than leaving it stuck at "downloading" forever.
-func (s *Service) failGrab(g download.GrabRecord, message string) {
+//
+// blocklist, when true, also records the release itself (by guid) so
+// candidatesearch's own filtering keeps it out of every future search —
+// found live: nothing in this codebase ever actually populated the
+// blocklist outside of a test seeding one directly (the read/filter side
+// was fully built and tested; the write side never existed). Only pass
+// true for a failure that's real evidence the release itself is bad (the
+// download client rejected/failed it, or it turned out to contain no
+// usable audio) — never for an environmental one (a local copy error, the
+// grab simply vanishing from the client's queue) where blocklisting would
+// wrongly punish a perfectly good release for an unrelated hiccup. Matches
+// handleRemoveQueueItem's own existing "not blocklisted" reasoning for an
+// ambiguous case, just applied consistently across every failure path
+// here instead of only that one.
+func (s *Service) failGrab(g download.GrabRecord, message string, blocklist bool) {
 	if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, message); err != nil {
 		s.logger.Error("importer: resolve failed grab", "grab_id", g.ID, "error", err)
 		return
+	}
+	if blocklist {
+		if err := s.downloads.Store().AddBlock(g.GUID, g.Title, message); err != nil {
+			s.logger.Error("importer: blocklist failed release", "grab_id", g.ID, "error", err)
+		}
 	}
 	if g.WantedAlbumID > 0 {
 		if err := s.music.SetWantedAlbumStatus(g.WantedAlbumID, musiclibrary.WantedStatusWanted); err != nil {
@@ -315,7 +334,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	copiedPaths, err := copyTree(src, dest)
 	if err != nil {
 		s.logger.Error("importer: copy failed", "grab_id", g.ID, "src", src, "dest", dest, "error", err)
-		s.failGrab(g, fmt.Sprintf("copy from download client failed: %v", err))
+		s.failGrab(g, fmt.Sprintf("copy from download client failed: %v", err), false)
 		return false
 	}
 	if len(copiedPaths) == 0 {
@@ -331,7 +350,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		// rather than silently discarded.
 		s.logger.Warn("importer: no audio files found in completed download, nothing imported",
 			"grab_id", g.ID, "src", src)
-		s.failGrab(g, "completed download contained no recognized audio files")
+		s.failGrab(g, "completed download contained no recognized audio files", true)
 		return false
 	}
 	// Stamps the files just copied with the release group this grab was

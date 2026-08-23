@@ -414,6 +414,93 @@ func TestPollOnceMarksClientReportedFailureAsFailed(t *testing.T) {
 	}
 }
 
+// TestPollOnceBlocklistsGenuineReleaseFailure is the regression test for a
+// real gap found live: nothing in this codebase ever actually wrote to the
+// blocklist outside of a test seeding one directly — candidatesearch's own
+// filtering (keeping blocklisted releases out of future search results)
+// was fully built and tested, but the write side that's supposed to
+// populate it never existed. A download the client itself reports as
+// failed is real evidence the release is bad, so it must now land in the
+// blocklist.
+func TestPollOnceBlocklistsGenuineReleaseFailure(t *testing.T) {
+	sab, _ := mockSab(t, "/does/not/matter", "Failed")
+	svc, dlStore, musicStore, _, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatal(err)
+	}
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Bad Release",
+		GUID: "guid-bad-release", Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := svc.PollOnce(t.Context()); result.Failed != 1 {
+		t.Fatalf("PollOnce result = %+v, want 1 failed", result)
+	}
+
+	blocked, err := dlStore.BlockedKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !download.IsBlocked(blocked, "guid-bad-release", "Bad Release") {
+		t.Error("a release the download client itself reported as failed should be blocklisted")
+	}
+}
+
+// TestPollOnceVanishedGrabIsNotBlocklisted confirms an environmental
+// failure (the grab simply vanished from the client's queue) never
+// blocklists the release — the client losing track of a download proves
+// nothing about the release's own quality, the same reasoning
+// handleRemoveQueueItem already applies to its own "not blocklisted" case.
+func TestPollOnceVanishedGrabIsNotBlocklisted(t *testing.T) {
+	sab := mockSabEmpty(t)
+	svc, dlStore, musicStore, _, db := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatal(err)
+	}
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Good Release",
+		GUID: "guid-good-release", Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().UTC().Add(-2 * grabVanishedGrace).Format(time.DateTime)
+	if _, err := db.Exec(`UPDATE grabs SET grabbed_at = ? WHERE client_item_id = 'nzo1'`, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := svc.PollOnce(t.Context()); result.Failed != 1 {
+		t.Fatalf("PollOnce result = %+v, want 1 failed", result)
+	}
+
+	blocked, err := dlStore.BlockedKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if download.IsBlocked(blocked, "guid-good-release", "Good Release") {
+		t.Error("a grab that just vanished from the client's queue must not blocklist the release — that's environmental, not evidence the release itself is bad")
+	}
+}
+
 func TestPollOnceIgnoresGrabsStillInProgress(t *testing.T) {
 	sab, _ := mockSab(t, "/does/not/matter", "Downloading")
 	svc, dlStore, _, _, _ := setup(t, sab)
