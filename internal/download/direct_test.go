@@ -249,6 +249,40 @@ func TestDirectNamesFileByContentNotPhpURL(t *testing.T) {
 	}
 }
 
+// TestDirectNamesAudioFileByContentNotBin: a real FLAC file served from an
+// opaque get.php-style URL with a generic Content-Type and no
+// Content-Disposition must be recognized from its "fLaC" magic bytes, not
+// fall through to ".bin" — found live grabbing a real Wikimedia Commons FLAC
+// through a hand-built direct release: sniffExt only ever recognized the
+// ebook formats this client used to serve before CantiNode became music-only,
+// so a real audio file with no ".flac" anywhere in its URL or headers was
+// silently saved as ".bin", which tagreader.IsAudioFile never recognizes —
+// a genuinely completed download the importer would never pick up.
+func TestDirectNamesAudioFileByContentNotBin(t *testing.T) {
+	flac := append([]byte("fLaC"), []byte("\x00\x00\x00\x22 stream info and the rest of a real flac file")...)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(flac)
+	}))
+	defer srv.Close()
+
+	d := newTestDirect(t)
+	id, err := d.Add(context.Background(), srv.URL+"/get.php?id=123&key=xyz", "Opaque URL Track")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	it := waitDone(t, d, id)
+	if it.Status != "completed" {
+		t.Fatalf("status = %q, want completed", it.Status)
+	}
+	if strings.HasSuffix(it.Path, ".bin") {
+		t.Fatalf("saved as .bin — the audio file content sniff is missing: %q", it.Path)
+	}
+	if !strings.HasSuffix(it.Path, ".flac") {
+		t.Errorf("path = %q, want .flac from the content sniff", it.Path)
+	}
+}
+
 // TestDirectDispositionBeatsPhpURL: when the content isn't sniffable, the
 // Content-Disposition filename names the file — the get.php URL's ".php" is
 // rejected by the media-extension allowlist rather than becoming the extension.

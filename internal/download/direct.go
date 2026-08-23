@@ -452,6 +452,18 @@ func extensionFor(resp *http.Response, header []byte) string {
 		return ".pdf"
 	case strings.Contains(ct, "mobi"):
 		return ".mobi"
+	case strings.Contains(ct, "flac"):
+		return ".flac"
+	case strings.Contains(ct, "mpeg") || strings.Contains(ct, "mp3"):
+		return ".mp3"
+	case strings.Contains(ct, "mp4") || strings.Contains(ct, "m4a"):
+		return ".m4a"
+	case strings.Contains(ct, "opus"):
+		return ".opus"
+	case strings.Contains(ct, "ogg"):
+		return ".ogg"
+	case strings.Contains(ct, "wav"):
+		return ".wav"
 	}
 	return ".bin" // unknown — saved as-is for manual review
 }
@@ -474,6 +486,25 @@ func sniffExt(b []byte) string {
 		// PalmDB header: the type/creator at offset 60 is "BOOKMOBI" for
 		// MOBI and the KF8/azw3 files that carry a MOBI-compatible header.
 		return ".mobi"
+	case bytes.HasPrefix(b, []byte("fLaC")):
+		return ".flac"
+	case bytes.HasPrefix(b, []byte("OggS")):
+		// The Ogg container also carries Vorbis and Opus-in-Ogg streams, but
+		// CantiNode's audio extension allowlist only recognizes the plain
+		// ".ogg" name for either — see tagreader's audioExtensions.
+		return ".ogg"
+	case len(b) >= 12 && bytes.HasPrefix(b, []byte("RIFF")) && bytes.Equal(b[8:12], []byte("WAVE")):
+		return ".wav"
+	case len(b) >= 12 && bytes.Equal(b[4:8], []byte("ftyp")):
+		// An MPEG-4 container box — audio-only here since CantiNode never
+		// grabs video; m4a covers the plain and m4b/m4p variants alike.
+		return ".m4a"
+	case bytes.HasPrefix(b, []byte("ID3")):
+		// An MP3 file's leading ID3v2 tag.
+		return ".mp3"
+	case len(b) >= 2 && b[0] == 0xFF && b[1]&0xE0 == 0xE0:
+		// A bare MPEG audio frame sync with no ID3 tag in front of it.
+		return ".mp3"
 	}
 	return ""
 }
