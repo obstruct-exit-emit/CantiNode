@@ -112,6 +112,20 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 		if a.MetadataFetchedAt != nil {
 			continue
 		}
+		if a.Kind == "series" {
+			// A tracked series (see musiclibrary.GetOrCreateSeriesArtist)
+			// has no MusicBrainz /artist/ entity at all — RefreshArtist's
+			// LookupArtist call 404s on a series MBID every single time,
+			// forever, since nothing here ever stamps MetadataFetchedAt to
+			// stop the retries. Found live: a series added once kept
+			// generating this exact warning on every 15-minute sweep with
+			// no way to resolve it. A series doesn't have a TheAudioDB bio
+			// either way (it's not a musical act) — its own discography
+			// stays current via internal/discoveryrefresh's Kind-aware
+			// Refresh instead (see its own doc comment), the same as
+			// handleAddMusicSeries already uses at creation time.
+			continue
+		}
 		if ctx.Err() != nil {
 			return result
 		}

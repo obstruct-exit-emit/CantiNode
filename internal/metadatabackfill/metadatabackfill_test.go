@@ -103,6 +103,38 @@ func TestPollOnceCachesArtistMissingMetadata(t *testing.T) {
 	}
 }
 
+// TestPollOnceSkipsSeriesArtist is the regression test for a real bug
+// found live: a tracked series has no MusicBrainz /artist/ entity, so
+// RefreshArtist's LookupArtist call 404s on its series MBID — and since
+// nothing ever stamped MetadataFetchedAt on that failure path, every
+// single future sweep retried and failed on the same series row forever.
+// The fake MusicBrainz server here has no /artist/ handler at all (only
+// /release-group/), so a series artist reaching RefreshArtist would 404 —
+// PollOnce must skip it before that ever happens.
+func TestPollOnceSkipsSeriesArtist(t *testing.T) {
+	s, store := newTestDeps(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/release-group/" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"release-group-count": 0, "release-groups": []any{}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	series, err := store.GetOrCreateSeriesArtist("series-mbid", "A Test Series")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetArtistMonitored(series.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	result := s.PollOnce(context.Background())
+	if result.Checked != 0 || result.Cached != 0 {
+		t.Errorf("result = %+v, want the series never attempted at all (no /artist/ endpoint exists to 404 on)", result)
+	}
+}
+
 // TestPollOnceOneArtistFailureDoesNotStopSweep: one artist whose
 // MusicBrainz lookup 404s must not prevent the other artist's metadata
 // from being cached — the same non-aborting pattern
