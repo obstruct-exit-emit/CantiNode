@@ -389,18 +389,43 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		s.logger.Warn("importer: post-import scan failed, the next scan will still pick these files up",
 			"grab_id", g.ID, "error", err)
 	}
+
+	if g.WantedAlbumID > 0 {
+		if _, err := s.music.GetWantedAlbum(g.WantedAlbumID); err == nil {
+			// Still here — the scan above didn't match any of the copied
+			// files to what this grab was actually for. A real match clears
+			// this row itself (see musicscanner.applyMatch's own
+			// ClearWantedAlbumByReleaseGroup call, which fires the moment
+			// even one track matches), so surviving to here means nothing
+			// did. Found live: a whole-disc rip (one giant file per CD
+			// side, never split into individual tracks) copies real audio
+			// data successfully but can't be matched to anything — this
+			// grab used to be marked imported and the wanted row
+			// force-deleted regardless, silently vanishing the album from
+			// Wanted while it never actually became owned. The copied
+			// files are correctly sitting in Unmatched Files either way;
+			// reverting to wanted (not blocklisting — this could just as
+			// easily be a transient matching miss as a genuinely
+			// unsplittable release) lets the user retry or step in and
+			// match them by hand.
+			s.failGrab(g, "copied files but none could be matched to the wanted album — check Unmatched Files", false)
+			return false
+		} else if !errors.Is(err, musiclibrary.ErrNotFound) {
+			s.logger.Error("importer: checking wanted album after scan", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
+		}
+	}
+
 	if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusImported, ""); err != nil {
 		s.logger.Error("importer: resolve imported grab", "grab_id", g.ID, "error", err)
 		return false
 	}
 	if g.WantedAlbumID > 0 {
 		// The album is owned now — a real albums row exists for it (just
-		// created by the scan above). Delete the wanted_albums row rather
-		// than marking it "downloaded": a status that lingers would clutter
-		// the Wanted card with something no longer actionable forever, and
-		// ListMissingArtistReleaseGroups already excludes anything with a
-		// real albums row, so nothing needs the wanted row to stay around
-		// to keep it out of Missing either.
+		// created by the scan above), which already cleared this row via
+		// ClearWantedAlbumByReleaseGroup. Delete is a defensive fallback
+		// (idempotent, tolerates ErrNotFound) rather than the primary
+		// mechanism — kept so a future mismatch here fails safe instead of
+		// leaving a satisfied wanted row behind forever.
 		if err := s.music.DeleteWantedAlbum(g.WantedAlbumID); err != nil && !errors.Is(err, musiclibrary.ErrNotFound) {
 			s.logger.Error("importer: remove satisfied wanted album", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
 		}

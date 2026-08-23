@@ -93,6 +93,13 @@ func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musi
 	return New(downloads, scanner, musicStore, cfg), dlStore, musicStore, destRoot, db
 }
 
+// TestPollOnceImportsCompletedDownload proves the copy mechanics: the file
+// lands on disk, the source is cleaned up, and the grab resolves imported.
+// Deliberately not tied to a wanted album — this suite's fake MusicBrainz
+// client points at nothing reachable (see setup), so a file here can never
+// actually be matched, and a WantedAlbumID grab would (correctly, see
+// TestPollOnceRevertsWantedAlbumWhenNothingMatches) never resolve imported
+// under those conditions.
 func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	src := t.TempDir()
 	albumDir := filepath.Join(src, "Test Album")
@@ -110,22 +117,10 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	}
 
 	sab, deleteCalls := mockSab(t, albumDir, "Completed")
-	svc, dlStore, musicStore, destRoot, _ := setup(t, sab)
-
-	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
-	if err != nil {
-		t.Fatalf("seed artist: %v", err)
-	}
-	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
-	if err != nil {
-		t.Fatalf("seed wanted album: %v", err)
-	}
-	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
-		t.Fatalf("set wanted album downloading: %v", err)
-	}
+	svc, dlStore, _, destRoot, _ := setup(t, sab)
 
 	if err := dlStore.AddGrab(&download.GrabRecord{
-		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
 		Protocol: download.ProtocolUsenet, MediaType: "music",
 	}); err != nil {
 		t.Fatalf("seed grab: %v", err)
@@ -149,13 +144,6 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 		t.Fatalf("imported grabs = %+v, want exactly 1", grabs)
 	}
 
-	// The album is owned now (a real albums row exists) — its wanted_albums
-	// row is deleted outright rather than left showing "downloaded" forever
-	// in the Wanted card for something no longer actionable.
-	if _, err := musicStore.GetWantedAlbum(wanted.ID); err != musiclibrary.ErrNotFound {
-		t.Errorf("GetWantedAlbum after import: err = %v, want ErrNotFound (the row should be gone)", err)
-	}
-
 	if *deleteCalls == 0 {
 		t.Error("importer should have removed the completed download from its client after importing it")
 	}
@@ -167,6 +155,84 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	// client did it.
 	if _, err := os.Stat(albumDir); !os.IsNotExist(err) {
 		t.Errorf("source directory %s should have been deleted directly, stat err = %v", albumDir, err)
+	}
+}
+
+// TestPollOnceRevertsWantedAlbumWhenNothingMatches is the regression test
+// for a real gap found live: a whole-disc rip (one giant file per CD side,
+// never split into individual tracks) copies real audio data successfully,
+// but nothing about it can be matched to the release it was grabbed for.
+// The grab used to be marked imported and the wanted_albums row
+// force-deleted regardless of whether the scan actually matched anything —
+// the album silently vanished from Wanted while it never actually became
+// owned, with nothing pointing back at the copied files sitting unmatched.
+// A real match clears the wanted row itself (musicscanner.applyMatch's own
+// ClearWantedAlbumByReleaseGroup); this suite's fake MusicBrainz client
+// points at nothing reachable (see setup), so the copied file here can
+// never be matched — exactly the condition that must now revert the wanted
+// album instead of silently reporting success.
+func TestPollOnceRevertsWantedAlbumWhenNothingMatches(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Test Album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "disc1.flac"), []byte("whole disc rip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, _, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Test Album", "Album", "2020")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatal(err)
+	}
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Checked != 1 || result.Imported != 0 || result.Failed != 1 {
+		t.Fatalf("PollOnce result = %+v, want 1 checked, 0 imported, 1 failed", result)
+	}
+
+	// The wanted row must survive, reverted to "wanted" — not deleted as if
+	// the album had actually been satisfied.
+	got, err := musicStore.GetWantedAlbum(wanted.ID)
+	if err != nil {
+		t.Fatalf("GetWantedAlbum after unmatched import: %v", err)
+	}
+	if got.Status != musiclibrary.WantedStatusWanted {
+		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusWanted)
+	}
+
+	grabs, err := dlStore.ListGrabs(download.GrabStatusFailed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grabs) != 1 {
+		t.Fatalf("failed grabs = %+v, want exactly 1", grabs)
+	}
+
+	// Not blocklisted: copying real data but failing to match it could just
+	// as easily be a transient miss as a genuinely unusable release.
+	blocked, err := dlStore.BlockedKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if download.IsBlocked(blocked, "", "Test Album") {
+		t.Error("an unmatched-but-copied release must not be blocklisted — that's not confident evidence the release itself is bad")
 	}
 }
 
