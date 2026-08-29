@@ -240,3 +240,38 @@ func TestImportPlaylistEndpoint(t *testing.T) {
 		t.Errorf("playlist name = %q, want Recovered", result.Playlist.Name)
 	}
 }
+
+// TestListPlaylistsForTrackEndpoint covers the "in playlist" badge's own
+// detail view: which playlist(s) a track is actually in.
+func TestListPlaylistsForTrackEndpoint(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Album", "2020-01-01", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := musicStore.GetOrCreateTrack(album.ID, "t-mbid", "Track", 1, 1, 100_000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var none []musiclibrary.Playlist
+	a.want(a.call("GET", "/api/v1/music/track/"+itoa(track.ID)+"/playlists", nil, &none), http.StatusOK)
+	if len(none) != 0 {
+		t.Fatalf("before adding: playlists = %+v, want empty", none)
+	}
+
+	var pl musiclibrary.Playlist
+	a.want(a.call("POST", "/api/v1/music/playlist", map[string]any{"name": "Roadtrip"}, &pl), http.StatusCreated)
+	a.want(a.call("POST", "/api/v1/music/playlist/"+itoa(pl.ID)+"/items", map[string]any{"trackId": track.ID}, nil), http.StatusCreated)
+
+	var got []musiclibrary.Playlist
+	a.want(a.call("GET", "/api/v1/music/track/"+itoa(track.ID)+"/playlists", nil, &got), http.StatusOK)
+	if len(got) != 1 || got[0].Name != "Roadtrip" {
+		t.Fatalf("after adding: playlists = %+v, want [Roadtrip]", got)
+	}
+}

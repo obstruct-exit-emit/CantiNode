@@ -704,9 +704,17 @@ button.link {
   color: var(--muted);
 }
 
-.pill.col-in-playlist {
-  background: var(--accent-soft);
+/* "in playlist" is a button (like "Featuring") rather than a plain status
+   pill, since clicking it opens which playlist(s) the track is in — the
+   accent border/color (like .toggle.on) marks it as already "on" rather
+   than an action still to take. */
+.toggle.col-in-playlist {
+  border-color: var(--accent);
   color: var(--accent);
+}
+
+.toggle.col-in-playlist:hover:not(:disabled) {
+  background: var(--accent-soft);
 }
 
 /* Slim download progress bar (Activity queue rows, book detail). */

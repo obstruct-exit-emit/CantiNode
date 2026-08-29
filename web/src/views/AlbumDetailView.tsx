@@ -14,6 +14,7 @@ import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import TrackCreditsModal from "../components/TrackCreditsModal";
 import TrackFileTagsModal from "../components/TrackFileTagsModal";
+import TrackPlaylistsModal from "../components/TrackPlaylistsModal";
 import WriteTagsDialog from "../components/WriteTagsDialog";
 import { formatBytes } from "../format";
 import { RowMenu } from "../ui";
@@ -117,10 +118,12 @@ export default function AlbumDetailView({
   id,
   onError,
   onBack,
+  onOpenPlaylist,
 }: {
   id: number;
   onError: (message: string) => void;
   onBack: () => void;
+  onOpenPlaylist: (id: number) => void;
 }) {
   const [album, setAlbum] = useState<MusicAlbum | null>(null);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
@@ -134,6 +137,7 @@ export default function AlbumDetailView({
   const [versionLabel, setVersionLabel] = useState("");
   const [tagsFile, setTagsFile] = useState<MusicTrackFile | null>(null);
   const [addToPlaylist, setAddToPlaylist] = useState<{ label: string; trackIds: number[] } | null>(null);
+  const [playlistsForTrack, setPlaylistsForTrack] = useState<{ trackId: number; title: string } | null>(null);
   const [showWriteTags, setShowWriteTags] = useState(false);
 
   const reload = useCallback(() => {
@@ -476,9 +480,13 @@ export default function AlbumDetailView({
                     <span className="track-row-actions">
                       {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} trackTitle={t.title} />}
                       {t.inPlaylist && (
-                        <span className="pill col-in-playlist" title="Already in a playlist">
+                        <button
+                          className="toggle col-in-playlist"
+                          title="Show which playlist(s) this track is in"
+                          onClick={() => setPlaylistsForTrack({ trackId: t.id, title: t.title })}
+                        >
                           in playlist
-                        </span>
+                        </button>
                       )}
                       {single && (
                         <>
@@ -552,6 +560,14 @@ export default function AlbumDetailView({
       )}
       {showWriteTags && (
         <WriteTagsDialog scope="album" onConfirm={confirmWriteTags} onClose={() => setShowWriteTags(false)} />
+      )}
+      {playlistsForTrack && (
+        <TrackPlaylistsModal
+          trackId={playlistsForTrack.trackId}
+          trackTitle={playlistsForTrack.title}
+          onOpenPlaylist={onOpenPlaylist}
+          onClose={() => setPlaylistsForTrack(null)}
+        />
       )}
     </>
   );

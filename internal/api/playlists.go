@@ -224,6 +224,23 @@ func (s *server) handleSearchOwnedTracks(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, results)
 }
 
+// handleListPlaylistsForTrack backs the album track list's "in playlist"
+// badge — which playlist(s) is this track actually in, and a way to jump
+// to one.
+func (s *server) handleListPlaylistsForTrack(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	playlists, err := s.musicStore.ListPlaylistsForTrack(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, playlists)
+}
+
 func (s *server) handleRemovePlaylistItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {

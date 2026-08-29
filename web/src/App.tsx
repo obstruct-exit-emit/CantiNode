@@ -331,6 +331,7 @@ function AppInner() {
                 ? go({ name: "artist", id: page.artistId })
                 : go({ name: "library" })
             }
+            onOpenPlaylist={(id) => go({ name: "playlist", id })}
           />
         )}
         {connected && page.name === "unmatched" && <UnmatchedFilesView onError={onError} />}

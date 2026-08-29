@@ -921,6 +921,8 @@ export const api = {
     request<ImportM3UResult>("/api/v1/music/playlist/import", json({ name, content })),
   searchOwnedTracks: (q: string) =>
     request<TrackSearchResult[]>(`/api/v1/music/track/search?q=${encodeURIComponent(q)}`),
+  listPlaylistsForTrack: (trackId: number) =>
+    request<Playlist[]>(`/api/v1/music/track/${trackId}/playlists`),
   musicCalendar: (from?: string, to?: string) => {
     const params = new URLSearchParams();
     if (from) params.set("from", from);

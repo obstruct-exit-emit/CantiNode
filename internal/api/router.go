@@ -205,6 +205,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("DELETE /api/v1/music/playlist/{id}/items/{itemId}", s.auth(s.handleRemovePlaylistItem))
 	mux.HandleFunc("PUT /api/v1/music/playlist/{id}/items/order", s.auth(s.handleReorderPlaylistItems))
 	mux.HandleFunc("GET /api/v1/music/track/search", s.auth(s.handleSearchOwnedTracks))
+	mux.HandleFunc("GET /api/v1/music/track/{id}/playlists", s.auth(s.handleListPlaylistsForTrack))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/albums", s.auth(s.handleListMusicAlbumsByArtist))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicArtist))
 	mux.HandleFunc("POST /api/v1/music/artist/{id}/organize", s.auth(s.handleOrganizeMusicArtist))

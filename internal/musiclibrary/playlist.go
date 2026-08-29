@@ -403,6 +403,29 @@ func (s *Store) SearchOwnedTracks(query string, limit int) ([]TrackSearchResult,
 	return out, rows.Err()
 }
 
+// ListPlaylistsForTrack returns every playlist containing trackID, each
+// with its own full track count/duration (not filtered to just this
+// track) — the "in playlist" badge's own detail view.
+func (s *Store) ListPlaylistsForTrack(trackID int64) ([]Playlist, error) {
+	rows, err := s.db.Query(playlistSummarySelectBase+`
+		WHERE p.id IN (SELECT playlist_id FROM playlist_items WHERE track_id = ?)
+		GROUP BY p.id ORDER BY p.name`, trackID)
+	if err != nil {
+		return nil, fmt.Errorf("list playlists for track: %w", err)
+	}
+	defer rows.Close()
+
+	out := []Playlist{}
+	for rows.Next() {
+		var p Playlist
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.TrackCount, &p.TotalDurationMs); err != nil {
+			return nil, fmt.Errorf("scan playlist: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // TracksInAnyPlaylist reports which of trackIDs appear in at least one
 // playlist — a track's own detail rows use this to flag "already in a
 // playlist" without a per-track round trip. Absent from the returned map

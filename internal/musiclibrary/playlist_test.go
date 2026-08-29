@@ -369,3 +369,47 @@ func TestTracksInAnyPlaylist(t *testing.T) {
 		t.Errorf("TracksInAnyPlaylist(nil) = %v, want empty", empty)
 	}
 }
+
+func TestListPlaylistsForTrack(t *testing.T) {
+	db := newTestStore(t)
+	trackA := seedTrack(t, db, "Artist A", "Album A", "Song A", 200_000)
+	trackB := seedTrack(t, db, "Artist B", "Album B", "Song B", 180_000)
+
+	pZ, err := db.CreatePlaylist("Z Playlist", "")
+	if err != nil {
+		t.Fatalf("CreatePlaylist Z: %v", err)
+	}
+	pA, err := db.CreatePlaylist("A Playlist", "")
+	if err != nil {
+		t.Fatalf("CreatePlaylist A: %v", err)
+	}
+	if _, err := db.AppendPlaylistItem(pZ.ID, trackA.ID); err != nil {
+		t.Fatalf("append A to Z: %v", err)
+	}
+	if _, err := db.AppendPlaylistItem(pA.ID, trackA.ID); err != nil {
+		t.Fatalf("append A to A: %v", err)
+	}
+	// trackA twice in the same playlist must still list that playlist once.
+	if _, err := db.AppendPlaylistItem(pA.ID, trackA.ID); err != nil {
+		t.Fatalf("append A to A again: %v", err)
+	}
+
+	got, err := db.ListPlaylistsForTrack(trackA.ID)
+	if err != nil {
+		t.Fatalf("ListPlaylistsForTrack: %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "A Playlist" || got[1].Name != "Z Playlist" {
+		t.Fatalf("ListPlaylistsForTrack(trackA) = %+v, want [A Playlist, Z Playlist]", got)
+	}
+	if got[0].TrackCount != 2 {
+		t.Errorf("A Playlist TrackCount = %d, want 2 (trackA appears twice)", got[0].TrackCount)
+	}
+
+	none, err := db.ListPlaylistsForTrack(trackB.ID)
+	if err != nil {
+		t.Fatalf("ListPlaylistsForTrack(trackB): %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("ListPlaylistsForTrack(trackB) = %+v, want empty", none)
+	}
+}
