@@ -115,6 +115,15 @@ nav {
   margin-bottom: 1.25rem;
 }
 
+/* A card immediately followed by another that's really part of the same
+   section (e.g. Playlists' header/actions card sitting right above its own
+   list card) — same visual separation as any card, just less vertical
+   distance between these two specifically than the usual gap before an
+   unrelated one. */
+.card.card-tight {
+  margin-bottom: 0.5rem;
+}
+
 .card h2 {
   margin-top: 0;
   margin-bottom: 0.4rem;
@@ -331,6 +340,75 @@ button.link {
   flex-shrink: 0;
 }
 
+/* Playlists list — a plain text row with a permanently-visible red delete
+   button read as heavier/plainer than the rest of the app. A small icon
+   tile plus a bigger name give each row some real visual weight, and
+   delete now lives in the row's own "⋯" menu (see ui.tsx's RowMenu)
+   instead of shouting for attention on every row. */
+.playlist-rows > li {
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+
+.playlist-rows > li:hover {
+  background: var(--card-2);
+}
+
+.playlist-open {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.playlist-icon {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 1.15rem;
+}
+
+.playlist-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.playlist-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.playlist-open:hover .playlist-name {
+  color: var(--accent);
+}
+
+.playlist-desc {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playlist-meta {
+  white-space: nowrap;
+}
+
 /* Fixed-width columns for a track row's credits/in-playlist/format/size/
    owned/menu cluster (AlbumDetailView's own track list) — a plain flex row
    hugs its own content width, so the whole cluster shifts left/right row to
@@ -425,6 +503,15 @@ button.link {
 .row-menu-list button:hover {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.row-menu-list button.danger {
+  color: var(--danger);
+}
+
+.row-menu-list button.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .row-actions button {

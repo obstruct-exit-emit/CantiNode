@@ -137,6 +137,7 @@ export interface RowMenuItem {
   label: string;
   onSelect: () => void;
   title?: string;
+  danger?: boolean;
 }
 
 // RowMenu is a compact "⋯" overflow menu for a list row's less-frequently
@@ -185,6 +186,7 @@ export function RowMenu({ items, label = "More actions" }: { items: RowMenuItem[
               key={item.label}
               type="button"
               role="menuitem"
+              className={item.danger ? "danger" : undefined}
               title={item.title}
               onClick={() => {
                 setOpen(false);
