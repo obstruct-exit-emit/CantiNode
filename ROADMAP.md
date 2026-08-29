@@ -400,6 +400,22 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
         remove row actions; one add/edit form below with a type dropdown
         driving conditional per-type fields).
 
+17. [ ] **Investigate "Write tags" dropping foreign Vorbis comment
+    fields** — found live 2026-08-29 while fixing a related bug (an
+    EAC-ripped FLAC's invalid-UTF8 tag data crashing go.senan.xyz/taglib
+    on any read *or* write — see CHANGELOG). Once that crash was fixed and
+    a normal "Write tags" ran successfully, every pre-existing Vorbis
+    comment key CantiNode doesn't itself manage (Ripping Tool, Catalog,
+    Encoded By, Language, Retail Date, ...) was gone from the file
+    afterward — even in merge mode (`clear=false`), which is documented
+    (and tested) to preserve untouched fields. The existing test coverage
+    only confirms fields CantiNode *has an opinion about but left blank*
+    this write (Genre/Composer, via `setFieldIfPresent`) survive — never
+    that a genuinely foreign, CantiNode-unknown comment key does. Needs a
+    closer look at whether go.senan.xyz/taglib's FLAC writer actually
+    round-trips arbitrary Vorbis comment keys in merge mode, or only
+    re-applies its own recognized property set regardless.
+
 ## Future 💡
 
 Under consideration, in no particular order:
