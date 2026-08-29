@@ -120,6 +120,41 @@ func TestAppendPlaylistItemNotFound(t *testing.T) {
 	}
 }
 
+// TestAppendPlaylistItemBadTrackID is the regression case for a real bug
+// found live: appending a track id that doesn't exist used to fall
+// straight through to SQLite's own foreign-key-constraint error — a raw,
+// unhandled 500 at the API layer — instead of a clean, distinguishable
+// error a handler can map to 400. Covers both the single and bulk append
+// paths, and confirms a bulk call with one bad id among good ones inserts
+// nothing at all (the transaction rolls back) rather than partially
+// succeeding.
+func TestAppendPlaylistItemBadTrackID(t *testing.T) {
+	db := newTestStore(t)
+	p, err := db.CreatePlaylist("Bad Track Test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.AppendPlaylistItem(p.ID, 999_999_999); !errors.Is(err, ErrTrackNotFound) {
+		t.Errorf("AppendPlaylistItem with a bad track id: err = %v, want ErrTrackNotFound", err)
+	}
+
+	good := seedTrack(t, db, "Artist", "Album", "Song", 100_000)
+	if _, err := db.AppendPlaylistItems(p.ID, []int64{good.ID, 999_999_999}); !errors.Is(err, ErrTrackNotFound) {
+		t.Errorf("AppendPlaylistItems with one bad id among good ones: err = %v, want ErrTrackNotFound", err)
+	}
+
+	// The good id must not have been left inserted by the failed bulk
+	// call — the whole batch is one transaction.
+	got, err := db.GetPlaylist(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TrackCount != 0 {
+		t.Errorf("TrackCount after a failed bulk append = %d, want 0 (transaction should have rolled back)", got.TrackCount)
+	}
+}
+
 // seedTrackWithFile is seedTrack plus a real track_files row backing it,
 // at the given path — needed for anything that resolves a path back to a
 // track (M3U import) or requires a "currently playable" track (search).

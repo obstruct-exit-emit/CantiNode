@@ -150,6 +150,17 @@ func TestBulkAddPlaylistItems(t *testing.T) {
 
 	resp = a.call("POST", "/api/v1/music/playlist/999999/items/bulk", map[string]any{"trackIds": []int64{t1.ID}}, nil)
 	a.want(resp, http.StatusNotFound)
+
+	// A bad track id against a *real* playlist is 400 (the request body's
+	// content is wrong), not the 404 a missing playlist gets (the URL's
+	// own resource is wrong) — and never the raw 500 a SQLite foreign-key
+	// error used to leak before this was fixed.
+	resp = a.call("POST", "/api/v1/music/playlist/"+strconv.FormatInt(created.ID, 10)+"/items/bulk",
+		map[string]any{"trackIds": []int64{999_999_999}}, nil)
+	a.want(resp, http.StatusBadRequest)
+	resp = a.call("POST", "/api/v1/music/playlist/"+strconv.FormatInt(created.ID, 10)+"/items",
+		map[string]any{"trackId": 999_999_999}, nil)
+	a.want(resp, http.StatusBadRequest)
 }
 
 // TestSearchOwnedTracksEndpoint covers the Search page's track results.

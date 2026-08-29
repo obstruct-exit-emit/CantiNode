@@ -6,6 +6,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -116,6 +117,21 @@ func (s *server) handleDeletePlaylist(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// writeAppendPlaylistError maps AppendPlaylistItem(s)'s two distinct
+// not-found cases correctly: a missing playlist is the URL's own resource
+// (404, via writeMusicStoreError's usual ErrNotFound handling), but a bad
+// track id is bad request *content* against a playlist that's perfectly
+// real (400) — conflating the two would either 404 a request whose URL is
+// fine, or (before this existed) let a track id fall all the way through
+// to an unhandled SQLite foreign-key-constraint 500.
+func writeAppendPlaylistError(w http.ResponseWriter, err error) {
+	if errors.Is(err, musiclibrary.ErrTrackNotFound) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeMusicStoreError(w, err)
+}
+
 func (s *server) handleAppendPlaylistItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -131,7 +147,7 @@ func (s *server) handleAppendPlaylistItem(w http.ResponseWriter, r *http.Request
 	}
 	item, err := s.musicStore.AppendPlaylistItem(id, req.TrackID)
 	if err != nil {
-		writeMusicStoreError(w, err)
+		writeAppendPlaylistError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -156,7 +172,7 @@ func (s *server) handleAppendPlaylistItemsBulk(w http.ResponseWriter, r *http.Re
 	}
 	items, err := s.musicStore.AppendPlaylistItems(id, req.TrackIDs)
 	if err != nil {
-		writeMusicStoreError(w, err)
+		writeAppendPlaylistError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, items)

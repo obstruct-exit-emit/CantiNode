@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -357,7 +358,16 @@ func (s *server) handleAddUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.cfg.AddUser(req.Username, hash, req.Role); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+		// A duplicate username is a real conflict (409); anything else —
+		// in practice, a malformed role — is the request's own fault
+		// (400). Found live: this used to blanket every AddUser failure
+		// as 409, which was already a stretch for "duplicate" and became
+		// outright wrong once AddUser started validating the role too.
+		status := http.StatusBadRequest
+		if errors.Is(err, config.ErrUserExists) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 	slog.Info("user added", "username", req.Username)

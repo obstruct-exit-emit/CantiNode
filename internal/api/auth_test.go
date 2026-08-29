@@ -293,6 +293,28 @@ func TestMemberRoleRestrictions(t *testing.T) {
 // TestUserRoleChangeAndDefaultInvariant: SetUserRole promotes/demotes and
 // revokes the account's sessions; the default user can never be demoted,
 // and promoting someone to default makes them an admin in the same step.
+// TestAddUserBadRoleIs400NotConflict is the regression case for a real
+// bug found live: handleAddUser used to map every AddUser failure to 409
+// Conflict, which was already a stretch for "duplicate username" and
+// became outright wrong once AddUser started rejecting unrecognized role
+// values too — a malformed request has nothing to do with a conflict.
+func TestAddUserBadRoleIs400NotConflict(t *testing.T) {
+	a := newTestAPI(t)
+	a.want(a.call("PUT", "/api/v1/auth/credentials",
+		map[string]string{"username": "dan", "password": "secret-pass-1"}, nil), http.StatusOK)
+
+	resp := a.call("POST", "/api/v1/auth/users",
+		map[string]string{"username": "bad-role", "password": "guest-pass-1", "role": "superadmin"}, nil)
+	a.want(resp, http.StatusBadRequest)
+
+	// A genuine duplicate is still the 409 it always was.
+	a.want(a.call("POST", "/api/v1/auth/users",
+		map[string]string{"username": "guest", "password": "guest-pass-1"}, nil), http.StatusCreated)
+	resp = a.call("POST", "/api/v1/auth/users",
+		map[string]string{"username": "guest", "password": "another-pass-1"}, nil)
+	a.want(resp, http.StatusConflict)
+}
+
 func TestUserRoleChangeAndDefaultInvariant(t *testing.T) {
 	a := newTestAPI(t)
 

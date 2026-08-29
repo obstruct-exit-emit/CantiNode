@@ -39,6 +39,46 @@ func TestAddSecondRootFolderDoesNotBecomeDefault(t *testing.T) {
 	}
 }
 
+// TestAddRootFolderCleansTraversalAndRejectsRelative is the regression
+// case for a real bug found live: a path carrying ".." segments (e.g.
+// t.TempDir()+"/x/../../../etc") passed the existence check unresolved
+// (os.Stat follows ".." transparently) and got stored exactly as typed —
+// a root folder whose saved path didn't match what it actually pointed
+// at, breaking the hierarchical-containment assumption path-prefix logic
+// elsewhere (remote path mappings, organize) relies on. A relative path
+// is the same root cause (never canonicalized before storage) and gets
+// the same fix.
+func TestAddRootFolderCleansTraversalAndRejectsRelative(t *testing.T) {
+	a := newTestAPI(t)
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// sub/../.. resolves right back to dir's own parent plus dir's own
+	// name a second time — contrived, but it exercises exactly the
+	// traversal-collapsing path the live bug went through, without
+	// depending on any real system directory existing at a fixed depth.
+	traversal := sub + "/../../" + filepath.Base(dir)
+	var f rootFolder
+	a.want(a.call("POST", "/api/v1/rootfolder", map[string]any{
+		"mediaType": "music", "path": traversal, "name": "traversal",
+	}, &f), http.StatusCreated)
+	if f.Path != filepath.Clean(traversal) {
+		t.Errorf("stored Path = %q, want the cleaned form %q — traversal segments must not survive into storage",
+			f.Path, filepath.Clean(traversal))
+	}
+	if f.Path != dir {
+		t.Errorf("cleaned Path = %q, want %q", f.Path, dir)
+	}
+
+	resp := a.call("POST", "/api/v1/rootfolder", map[string]any{
+		"mediaType": "music", "path": "relative/path", "name": "rel",
+	}, nil)
+	a.want(resp, http.StatusBadRequest)
+}
+
 func TestRenameRootFolder(t *testing.T) {
 	a := newTestAPI(t)
 	f := addRootFolder(t, a, t.TempDir(), "Original")
@@ -204,4 +244,3 @@ func TestMoveMusicArtistRunsInBackgroundAndUpdatesFiles(t *testing.T) {
 		t.Errorf("moved file should exist at %s: %v", path, err)
 	}
 }
-

@@ -8,6 +8,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -687,18 +688,33 @@ func normalizeUsers(a *AuthSettings) {
 	}
 }
 
-// AddUser appends a login account with the given role (RoleAdmin or
-// RoleMember; anything else — including "" — becomes RoleMember, the safer
-// default for a newly added account). The first account becomes the
+// ErrUserExists means AddUser's username already belongs to another
+// account (compared case-insensitively) — the one AddUser failure that's
+// a real conflict (409); every other failure (a bad role, in practice) is
+// the caller's malformed request (400).
+var ErrUserExists = errors.New("config: user already exists")
+
+// AddUser appends a login account with the given role (RoleAdmin,
+// RoleMember, or "" to mean RoleMember, the default for a newly added
+// account) — any other value is rejected rather than silently folded into
+// RoleMember (see the check below). The first account becomes the
 // protected default and is always admin regardless of what's requested,
 // since the default being demotable could leave an instance with no admin
 // at all.
 func (c *Config) AddUser(username, passwordHash, role string) error {
+	// Empty means "use the default" (member); anything else must name a
+	// real role. Found live: this used to silently fold any unrecognized
+	// value — a typo, or a role that plain doesn't exist — into "member"
+	// rather than rejecting it, so a mistyped role request looked like it
+	// succeeded but silently granted a different role than asked for.
+	if role != "" && role != RoleAdmin && role != RoleMember {
+		return fmt.Errorf("role must be %q or %q", RoleAdmin, RoleMember)
+	}
 	c.mu.Lock()
 	for i := range c.Auth.Users {
 		if strings.EqualFold(c.Auth.Users[i].Username, username) {
 			c.mu.Unlock()
-			return fmt.Errorf("user %q already exists", username)
+			return fmt.Errorf("%w: %q", ErrUserExists, username)
 		}
 	}
 	isFirst := len(c.Auth.Users) == 0

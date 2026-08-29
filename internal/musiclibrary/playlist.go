@@ -57,6 +57,14 @@ const playlistTrackSelect = `
 	JOIN artists ar ON ar.id = al.artist_id
 	LEFT JOIN track_files tf ON tf.id = (SELECT MIN(id) FROM track_files WHERE track_id = t.id)`
 
+// ErrTrackNotFound means an append referenced a track id that doesn't
+// exist — distinct from ErrNotFound (which here always means the
+// *playlist* itself is missing): the URL's own resource is fine, the
+// request body's content isn't. Found live: without this check, a bad
+// track id fell all the way through to a raw SQLite foreign-key-
+// constraint error surfacing as an unhandled 500.
+var ErrTrackNotFound = errors.New("musiclibrary: track not found")
+
 func scanPlaylistTrack(row interface{ Scan(...any) error }) (PlaylistTrack, error) {
 	var pt PlaylistTrack
 	err := row.Scan(&pt.ItemID, &pt.TrackID, &pt.Position, &pt.Title, &pt.DurationMs, &pt.ArtistCredit,
@@ -176,6 +184,14 @@ func (s *Store) AppendPlaylistItem(playlistID, trackID int64) (*PlaylistTrack, e
 		return nil, fmt.Errorf("check playlist: %w", err)
 	}
 
+	var trackExists int64
+	if err := s.db.QueryRow(`SELECT id FROM tracks WHERE id = ?`, trackID).Scan(&trackExists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: %d", ErrTrackNotFound, trackID)
+		}
+		return nil, fmt.Errorf("check track: %w", err)
+	}
+
 	var maxPos sql.NullInt64
 	if err := s.db.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos); err != nil {
 		return nil, fmt.Errorf("max position: %w", err)
@@ -222,6 +238,35 @@ func (s *Store) AppendPlaylistItems(playlistID int64, trackIDs []int64) ([]Playl
 		}
 		return nil, fmt.Errorf("check playlist: %w", err)
 	}
+	placeholders := make([]string, len(trackIDs))
+	args := make([]any, len(trackIDs))
+	for i, id := range trackIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	rows, err := tx.Query(`SELECT id FROM tracks WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("check tracks: %w", err)
+	}
+	found := make(map[int64]bool, len(trackIDs))
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan track id: %w", err)
+		}
+		found[id] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("check tracks: %w", err)
+	}
+	for _, id := range trackIDs {
+		if !found[id] {
+			return nil, fmt.Errorf("%w: %d", ErrTrackNotFound, id)
+		}
+	}
+
 	var maxPos sql.NullInt64
 	if err := tx.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos); err != nil {
 		return nil, fmt.Errorf("max position: %w", err)

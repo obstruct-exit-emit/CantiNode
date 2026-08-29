@@ -59,6 +59,22 @@ func (s *server) handleAddRootFolder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
+	// Cleaned before anything else touches it: found live that a raw path
+	// carrying "../" segments (e.g. "/mnt/storage_1/x/../../../etc") passed
+	// the existence check below (os.Stat resolves ".." transparently) and
+	// got stored exactly as typed — a root folder whose saved path didn't
+	// match what it actually pointed at, and which broke the
+	// hierarchical-containment assumption path-prefix logic elsewhere
+	// (remote path mappings, organize's own path building) relies on.
+	// Requiring an absolute path is the same fix for the same reason: a
+	// relative one silently resolves against the service's own working
+	// directory today, and would keep resolving somewhere new (or nowhere)
+	// if that ever changed.
+	req.Path = filepath.Clean(req.Path)
+	if !filepath.IsAbs(req.Path) {
+		writeError(w, http.StatusBadRequest, "path must be absolute")
+		return
+	}
 	if !dirExists(req.Path) {
 		writeError(w, http.StatusBadRequest, "path does not exist or is not a directory")
 		return

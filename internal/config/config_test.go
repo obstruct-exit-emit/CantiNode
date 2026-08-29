@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,6 +89,43 @@ func TestAuthUserMigrationAndManagement(t *testing.T) {
 
 // TestSetUserViewPrefs: LibraryView/AlbumsView persist independently per
 // account and survive a reload; an invalid value is rejected.
+// TestAddUserRejectsUnknownRole is the regression case for a real bug
+// found live: an unrecognized role value (a typo, or something like
+// "superadmin" that was never a real role) used to be silently folded
+// into RoleMember rather than rejected — a mistyped role request looked
+// like it succeeded but silently granted a different role than asked
+// for. Also confirms the one AddUser failure that's a real conflict
+// (duplicate username) is still distinguishable from this one via
+// ErrUserExists, since the API layer needs that to pick 409 vs 400.
+func TestAddUserRejectsUnknownRole(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.AddUser("first", "hash", RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cfg.AddUser("bad-role", "hash", "superadmin"); err == nil {
+		t.Fatal("AddUser with an unrecognized role should have failed")
+	} else if errors.Is(err, ErrUserExists) {
+		t.Errorf("a bad-role failure should not be ErrUserExists: %v", err)
+	}
+	if a := cfg.AuthSettings(); len(a.Users) != 1 {
+		t.Errorf("users after a rejected AddUser = %+v, want just the first account", a.Users)
+	}
+
+	if err := cfg.AddUser("first", "hash", RoleMember); !errors.Is(err, ErrUserExists) {
+		t.Errorf("duplicate username: err = %v, want ErrUserExists", err)
+	}
+
+	// Empty role is still allowed — it means "use the default".
+	if err := cfg.AddUser("plain-member", "hash", ""); err != nil {
+		t.Errorf("AddUser with an empty role should succeed as the default: %v", err)
+	}
+}
+
 func TestSetUserViewPrefs(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := Load(dir)
