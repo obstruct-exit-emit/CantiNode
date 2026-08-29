@@ -444,6 +444,39 @@ func (s *server) handleListMissingMusicReleaseGroups(w http.ResponseWriter, r *h
 	writeJSON(w, http.StatusOK, groups)
 }
 
+// calendarDefaultBack/Forward bound the release Calendar's default window
+// (no ?from=/?to= given) — recent enough to still catch something just
+// released that hasn't been grabbed yet, forward enough to show what's
+// actually coming up.
+const (
+	calendarDefaultBack    = 14 * 24 * time.Hour
+	calendarDefaultForward = 90 * 24 * time.Hour
+)
+
+// handleMusicCalendar lists every monitored artist's not-yet-owned releases
+// (wanted or not — a future album a user hasn't gotten around to marking
+// wanted yet still belongs on the calendar) whose release date falls in
+// [from, to]. Query params are optional "YYYY-MM-DD" dates; the default
+// window is calendarDefaultBack behind today through calendarDefaultForward
+// ahead of it.
+func (s *server) handleMusicCalendar(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().UTC()
+	from := r.URL.Query().Get("from")
+	if from == "" {
+		from = now.Add(-calendarDefaultBack).Format("2006-01-02")
+	}
+	to := r.URL.Query().Get("to")
+	if to == "" {
+		to = now.Add(calendarDefaultForward).Format("2006-01-02")
+	}
+	entries, err := s.musicStore.ListUpcomingReleases(from, to)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
 // releaseGroupTrack is one flattened track in a releaseGroupTracklist —
 // disc-relative position folded together with its medium's disc number,
 // since a preview tracklist has no local track-file rows to slot into.

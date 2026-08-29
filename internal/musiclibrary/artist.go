@@ -502,3 +502,63 @@ func (s *Store) ListMissingArtistReleaseGroups(artistID int64) ([]ReleaseGroupCa
 	}
 	return out, rows.Err()
 }
+
+// CalendarEntry is one not-yet-owned release from a monitored artist's
+// cached discography, falling inside a calendar query's date window.
+type CalendarEntry struct {
+	ArtistID         int64    `json:"artistId"`
+	ArtistName       string   `json:"artistName"`
+	ReleaseGroupMBID string   `json:"releaseGroupMbid"`
+	Title            string   `json:"title"`
+	PrimaryType      string   `json:"primaryType"`
+	SecondaryTypes   []string `json:"secondaryTypes"`
+	FirstReleaseDate string   `json:"firstReleaseDate"`
+	// WantedAlbumID is 0 when this release hasn't been marked wanted yet —
+	// still worth surfacing on the calendar (a monitored artist's upcoming
+	// album), just not yet being searched for.
+	WantedAlbumID int64  `json:"wantedAlbumId,omitempty"`
+	WantedStatus  string `json:"wantedStatus,omitempty"`
+}
+
+// ListUpcomingReleases returns every monitored artist's not-yet-owned
+// release groups whose first_release_date falls within [from, to]
+// (inclusive, "YYYY-MM-DD" or a MusicBrainz partial date), across the
+// whole library — the release Calendar's own query, unlike
+// ListMissingArtistReleaseGroups which is scoped to one artist. Ordinary
+// lexicographic string comparison works here the same way the rest of this
+// package already sorts on first_release_date: MusicBrainz dates are
+// always a left-anchored YYYY[-MM[-DD]] prefix, so it agrees with
+// chronological order regardless of precision.
+func (s *Store) ListUpcomingReleases(from, to string) ([]CalendarEntry, error) {
+	rows, err := s.db.Query(`
+		SELECT arg.artist_id, a.name, arg.release_group_mbid, arg.title, arg.primary_type, arg.secondary_types, arg.first_release_date,
+		       COALESCE(w.id, 0), COALESCE(w.status, '')
+		FROM artist_release_groups arg
+		JOIN artists a ON a.id = arg.artist_id
+		LEFT JOIN wanted_albums w ON w.artist_id = arg.artist_id AND w.release_group_mbid = arg.release_group_mbid
+		WHERE a.is_monitored = 1
+		  AND arg.first_release_date BETWEEN ? AND ?
+		  AND NOT EXISTS (SELECT 1 FROM albums al WHERE al.artist_id = arg.artist_id AND al.release_group_mbid = arg.release_group_mbid)
+		ORDER BY arg.first_release_date, a.name, arg.title`, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("list upcoming releases: %w", err)
+	}
+	defer rows.Close()
+
+	out := []CalendarEntry{}
+	for rows.Next() {
+		var e CalendarEntry
+		var secondaryTypes string
+		if err := rows.Scan(&e.ArtistID, &e.ArtistName, &e.ReleaseGroupMBID, &e.Title, &e.PrimaryType,
+			&secondaryTypes, &e.FirstReleaseDate, &e.WantedAlbumID, &e.WantedStatus); err != nil {
+			return nil, fmt.Errorf("scan calendar entry: %w", err)
+		}
+		if secondaryTypes != "" {
+			e.SecondaryTypes = strings.Split(secondaryTypes, ",")
+		} else {
+			e.SecondaryTypes = []string{}
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

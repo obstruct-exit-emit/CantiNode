@@ -390,6 +390,20 @@ export interface MusicReleaseGroup {
   firstReleaseDate: string;
 }
 
+// CalendarEntry is one not-yet-owned release from a monitored artist,
+// falling inside the release Calendar's date window.
+export interface CalendarEntry {
+  artistId: number;
+  artistName: string;
+  releaseGroupMbid: string;
+  title: string;
+  primaryType: string;
+  secondaryTypes: string[];
+  firstReleaseDate: string;
+  wantedAlbumId?: number;
+  wantedStatus?: string;
+}
+
 // ReleaseGroupTrack/ReleaseGroupTracklist preview a release group's tracks
 // straight from MusicBrainz — used by the Missing section, where there's no
 // local album/track row yet (nothing owned, nothing wanted-and-matched).
@@ -814,6 +828,13 @@ export const api = {
     request<void>(`/api/v1/music/artist/${id}/refresh`, { method: "POST" }),
   listMissingMusicReleaseGroups: (id: number) =>
     request<MusicReleaseGroup[]>(`/api/v1/music/artist/${id}/missing`),
+  musicCalendar: (from?: string, to?: string) => {
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const qs = params.toString();
+    return request<CalendarEntry[]>(`/api/v1/music/calendar${qs ? `?${qs}` : ""}`);
+  },
   listReleaseGroupVersions: (releaseGroupMbid: string) =>
     request<ReleaseGroupVersion[]>(
       `/api/v1/music/releasegroup/${encodeURIComponent(releaseGroupMbid)}/versions`,

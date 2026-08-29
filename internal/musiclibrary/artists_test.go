@@ -287,6 +287,86 @@ func TestReplaceAndListArtistReleaseGroups(t *testing.T) {
 	}
 }
 
+// TestListUpcomingReleasesFiltersAndAnnotates covers the release Calendar's
+// own query: monitored-only, date-windowed, already-owned releases
+// excluded, and a wanted release group carries its wanted status along so
+// the calendar can show it differently from one nobody's searching for yet.
+func TestListUpcomingReleasesFiltersAndAnnotates(t *testing.T) {
+	db := newTestStore(t)
+
+	monitored, err := db.GetOrCreateArtist("mbid-mon", "Monitored Artist", "Monitored Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetArtistMonitored(monitored.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	unmonitored, err := db.GetOrCreateArtist("mbid-unmon", "Unmonitored Artist", "Unmonitored Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.ReplaceArtistReleaseGroups(monitored.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-in-window", Title: "In Window", PrimaryType: "Album", FirstReleaseDate: "2026-09-15"},
+		{ReleaseGroupMBID: "rg-too-late", Title: "Too Late", PrimaryType: "Album", FirstReleaseDate: "2027-01-01"},
+		{ReleaseGroupMBID: "rg-owned", Title: "Already Owned", PrimaryType: "Album", FirstReleaseDate: "2026-09-16"},
+		{ReleaseGroupMBID: "rg-wanted", Title: "Wanted One", PrimaryType: "Album", FirstReleaseDate: "2026-09-17"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups: %v", err)
+	}
+	if err := db.ReplaceArtistReleaseGroups(unmonitored.ID, []ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-unmon", Title: "Should Not Appear", PrimaryType: "Album", FirstReleaseDate: "2026-09-15"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups (unmonitored): %v", err)
+	}
+
+	if _, err := db.GetOrCreateAlbum(monitored.ID, "release-mbid", "rg-owned", "Already Owned", "2026-09-16", "Album"); err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+	wanted, err := db.GetOrCreateWantedAlbum(monitored.ID, "rg-wanted", "Wanted One", "Album", "2026-09-17")
+	if err != nil {
+		t.Fatalf("GetOrCreateWantedAlbum: %v", err)
+	}
+
+	got, err := db.ListUpcomingReleases("2026-09-01", "2026-09-30")
+	if err != nil {
+		t.Fatalf("ListUpcomingReleases: %v", err)
+	}
+	byMBID := map[string]CalendarEntry{}
+	for _, e := range got {
+		byMBID[e.ReleaseGroupMBID] = e
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2 (rg-in-window, rg-wanted); got %+v", len(got), got)
+	}
+	if _, ok := byMBID["rg-too-late"]; ok {
+		t.Error("rg-too-late appeared — outside the date window")
+	}
+	if _, ok := byMBID["rg-owned"]; ok {
+		t.Error("rg-owned appeared — already an owned album")
+	}
+	if _, ok := byMBID["rg-unmon"]; ok {
+		t.Error("rg-unmon appeared — its artist isn't monitored")
+	}
+	inWindow, ok := byMBID["rg-in-window"]
+	if !ok {
+		t.Fatal("rg-in-window missing")
+	}
+	if inWindow.WantedAlbumID != 0 {
+		t.Errorf("rg-in-window WantedAlbumID = %d, want 0 (never marked wanted)", inWindow.WantedAlbumID)
+	}
+	if inWindow.ArtistName != "Monitored Artist" {
+		t.Errorf("rg-in-window ArtistName = %q, want %q", inWindow.ArtistName, "Monitored Artist")
+	}
+	wantedEntry, ok := byMBID["rg-wanted"]
+	if !ok {
+		t.Fatal("rg-wanted missing")
+	}
+	if wantedEntry.WantedAlbumID != wanted.ID || wantedEntry.WantedStatus != "wanted" {
+		t.Errorf("rg-wanted = %+v, want WantedAlbumID=%d WantedStatus=wanted", wantedEntry, wanted.ID)
+	}
+}
+
 func TestGetOrCreateSeriesArtistCreatesThenReuses(t *testing.T) {
 	db := newTestStore(t)
 

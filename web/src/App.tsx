@@ -13,6 +13,7 @@ import { UiProvider, useUi } from "./ui";
 import ActivityView from "./views/ActivityView";
 import AlbumDetailView from "./views/AlbumDetailView";
 import ArtistDetailView from "./views/ArtistDetailView";
+import CalendarView from "./views/CalendarView";
 import MusicLibraryView from "./views/MusicLibraryView";
 import SearchView from "./views/SearchView";
 import SettingsView from "./views/SettingsView";
@@ -28,6 +29,7 @@ type Page =
   | { name: "album"; id: number; artistId: number }
   | { name: "unmatched" }
   | { name: "search"; q: string }
+  | { name: "calendar" }
   | { name: "activity" }
   | { name: "settings" }
   | { name: "system" };
@@ -69,6 +71,8 @@ function hashToPage(hash: string): Page {
       return { name: "unmatched" };
     case "search":
       return { name: "search", q: q.get("q") ?? "" };
+    case "calendar":
+      return { name: "calendar" };
     case "activity":
       return { name: "activity" };
     case "settings":
@@ -205,6 +209,7 @@ function AppInner() {
             {hasMusicRoot && <div className="nav-group">Library</div>}
             {hasMusicRoot && navButton({ name: "library" }, "Music", "🎵")}
             {hasMusicRoot && navButton({ name: "unmatched" }, "Unmatched Files", "❓")}
+            {hasMusicRoot && navButton({ name: "calendar" }, "Calendar", "📅")}
             <div className="nav-group">App</div>
             {navButton({ name: "activity" }, "Activity", "⬇️")}
             {isAdmin && navButton({ name: "settings" }, "Settings", "⚙️")}
@@ -325,6 +330,9 @@ function AppInner() {
             onError={onError}
             onOpenArtist={(id) => go({ name: "artist", id })}
           />
+        )}
+        {connected && page.name === "calendar" && (
+          <CalendarView onError={onError} onOpenArtist={(id) => go({ name: "artist", id })} />
         )}
         {connected && page.name === "activity" && <ActivityView onError={onError} />}
         {connected && page.name === "settings" && (

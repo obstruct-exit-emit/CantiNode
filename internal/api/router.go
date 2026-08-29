@@ -192,6 +192,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// cover/audiodb-link routes.
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/audiodb-link", s.auth(s.handleAudioDBArtistLink))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/missing", s.auth(s.handleListMissingMusicReleaseGroups))
+	mux.HandleFunc("GET /api/v1/music/calendar", s.auth(s.handleMusicCalendar))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/albums", s.auth(s.handleListMusicAlbumsByArtist))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/organize/preview", s.auth(s.handlePreviewOrganizeMusicArtist))
 	mux.HandleFunc("POST /api/v1/music/artist/{id}/organize", s.auth(s.handleOrganizeMusicArtist))
