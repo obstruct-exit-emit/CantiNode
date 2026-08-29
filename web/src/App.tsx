@@ -15,6 +15,8 @@ import AlbumDetailView from "./views/AlbumDetailView";
 import ArtistDetailView from "./views/ArtistDetailView";
 import CalendarView from "./views/CalendarView";
 import MusicLibraryView from "./views/MusicLibraryView";
+import PlaylistDetailView from "./views/PlaylistDetailView";
+import PlaylistsView from "./views/PlaylistsView";
 import SearchView from "./views/SearchView";
 import SettingsView from "./views/SettingsView";
 import SystemView from "./views/SystemView";
@@ -30,6 +32,8 @@ type Page =
   | { name: "unmatched" }
   | { name: "search"; q: string }
   | { name: "calendar" }
+  | { name: "playlists" }
+  | { name: "playlist"; id: number }
   | { name: "activity" }
   | { name: "settings" }
   | { name: "system" };
@@ -46,6 +50,8 @@ function pageToHash(p: Page): string {
       return `#/artist/${p.id}`;
     case "album":
       return `#/album/${p.id}?artist=${p.artistId}`;
+    case "playlist":
+      return `#/playlist/${p.id}`;
     case "search":
       return `#/search?q=${encodeURIComponent(p.q)}`;
     default:
@@ -73,6 +79,10 @@ function hashToPage(hash: string): Page {
       return { name: "search", q: q.get("q") ?? "" };
     case "calendar":
       return { name: "calendar" };
+    case "playlists":
+      return { name: "playlists" };
+    case "playlist":
+      return id > 0 ? { name: "playlist", id } : { name: "playlists" };
     case "activity":
       return { name: "activity" };
     case "settings":
@@ -210,6 +220,7 @@ function AppInner() {
             {hasMusicRoot && navButton({ name: "library" }, "Music", "🎵")}
             {hasMusicRoot && navButton({ name: "unmatched" }, "Unmatched Files", "❓")}
             {hasMusicRoot && navButton({ name: "calendar" }, "Calendar", "📅")}
+            {hasMusicRoot && navButton({ name: "playlists" }, "Playlists", "🎧")}
             <div className="nav-group">App</div>
             {navButton({ name: "activity" }, "Activity", "⬇️")}
             {isAdmin && navButton({ name: "settings" }, "Settings", "⚙️")}
@@ -333,6 +344,22 @@ function AppInner() {
         )}
         {connected && page.name === "calendar" && (
           <CalendarView onError={onError} onOpenArtist={(id) => go({ name: "artist", id })} />
+        )}
+        {connected && page.name === "playlists" && (
+          <PlaylistsView
+            onError={onError}
+            onOpenPlaylist={(id) => go({ name: "playlist", id })}
+          />
+        )}
+        {connected && page.name === "playlist" && (
+          <PlaylistDetailView
+            key={page.id}
+            id={page.id}
+            onError={onError}
+            onBack={() => go({ name: "playlists" })}
+            onOpenArtist={(id) => go({ name: "artist", id })}
+            onOpenAlbum={(id, artistId) => go({ name: "album", id, artistId })}
+          />
         )}
         {connected && page.name === "activity" && <ActivityView onError={onError} />}
         {connected && page.name === "settings" && (

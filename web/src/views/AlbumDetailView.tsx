@@ -7,6 +7,7 @@ import {
   type MusicTrackFile,
   type RenameMove,
 } from "../api";
+import AddToPlaylistModal from "../components/AddToPlaylistModal";
 import AlbumCover from "../components/AlbumCover";
 import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
@@ -131,6 +132,7 @@ export default function AlbumDetailView({
   const [description, setDescription] = useState("");
   const [versionLabel, setVersionLabel] = useState("");
   const [tagsFile, setTagsFile] = useState<MusicTrackFile | null>(null);
+  const [addToTrack, setAddToTrack] = useState<MusicTrack | null>(null);
   const [showWriteTags, setShowWriteTags] = useState(false);
 
   const reload = useCallback(() => {
@@ -460,6 +462,13 @@ export default function AlbumDetailView({
                     </span>
                     <span className="track-row-actions">
                       {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} trackTitle={t.title} />}
+                      <button
+                        className="toggle"
+                        title="Add this track to a playlist"
+                        onClick={() => setAddToTrack(t)}
+                      >
+                        + playlist
+                      </button>
                       {single && (
                         <button
                           className="toggle col-tags"
@@ -507,6 +516,13 @@ export default function AlbumDetailView({
           fileId={tagsFile.id}
           fileName={tagsFile.path.split("/").pop() ?? tagsFile.path}
           onClose={() => setTagsFile(null)}
+        />
+      )}
+      {addToTrack && (
+        <AddToPlaylistModal
+          trackTitle={addToTrack.title}
+          onAdd={(playlistId) => api.addPlaylistItem(playlistId, addToTrack.id).then(() => {})}
+          onClose={() => setAddToTrack(null)}
         />
       )}
       {showWriteTags && (

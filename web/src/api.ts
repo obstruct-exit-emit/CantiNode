@@ -380,6 +380,43 @@ export interface TrackSuggestion {
   discNumber: number;
 }
 
+export interface Playlist {
+  id: number;
+  name: string;
+  description: string;
+  trackCount: number;
+  totalDurationMs: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// PlaylistTrack is one playlist_items row joined out to what's needed to
+// show/use it — see internal/musiclibrary's own doc comment on the Go
+// struct this mirrors. artistId/artistName are the album's artist (the
+// navigable one, same convention AlbumDetailView already uses);
+// artistCredit is a supplementary "featuring" credit only.
+export interface PlaylistTrack {
+  itemId: number;
+  trackId: number;
+  position: number;
+  title: string;
+  durationMs: number;
+  artistCredit?: string;
+  artistId: number;
+  artistName: string;
+  albumId: number;
+  albumTitle: string;
+  // Absent when nothing currently backs this track (deleted, never
+  // matched) — still a real entry, just not exportable until it's owned
+  // again.
+  trackFileId?: number;
+  path?: string;
+}
+
+export interface PlaylistDetail extends Playlist {
+  tracks: PlaylistTrack[];
+}
+
 export interface MusicReleaseGroup {
   id: number;
   artistId: number;
@@ -828,6 +865,33 @@ export const api = {
     request<void>(`/api/v1/music/artist/${id}/refresh`, { method: "POST" }),
   listMissingMusicReleaseGroups: (id: number) =>
     request<MusicReleaseGroup[]>(`/api/v1/music/artist/${id}/missing`),
+  listPlaylists: () => request<Playlist[]>("/api/v1/music/playlist"),
+  createPlaylist: (name: string, description: string) =>
+    request<Playlist>("/api/v1/music/playlist", json({ name, description })),
+  getPlaylist: (id: number) => request<PlaylistDetail>(`/api/v1/music/playlist/${id}`),
+  updatePlaylist: (id: number, name: string, description: string) =>
+    request<Playlist>(`/api/v1/music/playlist/${id}`, {
+      ...json({ name, description }),
+      method: "PUT",
+    }),
+  deletePlaylist: (id: number) =>
+    request<void>(`/api/v1/music/playlist/${id}`, { method: "DELETE" }),
+  addPlaylistItem: (playlistId: number, trackId: number) =>
+    request<PlaylistTrack>(`/api/v1/music/playlist/${playlistId}/items`, json({ trackId })),
+  removePlaylistItem: (playlistId: number, itemId: number) =>
+    request<void>(`/api/v1/music/playlist/${playlistId}/items/${itemId}`, { method: "DELETE" }),
+  reorderPlaylistItems: (playlistId: number, itemIds: number[]) =>
+    request<PlaylistTrack[]>(`/api/v1/music/playlist/${playlistId}/items/order`, {
+      ...json({ itemIds }),
+      method: "PUT",
+    }),
+  exportPlaylist: async (id: number): Promise<Blob> => {
+    const resp = await fetch(`/api/v1/music/playlist/${id}/export`, {
+      headers: { "X-Api-Key": getApiKey() },
+    });
+    if (!resp.ok) throw new ApiError(resp.status, resp.statusText);
+    return resp.blob();
+  },
   musicCalendar: (from?: string, to?: string) => {
     const params = new URLSearchParams();
     if (from) params.set("from", from);
