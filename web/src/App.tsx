@@ -340,6 +340,7 @@ function AppInner() {
             query={page.q}
             onError={onError}
             onOpenArtist={(id) => go({ name: "artist", id })}
+            onOpenAlbum={(id, artistId) => go({ name: "album", id, artistId })}
           />
         )}
         {connected && page.name === "calendar" && (

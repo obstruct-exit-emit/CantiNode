@@ -4,11 +4,12 @@ import { api, type Playlist } from "../api";
 // AddToPlaylistModal: a track's own "+ playlist" action — pick an existing
 // playlist or create one on the spot, same one-step flow either way.
 export default function AddToPlaylistModal({
-  trackTitle,
+  itemLabel,
   onAdd,
   onClose,
 }: {
-  trackTitle: string;
+  // What's being added — a track's title, or "12 tracks" for a whole album.
+  itemLabel: string;
   onAdd: (playlistId: number) => Promise<void>;
   onClose: () => void;
 }) {
@@ -55,7 +56,7 @@ export default function AddToPlaylistModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <h3>Add to playlist</h3>
-        <p className="muted">{trackTitle}</p>
+        <p className="muted">{itemLabel}</p>
         {playlists === null ? (
           <p className="muted">Loading…</p>
         ) : (

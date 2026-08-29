@@ -24,6 +24,8 @@ export default function PlaylistDetailView({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const reload = useCallback(() => {
     api
@@ -60,16 +62,22 @@ export default function PlaylistDetailView({
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   };
 
-  const move = (index: number, dir: -1 | 1) => {
-    if (!playlist) return;
-    const target = index + dir;
-    if (target < 0 || target >= playlist.tracks.length) return;
+  const reorderTo = (from: number, to: number) => {
+    if (!playlist || from === to) return;
     const order = playlist.tracks.map((t) => t.itemId);
-    [order[index], order[target]] = [order[target], order[index]];
+    const [moved] = order.splice(from, 1);
+    order.splice(to, 0, moved);
     api
       .reorderPlaylistItems(id, order)
       .then((tracks) => setPlaylist({ ...playlist, tracks }))
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  };
+
+  const move = (index: number, dir: -1 | 1) => {
+    if (!playlist) return;
+    const target = index + dir;
+    if (target < 0 || target >= playlist.tracks.length) return;
+    reorderTo(index, target);
   };
 
   const exportM3U = () => {
@@ -158,7 +166,31 @@ export default function PlaylistDetailView({
       ) : (
         <ul className="rows">
           {playlist.tracks.map((t, i) => (
-            <li key={t.itemId}>
+            <li
+              key={t.itemId}
+              draggable
+              onDragStart={() => setDragIndex(i)}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragOverIndex !== i) setDragOverIndex(i);
+              }}
+              onDragLeave={() => setDragOverIndex((cur) => (cur === i ? null : cur))}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIndex !== null) reorderTo(dragIndex, i);
+                setDragIndex(null);
+                setDragOverIndex(null);
+              }}
+              onDragEnd={() => {
+                setDragIndex(null);
+                setDragOverIndex(null);
+              }}
+              style={{
+                opacity: dragIndex === i ? 0.5 : 1,
+                borderTop: dragOverIndex === i && dragIndex !== i ? "2px solid var(--accent)" : undefined,
+                cursor: "grab",
+              }}
+            >
               <div className="row">
                 <span>
                   {!t.trackFileId && (

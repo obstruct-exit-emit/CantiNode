@@ -13,6 +13,7 @@ import {
   type RenameMove,
   type WantedAlbum,
 } from "../api";
+import AddToPlaylistModal from "../components/AddToPlaylistModal";
 import AlbumCover from "../components/AlbumCover";
 import RemovePanel from "../components/RemovePanel";
 import ReleaseBrowser from "../components/ReleaseBrowser";
@@ -107,6 +108,25 @@ export default function ArtistDetailView({
   const [albums, setAlbums] = useState<MusicAlbum[]>([]);
   const [wanted, setWanted] = useState<WantedAlbum[]>([]);
   const [selectedWantedId, setSelectedWantedId] = useState<number | null>(null);
+  const [addToPlaylist, setAddToPlaylist] = useState<{ label: string; trackIds: number[] } | null>(null);
+  const [loadingAlbumTracks, setLoadingAlbumTracks] = useState<number | null>(null);
+
+  // Owned albums don't carry their own tracklist here (only the album page
+  // fetches it) — resolve it just-in-time for "+ playlist", the one action
+  // on this page that actually needs it.
+  const addAlbumToPlaylist = (albumId: number, title: string) => {
+    setLoadingAlbumTracks(albumId);
+    api
+      .listMusicTracks(albumId)
+      .then((tracks) => {
+        setAddToPlaylist({
+          label: `${tracks.length} track${tracks.length === 1 ? "" : "s"} from “${title}”`,
+          trackIds: tracks.map((t) => t.id),
+        });
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setLoadingAlbumTracks(null));
+  };
   // Mirrors LibriNode's book page: opening a wanted album never searches by
   // itself — ReleaseBrowser (and the indexer search it fires on mount) only
   // shows up once the user explicitly asks for it via "Search releases".
@@ -618,6 +638,16 @@ export default function ArtistDetailView({
                     >
                       {g.kind === "owned" ? "owned" : g.status === "downloading" ? "downloading" : "wanted"}
                     </span>
+                    {g.kind === "owned" && (
+                      <button
+                        className="toggle"
+                        disabled={loadingAlbumTracks === g.id}
+                        title="Add this album's tracks to a playlist"
+                        onClick={() => addAlbumToPlaylist(g.id, g.title)}
+                      >
+                        + playlist
+                      </button>
+                    )}
                   </span>
                 </div>
               </li>
@@ -691,6 +721,15 @@ export default function ArtistDetailView({
       <MissingAlbumsCard artistId={id} onChanged={refreshMissingAndWanted} onError={onError} refreshKey={reloadTick} />
       {showWriteTags && (
         <WriteTagsDialog scope="artist" onConfirm={confirmWriteTags} onClose={() => setShowWriteTags(false)} />
+      )}
+      {addToPlaylist && (
+        <AddToPlaylistModal
+          itemLabel={addToPlaylist.label}
+          onAdd={(playlistId) =>
+            api.addPlaylistItemsBulk(playlistId, addToPlaylist.trackIds).then(() => {})
+          }
+          onClose={() => setAddToPlaylist(null)}
+        />
       )}
     </>
   );

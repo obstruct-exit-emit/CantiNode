@@ -132,7 +132,7 @@ export default function AlbumDetailView({
   const [description, setDescription] = useState("");
   const [versionLabel, setVersionLabel] = useState("");
   const [tagsFile, setTagsFile] = useState<MusicTrackFile | null>(null);
-  const [addToTrack, setAddToTrack] = useState<MusicTrack | null>(null);
+  const [addToPlaylist, setAddToPlaylist] = useState<{ label: string; trackIds: number[] } | null>(null);
   const [showWriteTags, setShowWriteTags] = useState(false);
 
   const reload = useCallback(() => {
@@ -373,6 +373,18 @@ export default function AlbumDetailView({
             >
               {showUpgrade ? "Hide upgrade search" : "Search upgrade"}
             </button>
+            <button
+              disabled={tracks.length === 0}
+              title="Add every track on this album to a playlist"
+              onClick={() =>
+                setAddToPlaylist({
+                  label: `${tracks.length} track${tracks.length === 1 ? "" : "s"} from this album`,
+                  trackIds: tracks.map((t) => t.id),
+                })
+              }
+            >
+              + Album to playlist
+            </button>
           </div>
           <details className="disclosure">
             <summary>Advanced</summary>
@@ -465,7 +477,7 @@ export default function AlbumDetailView({
                       <button
                         className="toggle"
                         title="Add this track to a playlist"
-                        onClick={() => setAddToTrack(t)}
+                        onClick={() => setAddToPlaylist({ label: t.title, trackIds: [t.id] })}
                       >
                         + playlist
                       </button>
@@ -518,11 +530,13 @@ export default function AlbumDetailView({
           onClose={() => setTagsFile(null)}
         />
       )}
-      {addToTrack && (
+      {addToPlaylist && (
         <AddToPlaylistModal
-          trackTitle={addToTrack.title}
-          onAdd={(playlistId) => api.addPlaylistItem(playlistId, addToTrack.id).then(() => {})}
-          onClose={() => setAddToTrack(null)}
+          itemLabel={addToPlaylist.label}
+          onAdd={(playlistId) =>
+            api.addPlaylistItemsBulk(playlistId, addToPlaylist.trackIds).then(() => {})
+          }
+          onClose={() => setAddToPlaylist(null)}
         />
       )}
       {showWriteTags && (

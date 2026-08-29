@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -198,6 +199,157 @@ func (s *Store) AppendPlaylistItem(playlistID, trackID int64) (*PlaylistTrack, e
 		return nil, fmt.Errorf("read back playlist item: %w", err)
 	}
 	return &pt, nil
+}
+
+// AppendPlaylistItems adds every trackID to the end of playlistID, in the
+// order given, in one transaction — the album-page "add whole album" and
+// M3U import both go through this rather than looping single appends, so
+// a partial failure never leaves half an album added.
+func (s *Store) AppendPlaylistItems(playlistID int64, trackIDs []int64) ([]PlaylistTrack, error) {
+	if len(trackIDs) == 0 {
+		return []PlaylistTrack{}, nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var exists int64
+	if err := tx.QueryRow(`SELECT id FROM playlists WHERE id = ?`, playlistID).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("check playlist: %w", err)
+	}
+	var maxPos sql.NullInt64
+	if err := tx.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos); err != nil {
+		return nil, fmt.Errorf("max position: %w", err)
+	}
+	now := time.Now().UTC()
+	pos := int(maxPos.Int64)
+	itemIDs := make([]int64, 0, len(trackIDs))
+	for _, trackID := range trackIDs {
+		pos++
+		res, err := tx.Exec(`INSERT INTO playlist_items (playlist_id, track_id, position, added_at) VALUES (?, ?, ?, ?)`,
+			playlistID, trackID, pos, now)
+		if err != nil {
+			return nil, fmt.Errorf("insert playlist item: %w", err)
+		}
+		itemID, err := res.LastInsertId()
+		if err != nil {
+			return nil, fmt.Errorf("last insert id: %w", err)
+		}
+		itemIDs = append(itemIDs, itemID)
+	}
+	if _, err := tx.Exec(`UPDATE playlists SET updated_at = ? WHERE id = ?`, now, playlistID); err != nil {
+		return nil, fmt.Errorf("touch playlist: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	out := make([]PlaylistTrack, 0, len(itemIDs))
+	for _, itemID := range itemIDs {
+		pt, err := scanPlaylistTrack(s.db.QueryRow(playlistTrackSelect+` WHERE pi.id = ?`, itemID))
+		if err != nil {
+			return nil, fmt.Errorf("read back playlist item: %w", err)
+		}
+		out = append(out, pt)
+	}
+	return out, nil
+}
+
+// ImportM3UResult reports what an M3U import actually did.
+type ImportM3UResult struct {
+	Playlist *Playlist `json:"playlist"`
+	Imported int       `json:"imported"`
+	Skipped  int       `json:"skipped"`
+}
+
+// ImportPlaylistFromM3U creates a new playlist named name from an M3U
+// file's content: every non-comment, non-blank line is a path, resolved
+// against this library's own track_files by an exact match. A line that
+// doesn't resolve (not this library's own export, moved since, or from a
+// different library entirely) is silently skipped and counted, rather
+// than failing the whole import — a playlist with 8 of 10 tracks
+// recovered is still useful.
+func (s *Store) ImportPlaylistFromM3U(name, content string) (*ImportM3UResult, error) {
+	var trackIDs []int64
+	skipped := 0
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		tf, err := s.getTrackFileByPath(line)
+		if err != nil || tf.TrackID == nil {
+			skipped++
+			continue
+		}
+		trackIDs = append(trackIDs, *tf.TrackID)
+	}
+
+	p, err := s.CreatePlaylist(name, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(trackIDs) > 0 {
+		if _, err := s.AppendPlaylistItems(p.ID, trackIDs); err != nil {
+			return nil, err
+		}
+		if p, err = s.GetPlaylist(p.ID); err != nil {
+			return nil, err
+		}
+	}
+	return &ImportM3UResult{Playlist: p, Imported: len(trackIDs), Skipped: skipped}, nil
+}
+
+// TrackSearchResult is one owned track matching a title search, joined the
+// same way PlaylistTrack is — the Search page's track-level results. Only
+// a track with a real current file is worth surfacing here: the whole
+// point of finding it is adding it to a playlist that can actually use it.
+type TrackSearchResult struct {
+	TrackID      int64  `json:"trackId"`
+	Title        string `json:"title"`
+	DurationMs   int64  `json:"durationMs"`
+	ArtistCredit string `json:"artistCredit,omitempty"`
+	ArtistID     int64  `json:"artistId"`
+	ArtistName   string `json:"artistName"`
+	AlbumID      int64  `json:"albumId"`
+	AlbumTitle   string `json:"albumTitle"`
+	TrackFileID  int64  `json:"trackFileId"`
+}
+
+// SearchOwnedTracks finds owned, file-backed tracks whose title contains
+// query (SQLite's LIKE is case-insensitive for ASCII by default), most
+// recently added first.
+func (s *Store) SearchOwnedTracks(query string, limit int) ([]TrackSearchResult, error) {
+	rows, err := s.db.Query(`
+		SELECT t.id, t.title, t.duration_ms, t.artist_credit,
+		       al.artist_id, ar.name, al.id, al.title, tf.id
+		FROM tracks t
+		JOIN albums al ON al.id = t.album_id
+		JOIN artists ar ON ar.id = al.artist_id
+		JOIN track_files tf ON tf.id = (SELECT MIN(id) FROM track_files WHERE track_id = t.id)
+		WHERE t.title LIKE '%' || ? || '%'
+		ORDER BY t.id DESC
+		LIMIT ?`, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search owned tracks: %w", err)
+	}
+	defer rows.Close()
+
+	out := []TrackSearchResult{}
+	for rows.Next() {
+		var r TrackSearchResult
+		if err := rows.Scan(&r.TrackID, &r.Title, &r.DurationMs, &r.ArtistCredit,
+			&r.ArtistID, &r.ArtistName, &r.AlbumID, &r.AlbumTitle, &r.TrackFileID); err != nil {
+			return nil, fmt.Errorf("scan track search result: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // RemovePlaylistItem removes one item by its own id — not by track id,

@@ -113,3 +113,119 @@ func TestPlaylistCRUDAndItems(t *testing.T) {
 	a.want(a.call("DELETE", base, nil, nil), http.StatusNoContent)
 	a.want(a.call("GET", base, nil, nil), http.StatusNotFound)
 }
+
+// TestBulkAddPlaylistItems covers the album-page "add whole album" action.
+func TestBulkAddPlaylistItems(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Album", "2020-01-01", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1, err := musicStore.GetOrCreateTrack(album.ID, "t1-mbid", "Track 1", 1, 1, 100_000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t2, err := musicStore.GetOrCreateTrack(album.ID, "t2-mbid", "Track 2", 2, 1, 100_000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	a.want(a.call("POST", "/api/v1/music/playlist", map[string]any{"name": "Bulk", "description": ""}, &created), http.StatusCreated)
+
+	var items []musiclibrary.PlaylistTrack
+	resp := a.call("POST", "/api/v1/music/playlist/"+strconv.FormatInt(created.ID, 10)+"/items/bulk",
+		map[string]any{"trackIds": []int64{t1.ID, t2.ID}}, &items)
+	a.want(resp, http.StatusCreated)
+	if len(items) != 2 || items[0].Position != 1 || items[1].Position != 2 {
+		t.Fatalf("items = %+v, want 2 items at positions 1, 2", items)
+	}
+
+	resp = a.call("POST", "/api/v1/music/playlist/999999/items/bulk", map[string]any{"trackIds": []int64{t1.ID}}, nil)
+	a.want(resp, http.StatusNotFound)
+}
+
+// TestSearchOwnedTracksEndpoint covers the Search page's track results.
+func TestSearchOwnedTracksEndpoint(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Album", "2020-01-01", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := musicStore.GetOrCreateTrack(album.ID, "t-mbid", "Moonshine Blues", 1, 1, 100_000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf := addRootFolder(t, a, t.TempDir(), "music")
+	tf, err := musicStore.UpsertTrackFileByPath(rf.ID, rf.Path+"/moonshine.flac", 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	var results []musiclibrary.TrackSearchResult
+	a.want(a.call("GET", "/api/v1/music/track/search?q=moon", nil, &results), http.StatusOK)
+	if len(results) != 1 || results[0].Title != "Moonshine Blues" {
+		t.Errorf("results = %+v, want [Moonshine Blues]", results)
+	}
+
+	// Empty query short-circuits to an empty list rather than a full table
+	// scan for every owned track.
+	var empty []musiclibrary.TrackSearchResult
+	a.want(a.call("GET", "/api/v1/music/track/search?q=", nil, &empty), http.StatusOK)
+	if len(empty) != 0 {
+		t.Errorf("empty query returned %d results, want 0", len(empty))
+	}
+}
+
+// TestImportPlaylistEndpoint covers importing an M3U that round-trips one
+// of CantiNode's own exports plus a line that doesn't resolve to anything.
+func TestImportPlaylistEndpoint(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Album", "2020-01-01", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := musicStore.GetOrCreateTrack(album.ID, "t-mbid", "Real Track", 1, 1, 100_000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf := addRootFolder(t, a, t.TempDir(), "music")
+	realPath := rf.Path + "/real.flac"
+	tf, err := musicStore.UpsertTrackFileByPath(rf.ID, realPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	m3u := "#EXTM3U\n" + realPath + "\n/nowhere/gone.flac\n"
+	var result musiclibrary.ImportM3UResult
+	a.want(a.call("POST", "/api/v1/music/playlist/import", map[string]any{"name": "Recovered", "content": m3u}, &result), http.StatusCreated)
+	if result.Imported != 1 || result.Skipped != 1 {
+		t.Errorf("result = %+v, want Imported=1 Skipped=1", result)
+	}
+	if result.Playlist.Name != "Recovered" {
+		t.Errorf("playlist name = %q, want Recovered", result.Playlist.Name)
+	}
+}

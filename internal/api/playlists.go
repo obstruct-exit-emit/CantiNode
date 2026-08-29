@@ -137,6 +137,77 @@ func (s *server) handleAppendPlaylistItem(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, item)
 }
 
+// handleAppendPlaylistItemsBulk adds several tracks in one request — an
+// album's whole tracklist added in one call, rather than one round trip
+// per track (and one transaction, so a failure partway through never
+// leaves half an album added).
+func (s *server) handleAppendPlaylistItemsBulk(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req struct {
+		TrackIDs []int64 `json:"trackIds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.TrackIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "trackIds is required")
+		return
+	}
+	items, err := s.musicStore.AppendPlaylistItems(id, req.TrackIDs)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, items)
+}
+
+// handleImportPlaylist creates a new playlist from an uploaded M3U file's
+// raw text content — the frontend reads the file client-side and posts it
+// as a JSON string, so this needs no multipart form handling.
+func (s *server) handleImportPlaylist(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name    string `json:"name"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	result, err := s.musicStore.ImportPlaylistFromM3U(req.Name, req.Content)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+// handleSearchOwnedTracks answers the Search page's track results — only
+// owned tracks a playlist could actually use (see SearchOwnedTracks' own
+// doc comment on why a file-less track is excluded).
+func (s *server) handleSearchOwnedTracks(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeJSON(w, http.StatusOK, []musiclibrary.TrackSearchResult{})
+		return
+	}
+	results, err := s.musicStore.SearchOwnedTracks(q, 24)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
 func (s *server) handleRemovePlaylistItem(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {

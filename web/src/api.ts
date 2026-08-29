@@ -417,6 +417,26 @@ export interface PlaylistDetail extends Playlist {
   tracks: PlaylistTrack[];
 }
 
+export interface ImportM3UResult {
+  playlist: Playlist;
+  imported: number;
+  skipped: number;
+}
+
+// TrackSearchResult is one owned, file-backed track matching a title
+// search — the Search page's track-level results.
+export interface TrackSearchResult {
+  trackId: number;
+  title: string;
+  durationMs: number;
+  artistCredit?: string;
+  artistId: number;
+  artistName: string;
+  albumId: number;
+  albumTitle: string;
+  trackFileId: number;
+}
+
 export interface MusicReleaseGroup {
   id: number;
   artistId: number;
@@ -878,6 +898,8 @@ export const api = {
     request<void>(`/api/v1/music/playlist/${id}`, { method: "DELETE" }),
   addPlaylistItem: (playlistId: number, trackId: number) =>
     request<PlaylistTrack>(`/api/v1/music/playlist/${playlistId}/items`, json({ trackId })),
+  addPlaylistItemsBulk: (playlistId: number, trackIds: number[]) =>
+    request<PlaylistTrack[]>(`/api/v1/music/playlist/${playlistId}/items/bulk`, json({ trackIds })),
   removePlaylistItem: (playlistId: number, itemId: number) =>
     request<void>(`/api/v1/music/playlist/${playlistId}/items/${itemId}`, { method: "DELETE" }),
   reorderPlaylistItems: (playlistId: number, itemIds: number[]) =>
@@ -892,6 +914,10 @@ export const api = {
     if (!resp.ok) throw new ApiError(resp.status, resp.statusText);
     return resp.blob();
   },
+  importPlaylist: (name: string, content: string) =>
+    request<ImportM3UResult>("/api/v1/music/playlist/import", json({ name, content })),
+  searchOwnedTracks: (q: string) =>
+    request<TrackSearchResult[]>(`/api/v1/music/track/search?q=${encodeURIComponent(q)}`),
   musicCalendar: (from?: string, to?: string) => {
     const params = new URLSearchParams();
     if (from) params.set("from", from);
