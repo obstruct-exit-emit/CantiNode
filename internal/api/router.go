@@ -61,6 +61,10 @@ type server struct {
 
 	musicMoveMu    sync.Mutex
 	musicMoveState musicMoveState
+
+	importer    *importer.Service
+	importMu    sync.Mutex
+	importState importState
 }
 
 // Background bundles the services main runs on periodic loops.
@@ -102,6 +106,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch, tagWriteToggles(cfg.TagWriteSettings()))
 	discographySvc := discography.New(mb, musicStore)
 	metadataBackfillSvc := metadatabackfill.New(musicStore, mb, audiodbClient, discographySvc)
+	imp := importer.New(downloads, musicScanner, musicStore, cfg)
 
 	s := &server{
 		cfg:              cfg,
@@ -120,6 +125,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		coverart:         coverartClient,
 		discography:      discographySvc,
 		metadataBackfill: metadataBackfillSvc,
+		importer:         imp,
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist
@@ -272,10 +278,11 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("GET /api/v1/history", s.auth(s.handleHistory))
 	mux.HandleFunc("DELETE /api/v1/history", s.auth(s.handleClearHistory))
 	mux.HandleFunc("POST /api/v1/grab/{id}/cancel", s.auth(s.handleCancelGrab))
+	mux.HandleFunc("POST /api/v1/queue/import", s.auth(s.handleTriggerImport))
+	mux.HandleFunc("GET /api/v1/queue/import/status", s.auth(s.handleImportStatus))
 
 	mux.HandleFunc("/", s.handleIndex)
 
-	imp := importer.New(downloads, musicScanner, musicStore, cfg)
 	auto := autosearch.New(musicStore, indexers, downloads, store)
 	discoveryRefresh := discoveryrefresh.New(musicStore, discographySvc)
 

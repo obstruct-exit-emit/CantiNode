@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cantinode/cantinode/internal/download"
+	"github.com/cantinode/cantinode/internal/importer"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/relname"
 )
@@ -312,6 +313,59 @@ func (s *server) handleQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": s.enrichQueue(items), "errors": errs})
+}
+
+// importState is the last (or currently running) manual import poll's
+// status, reported by GET /api/v1/queue/import/status — mirrors
+// musicScanState's own shape for the same reason.
+type importState struct {
+	Running    bool                 `json:"running"`
+	StartedAt  *time.Time           `json:"startedAt,omitempty"`
+	FinishedAt *time.Time           `json:"finishedAt,omitempty"`
+	Result     *importer.PollResult `json:"result,omitempty"`
+}
+
+// handleTriggerImport runs the importer's poll immediately instead of
+// waiting out its own periodic interval — the Activity page's "Import now"
+// button, for a completed download sitting in the queue that the user
+// doesn't want to wait out a cycle for. Refuses a second run while one is
+// already in flight, the same guard handleTriggerMusicScan uses for scans.
+func (s *server) handleTriggerImport(w http.ResponseWriter, r *http.Request) {
+	s.importMu.Lock()
+	if s.importState.Running {
+		s.importMu.Unlock()
+		writeError(w, http.StatusConflict, "an import is already running")
+		return
+	}
+	now := time.Now().UTC()
+	s.importState = importState{Running: true, StartedAt: &now}
+	s.importMu.Unlock()
+
+	go func() {
+		// The request's own context is canceled the moment the handler
+		// returns — a poll copying several large files shouldn't be cut off
+		// with it.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		result := s.importer.PollOnce(ctx)
+
+		s.importMu.Lock()
+		finished := time.Now().UTC()
+		s.importState.Running = false
+		s.importState.FinishedAt = &finished
+		s.importState.Result = &result
+		s.importMu.Unlock()
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
+}
+
+func (s *server) handleImportStatus(w http.ResponseWriter, r *http.Request) {
+	s.importMu.Lock()
+	state := s.importState
+	s.importMu.Unlock()
+	writeJSON(w, http.StatusOK, state)
 }
 
 // handleRemoveQueueItem removes one download from its client (with its data)

@@ -469,6 +469,19 @@ export interface MusicScanState {
   error?: string;
 }
 
+export interface ImportResult {
+  Checked: number;
+  Imported: number;
+  Failed: number;
+}
+
+export interface ImportState {
+  running: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: ImportResult;
+}
+
 export interface MusicSettings {
   organizeOnMatch: boolean;
   minMatchConfidence: number;
@@ -683,6 +696,9 @@ export const api = {
     request<void>(`/api/v1/blocklist/${id}`, { method: "DELETE" }),
   queue: () =>
     request<{ items: QueueItem[]; errors: string[] }>("/api/v1/queue"),
+  triggerImport: () =>
+    request<{ status: string }>("/api/v1/queue/import", { method: "POST" }),
+  importStatus: () => request<ImportState>("/api/v1/queue/import/status"),
   removeQueueItem: (clientConfigId: number, itemId: string, grabId?: number) =>
     request<{ removed: string }>(
       `/api/v1/queue/${clientConfigId}/${encodeURIComponent(itemId)}${grabId ? `?grabId=${grabId}` : ""}`,

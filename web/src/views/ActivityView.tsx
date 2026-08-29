@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type BlockEntry, type GrabRecord, type QueueItem } from "../api";
+import { api, type BlockEntry, type GrabRecord, type ImportResult, type QueueItem } from "../api";
 import { relativeTime } from "../format";
 import { RowsSkeleton } from "../components/Skeleton";
 import { useUi } from "../ui";
@@ -26,6 +26,8 @@ export default function ActivityView({
   const [itemsLoading, setItemsLoading] = useState(true);
   const [removing, setRemoving] = useState("");
   const [retryGrabId, setRetryGrabId] = useState<number | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importNotice, setImportNotice] = useState("");
 
   const reload = useCallback(() => {
     api
@@ -109,6 +111,38 @@ export default function ActivityView({
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   };
 
+  // Runs the importer's poll right now instead of waiting out its own
+  // periodic interval — for a download that's already sitting complete in
+  // the queue above. Polls the short-lived job's own status every second
+  // (it's just copying whatever files are ready, not rate-limited like a
+  // scan) rather than firing and forgetting, so the button can report what
+  // actually happened.
+  const triggerImport = async () => {
+    setImporting(true);
+    setImportNotice("");
+    try {
+      await api.triggerImport();
+      for (;;) {
+        await new Promise((r) => window.setTimeout(r, 1000));
+        const state = await api.importStatus();
+        if (!state.running) {
+          const result: ImportResult | undefined = state.result;
+          setImportNotice(
+            result
+              ? `Checked ${result.Checked}, imported ${result.Imported}, ${result.Failed} failed.`
+              : "Import finished.",
+          );
+          break;
+        }
+      }
+      reload();
+    } catch (err: unknown) {
+      onError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // Poll while the tab is open; downloads move fast.
   useEffect(() => {
     reload();
@@ -122,9 +156,17 @@ export default function ActivityView({
       <div className="card-head">
         <h2>Queue ({items.length})</h2>
         <span className="row-actions">
+          <button
+            disabled={importing}
+            title="Check the download clients now and import anything already complete, instead of waiting for the next automatic check"
+            onClick={triggerImport}
+          >
+            {importing ? "Importing…" : "Import now"}
+          </button>
           <button onClick={reload}>Refresh</button>
         </span>
       </div>
+      {importNotice && <p className="muted">{importNotice}</p>}
       {clientErrors.map((e) => (
         <p key={e} className="notice bad">
           {e}

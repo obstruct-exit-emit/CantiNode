@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/cantinode/cantinode/internal/download"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
@@ -46,6 +47,88 @@ func TestCancelGrabNotFound(t *testing.T) {
 	a := newTestAPI(t)
 	resp := a.call("POST", "/api/v1/grab/999999/cancel", nil, nil)
 	a.want(resp, http.StatusNotFound)
+}
+
+// TestTriggerImportRunsAndReportsResult covers the Activity page's "Import
+// now" button: it should run the importer's poll immediately rather than
+// waiting out its own periodic interval, and report back what it found.
+// Doesn't assert imported-vs-failed for the seeded grab — internal/importer's
+// own suite already covers that decision in depth — only that triggering it
+// over the API actually reaches the real download store and reports a
+// result, proving the route/handler/service wiring itself.
+func TestTriggerImportRunsAndReportsResult(t *testing.T) {
+	a := newTestAPI(t)
+	sab := mockSabForRemove(t)
+
+	a.want(a.call("POST", "/api/v1/downloadclient", map[string]any{
+		"name": "Sabnzb", "type": "sabnzbd", "host": sab.URL, "apiKey": "key", "enabled": true,
+	}, nil), http.StatusCreated)
+
+	store := download.NewStore(a.db)
+	grab := &download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "ABC123",
+		Title: "Test Album", Protocol: "usenet", MediaType: "music",
+	}
+	if err := store.AddGrab(grab); err != nil {
+		t.Fatalf("AddGrab: %v", err)
+	}
+
+	resp := a.call("POST", "/api/v1/queue/import", nil, nil)
+	a.want(resp, http.StatusAccepted)
+
+	var state struct {
+		Running bool
+		Result  *struct{ Checked, Imported, Failed int }
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		a.call("GET", "/api/v1/queue/import/status", nil, &state)
+		if !state.Running {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if state.Running {
+		t.Fatal("import poll never finished")
+	}
+	if state.Result == nil || state.Result.Checked != 1 {
+		t.Errorf("result = %+v, want Checked = 1", state.Result)
+	}
+}
+
+// TestTriggerImportRefusesConcurrentRun mirrors the same "already running"
+// guard handleTriggerMusicScan uses — a second click while one poll is still
+// in flight should be turned away, not queued up behind it. The seeded
+// grab's client deliberately answers slowly, so the first poll is still
+// genuinely in flight (not just finished before the second request lands)
+// when the second trigger arrives.
+func TestTriggerImportRefusesConcurrentRun(t *testing.T) {
+	a := newTestAPI(t)
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.Write([]byte(`{"status": true}`))
+	}))
+	t.Cleanup(slow.Close)
+	t.Cleanup(func() { close(release) })
+
+	a.want(a.call("POST", "/api/v1/downloadclient", map[string]any{
+		"name": "Sabnzb", "type": "sabnzbd", "host": slow.URL, "apiKey": "key", "enabled": true,
+	}, nil), http.StatusCreated)
+	store := download.NewStore(a.db)
+	if err := store.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "ABC123",
+		Title: "Test Album", Protocol: "usenet", MediaType: "music",
+	}); err != nil {
+		t.Fatalf("AddGrab: %v", err)
+	}
+
+	a.want(a.call("POST", "/api/v1/queue/import", nil, nil), http.StatusAccepted)
+	// Give the background goroutine time to flip Running before the second
+	// request races it — it's blocked on the slow client's queue call, not
+	// close to finishing.
+	time.Sleep(50 * time.Millisecond)
+	a.want(a.call("POST", "/api/v1/queue/import", nil, nil), http.StatusConflict)
 }
 
 // mockSabForRemove fakes just enough of SABnzbd's API for
