@@ -416,15 +416,49 @@ func (s *Store) RemovePlaylistItem(playlistID, itemID int64) error {
 
 // ReorderPlaylistItems sets playlistID's item order to itemIDs — the
 // dropped position of a drag-reorder, given as the item ids' whole new
-// order. Every id must already belong to playlistID; any that doesn't
-// fails the whole reorder rather than silently reassigning someone else's
-// item.
+// order. itemIDs must name every item currently in the playlist, each
+// exactly once — a partial or stale list (a racing delete, a second tab)
+// is rejected outright rather than applied, which would leave the omitted
+// item's old position value in place and free to collide with a position
+// this call just assigned to a different item.
 func (s *Store) ReorderPlaylistItems(playlistID int64, itemIDs []int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
+
+	current, err := tx.Query(`SELECT id FROM playlist_items WHERE playlist_id = ?`, playlistID)
+	if err != nil {
+		return fmt.Errorf("list current items: %w", err)
+	}
+	want := make(map[int64]bool)
+	for current.Next() {
+		var id int64
+		if err := current.Scan(&id); err != nil {
+			current.Close()
+			return fmt.Errorf("scan current item: %w", err)
+		}
+		want[id] = true
+	}
+	if err := current.Err(); err != nil {
+		return fmt.Errorf("list current items: %w", err)
+	}
+	current.Close()
+
+	if len(itemIDs) != len(want) {
+		return fmt.Errorf("reorder must include every item in the playlist: got %d, want %d", len(itemIDs), len(want))
+	}
+	seen := make(map[int64]bool, len(itemIDs))
+	for _, id := range itemIDs {
+		if seen[id] {
+			return fmt.Errorf("item %d listed more than once", id)
+		}
+		if !want[id] {
+			return fmt.Errorf("item %d is not in playlist %d", id, playlistID)
+		}
+		seen[id] = true
+	}
 
 	for i, itemID := range itemIDs {
 		res, err := tx.Exec(`UPDATE playlist_items SET position = ? WHERE id = ? AND playlist_id = ?`, i, itemID, playlistID)

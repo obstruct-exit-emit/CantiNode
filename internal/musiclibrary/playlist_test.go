@@ -112,6 +112,55 @@ func TestPlaylistCreateAppendReorderRemove(t *testing.T) {
 	}
 }
 
+// TestReorderPlaylistItemsRejectsPartialList covers a stale or racing
+// reorder request — e.g. two browser tabs on the same playlist, or a
+// drag-and-drop reorder submitted just as another request removed an item.
+// A reorder that doesn't name every item currently in the playlist must be
+// rejected outright rather than silently leaving the missing item's old
+// position value in place, which can collide with a position the request
+// just assigned to a different item and leave the playlist's order
+// unstable (ties broken arbitrarily by SQLite, not by any real intent).
+func TestReorderPlaylistItemsRejectsPartialList(t *testing.T) {
+	db := newTestStore(t)
+	p, err := db.CreatePlaylist("Partial Reorder", "")
+	if err != nil {
+		t.Fatalf("CreatePlaylist: %v", err)
+	}
+	trackA := seedTrack(t, db, "Artist A", "Album A", "Song A", 200_000)
+	trackB := seedTrack(t, db, "Artist B", "Album B", "Song B", 180_000)
+	trackC := seedTrack(t, db, "Artist C", "Album C", "Song C", 150_000)
+	itemA, err := db.AppendPlaylistItem(p.ID, trackA.ID)
+	if err != nil {
+		t.Fatalf("append A: %v", err)
+	}
+	itemB, err := db.AppendPlaylistItem(p.ID, trackB.ID)
+	if err != nil {
+		t.Fatalf("append B: %v", err)
+	}
+	if _, err := db.AppendPlaylistItem(p.ID, trackC.ID); err != nil {
+		t.Fatalf("append C: %v", err)
+	}
+
+	// Only A and B named — C, still in the playlist, is left out.
+	if err := db.ReorderPlaylistItems(p.ID, []int64{itemB.ItemID, itemA.ItemID}); err == nil {
+		t.Error("ReorderPlaylistItems accepted a list missing an item still in the playlist")
+	}
+
+	// Nothing should have moved: nothing done to any item's neighbors
+	// deserves to be persisted for the accepted-outright case anyway,
+	// but here the whole point is that positions must still be distinct.
+	var collisions int
+	if err := db.db.QueryRow(
+		`SELECT COUNT(*) FROM (SELECT position FROM playlist_items WHERE playlist_id = ? GROUP BY position HAVING COUNT(*) > 1)`,
+		p.ID,
+	).Scan(&collisions); err != nil {
+		t.Fatal(err)
+	}
+	if collisions != 0 {
+		t.Errorf("playlist has %d colliding position value(s) after a rejected partial reorder", collisions)
+	}
+}
+
 func TestAppendPlaylistItemNotFound(t *testing.T) {
 	db := newTestStore(t)
 	track := seedTrack(t, db, "Artist", "Album", "Song", 100_000)
