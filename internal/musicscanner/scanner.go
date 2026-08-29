@@ -34,6 +34,15 @@ type Scanner struct {
 	coverart *coverart.Client
 	logger   *slog.Logger
 
+	// scanMu serializes ScanAll — see its own doc comment. Three
+	// independent call sites can each trigger a full scan on this same
+	// Scanner (a manual "Scan library" trigger, the periodic importer
+	// sweep, and a manual "Import now" trigger's own post-copy scan) with
+	// no coordination between them; without this, two of them running at
+	// once raced on the same DB and could leave a completed grab's files
+	// copied to disk but unmatched to anything.
+	scanMu sync.Mutex
+
 	// settingsMu guards namingFormat/minMatchConfidence/organizeOnMatch/
 	// tagToggles — internal/api's settings endpoint calls UpdateSettings
 	// from an HTTP handler goroutine while a scan (reading them from
@@ -133,7 +142,16 @@ func (r *ScanResult) merge(other ScanResult) {
 // result.Errors and does not stop the rest — a library with several root
 // folders shouldn't have its always-available local ones go unscanned
 // just because one network share happened to be down at the time.
+//
+// Serialized via scanMu: a manual scan trigger, the periodic importer
+// sweep, and a manual "Import now" trigger's own post-copy scan can all
+// call this on the same Scanner with no other coordination between them.
+// A second caller waits its turn rather than running concurrently — see
+// scanMu's own doc comment on what running two at once actually broke.
 func (s *Scanner) ScanAll(ctx context.Context) (*ScanResult, error) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+
 	folders, err := s.db.ListRootFolders()
 	if err != nil {
 		return nil, fmt.Errorf("list root folders: %w", err)
