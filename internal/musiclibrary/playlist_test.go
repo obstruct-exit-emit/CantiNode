@@ -316,3 +316,22 @@ func TestSearchOwnedTracks(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchOwnedTracksEscapesLikeWildcards covers a track title containing
+// a literal '_' or '%' — both are SQL LIKE wildcards, and a search query
+// built by simply splicing user input into the pattern treats them as such
+// instead of literal characters, causing false-positive matches unrelated
+// to what the user actually typed.
+func TestSearchOwnedTracksEscapesLikeWildcards(t *testing.T) {
+	db := newTestStore(t)
+	seedTrackWithFile(t, db, "Artist A", "Album A", "Track_A", "C:/music/underscore.flac", 200_000)
+	seedTrackWithFile(t, db, "Artist B", "Album B", "TrackXA", "C:/music/noliteral.flac", 180_000)
+
+	got, err := db.SearchOwnedTracks("Track_A", 10)
+	if err != nil {
+		t.Fatalf("SearchOwnedTracks: %v", err)
+	}
+	if len(got) != 1 || got[0].Title != "Track_A" {
+		t.Errorf("SearchOwnedTracks(%q) = %+v, want only the literal match [Track_A] — '_' matched any character instead of itself", "Track_A", got)
+	}
+}

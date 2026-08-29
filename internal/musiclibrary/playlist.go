@@ -366,6 +366,12 @@ type TrackSearchResult struct {
 	TrackFileID  int64  `json:"trackFileId"`
 }
 
+// likeEscaper escapes the characters SQLite's LIKE treats specially ('%',
+// '_', and the escape character itself) so a query built with them via
+// ESCAPE '\' matches only literally — e.g. a track title containing a
+// literal underscore shouldn't act as a single-character wildcard.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // SearchOwnedTracks finds owned, file-backed tracks whose title contains
 // query (SQLite's LIKE is case-insensitive for ASCII by default), most
 // recently added first.
@@ -377,9 +383,9 @@ func (s *Store) SearchOwnedTracks(query string, limit int) ([]TrackSearchResult,
 		JOIN albums al ON al.id = t.album_id
 		JOIN artists ar ON ar.id = al.artist_id
 		JOIN track_files tf ON tf.id = (SELECT MIN(id) FROM track_files WHERE track_id = t.id)
-		WHERE t.title LIKE '%' || ? || '%'
+		WHERE t.title LIKE '%' || ? || '%' ESCAPE '\'
 		ORDER BY t.id DESC
-		LIMIT ?`, query, limit)
+		LIMIT ?`, likeEscaper.Replace(query), limit)
 	if err != nil {
 		return nil, fmt.Errorf("search owned tracks: %w", err)
 	}
