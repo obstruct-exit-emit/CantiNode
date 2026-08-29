@@ -351,16 +351,36 @@ button.link {
   transition: background 0.12s ease;
 }
 
+/* The list card's own standard top padding (1.25rem, same as every other
+   card) stacked with each row's own 0.4rem top padding left the first row
+   sitting noticeably further from the card's edge than any row sits from
+   its neighbor. Cut just the top padding down to what a row already
+   expects to sit next to — 0.4rem plus the first row's own 0.4rem padding
+   lands it at the same rhythm as the ~0.8rem gap between two rows. */
+.card.card-flush-top {
+  padding-top: 0.4rem;
+}
+
 .playlist-rows > li:hover {
   background: var(--card-2);
 }
 
+/* .row-info is the shared icon-tile-plus-stacked-text layout (see
+   .playlist-icon/-info/-name/-desc below) — .playlist-open adds the
+   button reset + hover-as-a-link behavior on top of it for the Playlists
+   list's own row (which navigates on click); PlaylistDetailView's track
+   rows use .row-info alone since nothing there navigates by clicking the
+   row itself (only the artist/album links inside it do). */
+.row-info,
 .playlist-open {
   display: flex;
   align-items: center;
   gap: 0.7rem;
   flex: 1;
   min-width: 0;
+}
+
+.playlist-open {
   background: none;
   border: none;
   padding: 0;

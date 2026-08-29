@@ -129,7 +129,7 @@ export default function PlaylistsView({
           </form>
         )}
       </section>
-      <section className="card">
+      <section className="card card-flush-top">
         {loading ? (
           <RowsSkeleton />
         ) : playlists.length === 0 ? (
