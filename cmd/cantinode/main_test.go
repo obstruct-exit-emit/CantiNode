@@ -162,3 +162,91 @@ func TestCleanMachineRestore(t *testing.T) {
 		t.Errorf("restored album count = %d, want 1", albums)
 	}
 }
+
+// TestRestoreOntoLiveMachineIgnoresStaleWAL covers restoring after an unclean
+// shutdown (crash, OOM kill, power loss) — a graceful stop fully checkpoints
+// and clears the WAL on close, so this gap only matters when the process
+// never got to close cleanly. A backup is taken while the server is up, more
+// writes land afterward and stay uncheckpointed in cantinode.db-wal because
+// the process dies before it can check, and *then* the next start restores
+// the earlier backup to undo something. The restored database must reflect
+// only the backup's contents — the whole point of a restore — not have the
+// post-backup writes reappear via a stale WAL replay.
+func TestRestoreOntoLiveMachineIgnoresStaleWAL(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "cantinode.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open live db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(
+		`INSERT INTO artists (mbid, name, sort_name) VALUES ('mbid-1', 'Boards of Canada', 'Boards of Canada')`,
+	); err != nil {
+		t.Fatalf("seed artist A: %v", err)
+	}
+
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("port: 7845\napi_key: test-key-123\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	// The backup point: a snapshot containing only artist A.
+	snapshot := filepath.Join(dir, "snapshot.db")
+	if _, err := db.Exec(`VACUUM INTO ?`, snapshot); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	backupZip := filepath.Join(dir, "cantinode-backup-20260718-000000.zip")
+	writeBackupZip(t, backupZip, snapshot, configPath)
+
+	// Server keeps running: a second artist is written after the backup.
+	// Left uncheckpointed so it lives only in cantinode.db-wal, exactly what
+	// a real server mid-session looks like — checkpoints are periodic, not
+	// after every write.
+	if _, err := db.Exec(`PRAGMA wal_autocheckpoint = 0`); err != nil {
+		t.Fatalf("disable autocheckpoint: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO artists (mbid, name, sort_name) VALUES ('mbid-2', 'Aphex Twin', 'Aphex Twin')`,
+	); err != nil {
+		t.Fatalf("seed artist B: %v", err)
+	}
+	// Deliberately not closed here: a graceful Close() triggers SQLite's own
+	// checkpoint-on-last-connection-close and clears the WAL, which is exactly
+	// the well-behaved shutdown this test is NOT simulating. The process
+	// dying before it can close leaves the WAL exactly as it is right now.
+	if _, err := os.Stat(dbPath + "-wal"); err != nil {
+		t.Fatalf("expected a live -wal file with artist B's uncheckpointed insert: %v", err)
+	}
+
+	// User restores the earlier backup (wants artist A only, undoing whatever
+	// went wrong after it) and the server restarts to apply it.
+	stageBackup(t, backupZip, dir)
+	if err := applyPendingRestore(dir); err != nil {
+		t.Fatalf("applyPendingRestore: %v", err)
+	}
+
+	restored, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open restored db: %v", err)
+	}
+	defer restored.Close()
+
+	var names []string
+	rows, err := restored.Query(`SELECT name FROM artists ORDER BY name`)
+	if err != nil {
+		t.Fatalf("query restored artists: %v", err)
+	}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		names = append(names, n)
+	}
+	rows.Close()
+
+	if len(names) != 1 || names[0] != "Boards of Canada" {
+		t.Errorf("restored artists = %v, want only [Boards of Canada] — a stale WAL from the pre-restore session replayed post-backup writes onto the restored snapshot", names)
+	}
+}

@@ -216,6 +216,14 @@ func applyPendingRestore(dataDir string) error {
 		if err := os.Rename(staged, live); err != nil {
 			return err
 		}
+		if name == "cantinode.db" {
+			// A -wal/-shm left behind by an unclean shutdown belongs to the
+			// pre-restore database. Left in place, SQLite would replay it
+			// onto the restored file and silently reintroduce whatever the
+			// restore was meant to undo.
+			os.Remove(live + "-wal")
+			os.Remove(live + "-shm")
+		}
 		slog.Info("restored from backup", "file", name)
 	}
 	return nil
