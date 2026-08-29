@@ -204,6 +204,10 @@ export default function AlbumDetailView({
   const basePath = useMemo(() => commonBasePath(allFiles.map((f) => f.path)), [allFiles]);
   const quality = useMemo(() => albumQuality(allFiles), [allFiles]);
   const totalBytes = useMemo(() => allFiles.reduce((sum, f) => sum + f.sizeBytes, 0), [allFiles]);
+  // A single-disc album showing "1." on every track is just noise — only
+  // worth disambiguating once there's a second disc to tell tracks apart
+  // from.
+  const isMultiDisc = useMemo(() => tracks.some((t) => t.discNumber > 1), [tracks]);
 
   if (!album) return <DetailSkeleton />;
 
@@ -474,7 +478,7 @@ export default function AlbumDetailView({
                 <li key={t.id}>
                   <div className="row">
                     <span>
-                      {t.discNumber > 1 ? `${t.discNumber}.` : ""}
+                      {isMultiDisc ? `${t.discNumber}.` : ""}
                       {String(t.trackNumber).padStart(2, "0")} — {t.title}
                     </span>
                     <span className="track-row-actions">
