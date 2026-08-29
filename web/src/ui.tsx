@@ -132,3 +132,70 @@ export function UiProvider({ children }: { children: ReactNode }) {
     </UiContext.Provider>
   );
 }
+
+export interface RowMenuItem {
+  label: string;
+  onSelect: () => void;
+  title?: string;
+}
+
+// RowMenu is a compact "⋯" overflow menu for a list row's less-frequently
+// used actions — keeps a row's always-visible cells (status pills, an
+// owned/format/size cluster) from being crowded out by every possible
+// action button. Closes on an outside click, Escape, or picking an item.
+export function RowMenu({ items, label = "More actions" }: { items: RowMenuItem[]; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <span className="row-menu" ref={ref}>
+      <button
+        type="button"
+        className="toggle row-menu-toggle"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((o) => !o)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div className="row-menu-list" role="menu">
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              title={item.title}
+              onClick={() => {
+                setOpen(false);
+                item.onSelect();
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}

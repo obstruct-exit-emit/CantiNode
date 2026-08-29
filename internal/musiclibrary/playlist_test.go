@@ -335,3 +335,37 @@ func TestSearchOwnedTracksEscapesLikeWildcards(t *testing.T) {
 		t.Errorf("SearchOwnedTracks(%q) = %+v, want only the literal match [Track_A] — '_' matched any character instead of itself", "Track_A", got)
 	}
 }
+
+func TestTracksInAnyPlaylist(t *testing.T) {
+	db := newTestStore(t)
+	trackA := seedTrack(t, db, "Artist A", "Album A", "Song A", 200_000)
+	trackB := seedTrack(t, db, "Artist B", "Album B", "Song B", 180_000)
+	trackC := seedTrack(t, db, "Artist C", "Album C", "Song C", 150_000)
+
+	p, err := db.CreatePlaylist("Some Playlist", "")
+	if err != nil {
+		t.Fatalf("CreatePlaylist: %v", err)
+	}
+	if _, err := db.AppendPlaylistItem(p.ID, trackA.ID); err != nil {
+		t.Fatalf("AppendPlaylistItem: %v", err)
+	}
+
+	got, err := db.TracksInAnyPlaylist([]int64{trackA.ID, trackB.ID, trackC.ID})
+	if err != nil {
+		t.Fatalf("TracksInAnyPlaylist: %v", err)
+	}
+	if !got[trackA.ID] {
+		t.Errorf("trackA is in a playlist but TracksInAnyPlaylist doesn't report it")
+	}
+	if got[trackB.ID] || got[trackC.ID] {
+		t.Errorf("TracksInAnyPlaylist = %v, want only trackA present", got)
+	}
+
+	empty, err := db.TracksInAnyPlaylist(nil)
+	if err != nil {
+		t.Fatalf("TracksInAnyPlaylist(nil): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("TracksInAnyPlaylist(nil) = %v, want empty", empty)
+	}
+}

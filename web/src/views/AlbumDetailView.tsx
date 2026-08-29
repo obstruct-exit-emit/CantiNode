@@ -16,6 +16,7 @@ import TrackCreditsModal from "../components/TrackCreditsModal";
 import TrackFileTagsModal from "../components/TrackFileTagsModal";
 import WriteTagsDialog from "../components/WriteTagsDialog";
 import { formatBytes } from "../format";
+import { RowMenu } from "../ui";
 
 // commonBasePath returns the deepest directory every one of paths shares —
 // e.g. two discs' worth of files under .../Moonglow (2CD)/CD1/... and
@@ -474,21 +475,10 @@ export default function AlbumDetailView({
                     </span>
                     <span className="track-row-actions">
                       {t.artistCredit && <TrackArtistCredit credit={t.artistCredit} trackTitle={t.title} />}
-                      <button
-                        className="toggle"
-                        title="Add this track to a playlist"
-                        onClick={() => setAddToPlaylist({ label: t.title, trackIds: [t.id] })}
-                      >
-                        + playlist
-                      </button>
-                      {single && (
-                        <button
-                          className="toggle col-tags"
-                          title="Show this file's own embedded tags"
-                          onClick={() => setTagsFile(single)}
-                        >
-                          Tags
-                        </button>
+                      {t.inPlaylist && (
+                        <span className="pill col-in-playlist" title="Already in a playlist">
+                          in playlist
+                        </span>
                       )}
                       {single && (
                         <>
@@ -499,6 +489,24 @@ export default function AlbumDetailView({
                       <span className={`col-owned ${tfiles.length > 0 ? "owned yes" : "owned no"}`}>
                         {tfiles.length > 0 ? "owned" : "no file"}
                       </span>
+                      <RowMenu
+                        items={[
+                          {
+                            label: "+ playlist",
+                            title: "Add this track to a playlist",
+                            onSelect: () => setAddToPlaylist({ label: t.title, trackIds: [t.id] }),
+                          },
+                          ...(single
+                            ? [
+                                {
+                                  label: "Tags",
+                                  title: "Show this file's own embedded tags",
+                                  onSelect: () => setTagsFile(single),
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
                     </span>
                   </div>
                   {tfiles.length > 1 &&
@@ -534,7 +542,10 @@ export default function AlbumDetailView({
         <AddToPlaylistModal
           itemLabel={addToPlaylist.label}
           onAdd={(playlistId) =>
-            api.addPlaylistItemsBulk(playlistId, addToPlaylist.trackIds).then(() => {})
+            api.addPlaylistItemsBulk(playlistId, addToPlaylist.trackIds).then(() => {
+              const added = new Set(addToPlaylist.trackIds);
+              setTracks((prev) => prev.map((t) => (added.has(t.id) ? { ...t, inPlaylist: true } : t)));
+            })
           }
           onClose={() => setAddToPlaylist(null)}
         />

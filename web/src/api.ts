@@ -310,6 +310,9 @@ export interface MusicTrack {
   // only present when it differs from the album's own artist (e.g. a
   // "Various Artists" compilation's individual track performers).
   artistCredit?: string;
+  // Only populated by the album track list (listMusicTracks) — true when
+  // this track already appears in some playlist.
+  inPlaylist?: boolean;
 }
 
 export interface MusicTrackFile {

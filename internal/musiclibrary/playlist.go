@@ -403,6 +403,38 @@ func (s *Store) SearchOwnedTracks(query string, limit int) ([]TrackSearchResult,
 	return out, rows.Err()
 }
 
+// TracksInAnyPlaylist reports which of trackIDs appear in at least one
+// playlist — a track's own detail rows use this to flag "already in a
+// playlist" without a per-track round trip. Absent from the returned map
+// (rather than present-and-false) for any id in no playlist.
+func (s *Store) TracksInAnyPlaylist(trackIDs []int64) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(trackIDs))
+	if len(trackIDs) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(trackIDs))
+	args := make([]any, len(trackIDs))
+	for i, id := range trackIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.db.Query(
+		`SELECT DISTINCT track_id FROM playlist_items WHERE track_id IN (`+strings.Join(placeholders, ",")+`)`,
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("tracks in any playlist: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan track id: %w", err)
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 // RemovePlaylistItem removes one item by its own id — not by track id,
 // since the same track may appear in a playlist more than once.
 func (s *Store) RemovePlaylistItem(playlistID, itemID int64) error {

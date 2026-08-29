@@ -1003,6 +1003,14 @@ func (s *server) handleGetMusicAlbum(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, album)
 }
 
+// albumTrack is a Track plus whether it's already in some playlist — an
+// album's own track list is the one place that's worth flagging, so it
+// rides along here rather than joining onto musiclibrary.Track itself.
+type albumTrack struct {
+	musiclibrary.Track
+	InPlaylist bool `json:"inPlaylist"`
+}
+
 func (s *server) handleListMusicTracksByAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -1014,7 +1022,20 @@ func (s *server) handleListMusicTracksByAlbum(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, tracks)
+	ids := make([]int64, len(tracks))
+	for i, t := range tracks {
+		ids[i] = t.ID
+	}
+	inPlaylist, err := s.musicStore.TracksInAnyPlaylist(ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]albumTrack, len(tracks))
+	for i, t := range tracks {
+		out[i] = albumTrack{Track: t, InPlaylist: inPlaylist[t.ID]}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleMusicAlbumCover serves an album's cached front cover image,

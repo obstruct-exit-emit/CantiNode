@@ -511,3 +511,54 @@ func TestSearchWantedMusicAlbumFiltersBlocklisted(t *testing.T) {
 		}
 	}
 }
+
+// TestListMusicTracksByAlbumFlagsInPlaylist covers the album track list's
+// inPlaylist field — the album page's own way of showing a track is
+// already in some playlist, without a per-track round trip.
+func TestListMusicTracksByAlbumFlagsInPlaylist(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Album", "2020-01-01", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+	inPlaylist, err := musicStore.GetOrCreateTrack(album.ID, "t1-mbid", "In A Playlist", 1, 1, 100_000, "", "", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack 1: %v", err)
+	}
+	notInPlaylist, err := musicStore.GetOrCreateTrack(album.ID, "t2-mbid", "Not In A Playlist", 2, 1, 100_000, "", "", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack 2: %v", err)
+	}
+
+	pl, err := musicStore.CreatePlaylist("Some Playlist", "")
+	if err != nil {
+		t.Fatalf("CreatePlaylist: %v", err)
+	}
+	if _, err := musicStore.AppendPlaylistItem(pl.ID, inPlaylist.ID); err != nil {
+		t.Fatalf("AppendPlaylistItem: %v", err)
+	}
+
+	var tracks []struct {
+		ID         int64  `json:"id"`
+		Title      string `json:"title"`
+		InPlaylist bool   `json:"inPlaylist"`
+	}
+	a.want(a.call("GET", fmt.Sprintf("/api/v1/music/album/%d/tracks", album.ID), nil, &tracks), http.StatusOK)
+
+	byID := map[int64]bool{}
+	for _, tr := range tracks {
+		byID[tr.ID] = tr.InPlaylist
+	}
+	if !byID[inPlaylist.ID] {
+		t.Errorf("track %d is in a playlist but inPlaylist = false", inPlaylist.ID)
+	}
+	if byID[notInPlaylist.ID] {
+		t.Errorf("track %d is in no playlist but inPlaylist = true", notInPlaylist.ID)
+	}
+}
