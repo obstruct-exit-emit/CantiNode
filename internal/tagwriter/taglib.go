@@ -24,6 +24,16 @@ import (
 // instead, an explicit opt-in for a caller that wants a clean slate — see
 // Write's own doc comment.
 func writeTagLib(path string, tags Tags, clear bool, enabled Toggles) error {
+	// See repairInvalidUTF8VorbisComment's own doc comment: a FLAC whose
+	// existing VORBIS_COMMENT block contains non-UTF-8 bytes (a real,
+	// reproduced upstream TagLib crash, found live from an old ripping
+	// tool's mistagged file) can't be opened by TagLib at all otherwise —
+	// not even to read it back. A no-op for anything else, including a
+	// FLAC that's already fine.
+	if err := repairInvalidUTF8VorbisComment(path); err != nil {
+		return fmt.Errorf("repair existing tags before write: %w", err)
+	}
+
 	set := map[string][]string{}
 	if enabled.Title {
 		setField(set, taglib.Title, tags.Title)
