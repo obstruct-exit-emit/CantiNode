@@ -105,7 +105,7 @@ func (s *Store) SeedExpectedReleaseGroup(rootFolderID int64, path, releaseGroupM
 func (s *Store) UpsertTrackFileByPath(rootFolderID int64, path string, sizeBytes int64, format string, bitrateKbps int, durationMs int64, tagsJSON string) (*TrackFile, error) {
 	now := time.Now().UTC()
 
-	existing, err := s.getTrackFileByPath(path)
+	existing, err := s.GetTrackFileByPath(path)
 	if err == nil {
 		if _, err := s.db.Exec(
 			`UPDATE track_files SET size_bytes = ?, format = ?, bitrate_kbps = ?, duration_ms = ?, tags_json = ?, scanned_at = ? WHERE id = ?`,
@@ -138,7 +138,9 @@ func (s *Store) UpsertTrackFileByPath(rootFolderID int64, path string, sizeBytes
 	}, nil
 }
 
-func (s *Store) getTrackFileByPath(path string) (*TrackFile, error) {
+// GetTrackFileByPath returns the track file at path (an exact match — see
+// callers for how they resolved that path), or ErrNotFound.
+func (s *Store) GetTrackFileByPath(path string) (*TrackFile, error) {
 	tf, err := scanTrackFile(s.db.QueryRow(trackFileSelect+` WHERE path = ?`, path))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

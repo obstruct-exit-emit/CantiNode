@@ -1,7 +1,10 @@
 package importer
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/binary"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -91,6 +94,129 @@ func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musi
 	cfg := &config.Config{}
 
 	return New(downloads, scanner, musicStore, cfg), dlStore, musicStore, destRoot, db
+}
+
+// buildFLACWithRecordingID writes a minimal FLAC file (just a Vorbis
+// comment block — tagreader doesn't require real STREAMINFO/audio data to
+// read tags) carrying an embedded MUSICBRAINZ_TRACKID, so the direct-match
+// path has something to resolve without needing a fuzzy MusicBrainz search.
+func buildFLACWithRecordingID(t *testing.T, dir, name, recordingID string) string {
+	t.Helper()
+	comments := map[string]string{"MUSICBRAINZ_TRACKID": recordingID}
+
+	var block bytes.Buffer
+	binary.Write(&block, binary.LittleEndian, uint32(0)) // vendor length
+	binary.Write(&block, binary.LittleEndian, uint32(len(comments)))
+	for k, v := range comments {
+		c := k + "=" + v
+		binary.Write(&block, binary.LittleEndian, uint32(len(c)))
+		block.WriteString(c)
+	}
+
+	var file bytes.Buffer
+	file.WriteString("fLaC")
+	file.WriteByte(0x80 | 4) // last metadata block, type 4 (VORBIS_COMMENT)
+	n := block.Len()
+	file.Write([]byte{byte(n >> 16), byte(n >> 8), byte(n)})
+	file.Write(block.Bytes())
+
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, file.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// newRealMatchScanner is setup's own scanner, but pointed at a local
+// MusicBrainz mock that actually resolves recordingID — everything else
+// in this suite's shared setup() deliberately points at an unreachable
+// MusicBrainz client (see its own doc comment) since most tests here don't
+// need a real match. Handles both LookupRecording's single-MBID path and
+// BatchLookupRecordings' rid:(...) search form, so this works regardless
+// of which one folder-level direct matching actually calls.
+func newRealMatchScanner(t *testing.T, musicStore *musiclibrary.Store, recordingID string, rec musicbrainz.Recording) *musicscanner.Scanner {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/recording/" {
+			query := r.URL.Query().Get("query")
+			if strings.HasPrefix(query, "rid:(") && strings.Contains(query, recordingID) {
+				json.NewEncoder(w).Encode(map[string]any{"count": 1, "recordings": []musicbrainz.Recording{rec}})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"count": 0, "recordings": []musicbrainz.Recording{}})
+			return
+		}
+		if filepath.Base(r.URL.Path) == recordingID {
+			json.NewEncoder(w).Encode(rec)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", srv.URL)
+	return musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+}
+
+// TestImportGrabOrganizesNewlyMatchedFilesRegardlessOfSetting is the
+// regression test for making the acquisition chain feel automatic
+// end to end: a completed grab whose files get matched (via the same
+// post-import scan every grab already gets) must also land organized —
+// under the naming template, not sitting at its as-copied path — even
+// though Settings → Music → "Organize on match" (organizeOnMatch) is
+// off, which is the default. That setting's whole reason for defaulting
+// off is protecting a *library-wide* first scan from moving hundreds of
+// pre-existing files at once before the user has seen what it would do;
+// neither reason applies to the one release a user just explicitly
+// searched for and grabbed, so importGrab organizes unconditionally.
+func TestImportGrabOrganizesNewlyMatchedFilesRegardlessOfSetting(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Downloaded Album Folder")
+	buildFLACWithRecordingID(t, albumDir, "track.flac", "rec-mbid")
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, destRoot, _ := setup(t, sab)
+
+	rec := musicbrainz.Recording{
+		ID: "rec-mbid", Title: "Alpha and Omega", Length: 200_000,
+		ArtistCredit: []musicbrainz.ArtistCredit{{
+			Name:   "Boards of Canada",
+			Artist: musicbrainz.ArtistRef{ID: "artist-mbid", Name: "Boards of Canada", SortName: "Boards of Canada"},
+		}},
+		Releases: []musicbrainz.Release{{
+			ID: "release-mbid", Title: "Geogaddi", Date: "2002-02-04",
+			ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-mbid", Title: "Geogaddi", PrimaryType: "Album"},
+		}},
+	}
+	svc.scanner = newRealMatchScanner(t, musicStore, "rec-mbid", rec)
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("PollOnce result = %+v, want 1 imported, 0 failed", result)
+	}
+
+	// No TRACKNUMBER tag was embedded (only MUSICBRAINZ_TRACKID, the only
+	// thing direct-match needs), so the matched track's own number stays
+	// its zero value — "00", not "01".
+	organized := filepath.Join(destRoot, "Boards of Canada", "Geogaddi", "00 - Alpha and Omega.flac")
+	if _, err := os.Stat(organized); err != nil {
+		t.Errorf("newly imported+matched file not organized to %s: %v", organized, err)
+	}
+	asCopied := filepath.Join(destRoot, "Downloaded Album Folder", "track.flac")
+	if _, err := os.Stat(asCopied); !os.IsNotExist(err) {
+		t.Errorf("file should have moved out of its as-copied path %s, stat err = %v", asCopied, err)
+	}
 }
 
 // TestPollOnceImportsCompletedDownload proves the copy mechanics: the file

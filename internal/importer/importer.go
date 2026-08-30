@@ -390,6 +390,27 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 			"grab_id", g.ID, "error", err)
 	}
 
+	// Organize whichever of the just-copied files the scan above actually
+	// matched — deliberately unconditional on the general "organize on
+	// match" setting (Settings → Music, off by default). That default
+	// exists to protect a *library-wide* first scan from moving hundreds
+	// of existing files at once before the user has seen what it would
+	// do; neither reason applies to a single release the user explicitly
+	// searched for and grabbed. Best-effort per file: one organize
+	// failure (a naming collision, a permissions issue) is logged and
+	// skipped rather than failing an import that otherwise succeeded —
+	// the file stays reachable at its as-copied path either way, just
+	// not yet organized.
+	for _, path := range copiedPaths {
+		tf, err := s.music.GetTrackFileByPath(path)
+		if err != nil || tf.TrackID == nil {
+			continue // unmatched (or vanished) — nothing to organize yet
+		}
+		if _, err := s.scanner.OrganizeFile(tf.ID); err != nil {
+			s.logger.Warn("importer: organize newly imported file", "grab_id", g.ID, "path", path, "error", err)
+		}
+	}
+
 	if g.WantedAlbumID > 0 {
 		if _, err := s.music.GetWantedAlbum(g.WantedAlbumID); err == nil {
 			// Still here — the scan above didn't match any of the copied

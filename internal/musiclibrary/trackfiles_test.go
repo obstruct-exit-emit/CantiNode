@@ -117,9 +117,9 @@ func TestSeedExpectedReleaseGroupThenScanPreservesIt(t *testing.T) {
 	if err := db.SeedExpectedReleaseGroup(rfID, "/music/song.flac", "rg-expected"); err != nil {
 		t.Fatalf("SeedExpectedReleaseGroup (insert): %v", err)
 	}
-	seeded, err := db.getTrackFileByPath("/music/song.flac")
+	seeded, err := db.GetTrackFileByPath("/music/song.flac")
 	if err != nil {
-		t.Fatalf("getTrackFileByPath: %v", err)
+		t.Fatalf("GetTrackFileByPath: %v", err)
 	}
 	if seeded.ExpectedReleaseGroupMBID != "rg-expected" {
 		t.Fatalf("ExpectedReleaseGroupMBID after seed = %q, want rg-expected", seeded.ExpectedReleaseGroupMBID)
@@ -185,7 +185,7 @@ func TestSetTrackFileMatchClearsExpectedReleaseGroupOnUnmatch(t *testing.T) {
 	if err := db.SeedExpectedReleaseGroup(rfID, "/music/song.flac", "rg-expected"); err != nil {
 		t.Fatalf("SeedExpectedReleaseGroup: %v", err)
 	}
-	tf, err := db.getTrackFileByPath("/music/song.flac")
+	tf, err := db.GetTrackFileByPath("/music/song.flac")
 	if err != nil {
 		t.Fatal(err)
 	}
