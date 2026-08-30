@@ -432,17 +432,37 @@ func commonAncestorDir(dirs []string) string {
 // row — the part of matching that must run inline during the walk (every
 // file needs a row before folder-grouping can even key on it). Matching
 // itself happens afterward, in ScanRootFolder's post-walk per-folder pass.
+//
+// An already-matched file whose size on disk hasn't changed since the
+// last scan skips the tag re-read entirely (info.size only needs a
+// stat(), cheap even over a network mount, versus opening and parsing
+// the file's own tag data) — its existing row is reused as-is. Found
+// live: a large, mostly-already-matched network-mounted library was
+// paying full tag-read cost on every file, every scan, even ones settled
+// and untouched since. Pure speed, never a correctness trade-off: a
+// file that's still unmatched, or whose size DID change (a genuine
+// re-tag, re-encode, or replacement), is always read fresh — nothing
+// here ever decides a match, or skips deciding one, based on this
+// shortcut. tags is nil in the fast-path return; ScanRootFolder's own
+// caller never reads it for a file whose MatchStatus isn't Unmatched
+// anyway.
 func (s *Scanner) upsertFile(rf musiclibrary.RootFolder, path string, result *ScanResult) (*musiclibrary.TrackFile, *tagreader.Tags, error) {
 	result.FilesFound++
-
-	tags, err := tagreader.Read(path)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read tags: %w", err)
-	}
 
 	info, err := fileInfoOrZero(path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("stat file: %w", err)
+	}
+
+	if existing, err := s.db.GetTrackFileByPath(path); err == nil &&
+		existing.MatchStatus != musiclibrary.StatusUnmatched &&
+		existing.SizeBytes == info.size {
+		return existing, nil, nil
+	}
+
+	tags, err := tagreader.Read(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read tags: %w", err)
 	}
 
 	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, info.size, tags.Format, 0, 0, tagsJSON(tags))

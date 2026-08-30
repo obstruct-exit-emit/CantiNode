@@ -1,10 +1,105 @@
 package musicscanner
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 )
+
+// TestScanRootFolderSkipsTagReadForUnchangedMatchedFile is the regression
+// test for a real scan-speed gap: an already-matched file had its tags
+// re-read from disk on *every* scan regardless of whether it had changed
+// since the last one — real, avoidable I/O at scale, worse on a
+// network-mounted library. A matched file's own on-disk size is used as
+// a cheap freshness check (a stat(), not a full read) — unchanged size
+// skips the tag re-read entirely; a genuinely different size (a real
+// re-tag/re-encode/replacement) still gets read fresh, and an unmatched
+// file is always read regardless.
+//
+// Directly detects whether the tag read actually happened rather than
+// asserting on internal state: the file's on-disk *content* is corrupted
+// to something tagreader can't parse (real tag reading would surface a
+// "read tags" error) while carefully controlling whether its *size*
+// changes — same size proves the skip fired (no error, stale-but-correct
+// data survives unread); different size proves the fresh read still
+// happened (correctly errors on the now-garbage content).
+func TestScanRootFolderSkipsTagReadForUnchangedMatchedFile(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	ctx := t.Context()
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seedMatched := func(name string, initialContent []byte) (path string, trackID int64) {
+		t.Helper()
+		track, err := s.db.GetOrCreateTrack(album.ID, name+"-mbid", name, 1, 1, 100_000, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		path = filepath.Join(rf.Path, name+".flac")
+		if err := os.WriteFile(path, initialContent, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, int64(len(initialContent)), "flac", 0, 0, "{}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+			t.Fatal(err)
+		}
+		return path, track.ID
+	}
+
+	// unchangedPath: corrupted content, but kept at its original size —
+	// the freshness check should skip re-reading it, so the garbage
+	// content is never actually parsed.
+	unchangedPath, _ := seedMatched("Unchanged", []byte("valid-enough-initial-bytes"))
+	if err := os.WriteFile(unchangedPath, []byte(strings.Repeat("X", len("valid-enough-initial-bytes"))), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// changedPath: corrupted content at a genuinely different size — the
+	// freshness check must NOT skip this one; it should be read fresh and
+	// surface a real "read tags" error on the garbage.
+	changedPath, _ := seedMatched("Changed", []byte("valid-enough-initial-bytes"))
+	if err := os.WriteFile(changedPath, []byte(strings.Repeat("Y", 5)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ScanRootFolder(ctx, rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+
+	// Matched against the full filename, not a bare "Unchanged"/"Changed"
+	// substring — t.TempDir() embeds this very test's own function name in
+	// every path it hands out, and that name itself contains "Unchanged",
+	// which would otherwise make either check match any error at all.
+	for _, e := range result.Errors {
+		if strings.Contains(e, "Unchanged.flac") {
+			t.Errorf("unchanged (same-size) file's tags were re-read despite being unchanged: %v", result.Errors)
+		}
+	}
+	foundChangedErr := false
+	for _, e := range result.Errors {
+		if strings.Contains(e, "/Changed.flac") {
+			foundChangedErr = true
+		}
+	}
+	if !foundChangedErr {
+		t.Errorf("changed (different-size) file should have been read fresh and errored on its now-garbage content, errors = %v", result.Errors)
+	}
+}
 
 // TestScanAllSerializesConcurrentCalls is the regression test for a real
 // gap: ScanAll had no guard against running concurrently with itself.
