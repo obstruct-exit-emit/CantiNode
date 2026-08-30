@@ -122,7 +122,8 @@ func TestFormatPathDropDiscSegmentDedicatedFolder(t *testing.T) {
 // TestFormatPathDropDiscSegmentMixedSegmentOnlyStripsToken covers the
 // dangerous case: {DiscNumber} sharing a segment with something essential
 // (most commonly the filename itself). Dropping the whole segment there
-// would delete the filename, so only the placeholder itself is removed.
+// would delete the filename, so only the placeholder — plus its own
+// connector punctuation, so nothing dangles — is removed.
 func TestFormatPathDropDiscSegmentMixedSegmentOnlyStripsToken(t *testing.T) {
 	artist := musiclibrary.Artist{Name: "Boards of Canada"}
 	album := musiclibrary.Album{Title: "Geogaddi", ReleaseDate: "2002-02-04"}
@@ -131,9 +132,29 @@ func TestFormatPathDropDiscSegmentMixedSegmentOnlyStripsToken(t *testing.T) {
 	format := "{Artist}/{Album}/{DiscNumber}-{TrackNumber} - {Title}.{Ext}"
 
 	got := FormatPath(format, artist, album, track, ".flac", true)
-	want := filepath.FromSlash("Boards of Canada/Geogaddi/-03 - Alpha and Omega.flac")
+	want := filepath.FromSlash("Boards of Canada/Geogaddi/03 - Alpha and Omega.flac")
 	if got != want {
-		t.Errorf("FormatPath (dropDiscSegment=true, mixed segment) = %q, want %q — only {DiscNumber} itself should be gone, not the whole filename", got, want)
+		t.Errorf("FormatPath (dropDiscSegment=true, mixed segment) = %q, want %q — only {DiscNumber} and its connector should be gone, not the whole filename", got, want)
+	}
+}
+
+// TestFormatPathDropDiscSegmentDotConnector is the regression test for a
+// real live-found bug: "{DiscNumber}.{TrackNumber} - {Title}" (a common
+// "1.01" disc.track naming convention) rendered ".01 - Title.flac" for a
+// single-disc release — the dot connector was left dangling as a new
+// leading separator once {DiscNumber} itself was removed, producing a
+// filename that's not just wrong-looking but a hidden dotfile on Unix.
+func TestFormatPathDropDiscSegmentDotConnector(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Avantasia"}
+	album := musiclibrary.Album{Title: "The Wicked Symphony", ReleaseDate: "2010-04-03"}
+	track := musiclibrary.Track{Title: "The Wicked Symphony", TrackNumber: 1, DiscNumber: 1}
+
+	format := "{Artist}/{Album} ({Year})/{DiscNumber}.{TrackNumber} - {Title}.{Ext}"
+
+	got := FormatPath(format, artist, album, track, ".flac", true)
+	want := filepath.FromSlash("Avantasia/The Wicked Symphony (2010)/01 - The Wicked Symphony.flac")
+	if got != want {
+		t.Errorf("FormatPath (dropDiscSegment=true, dot connector) = %q, want %q — no leading dot", got, want)
 	}
 }
 

@@ -46,6 +46,16 @@ var formatPlaceholders = []string{
 	"{TrackNumber}", discNumberPlaceholder, "{Title}", "{TrackArtist}", "{Ext}",
 }
 
+// discNumberConnectors are the punctuation characters commonly used to
+// separate {DiscNumber} from a neighboring placeholder in the same
+// segment — "{DiscNumber}.{TrackNumber}" for a "1.01" disc.track
+// convention, "{DiscNumber}-{TrackNumber}", "{DiscNumber} {TrackNumber}",
+// and so on. Found live: dropping only the placeholder itself left this
+// connector behind, so "{DiscNumber}.{TrackNumber} - {Title}" rendered
+// ".01 - Title.flac" instead of "01 - Title.flac" — a leading "." makes
+// the file hidden on Unix on top of just looking broken.
+const discNumberConnectors = ".-_ "
+
 // stripDiscNumberSegment removes {DiscNumber} from format for a
 // single-disc release when the "use disc number on single-disc
 // releases" setting (config.NamingSettings.DisableDiscNumberForSingleDisc)
@@ -60,14 +70,16 @@ var formatPlaceholders = []string{
 // nothing. {DiscNumber} sharing a segment with any other placeholder
 // (most commonly the filename itself, e.g.
 // "{DiscNumber}-{TrackNumber} - {Title}") only has the placeholder
-// itself removed — dropping the whole segment there would delete the
-// filename along with it, which is never the intent. A format with no
+// itself (plus one adjacent connector — see discNumberConnectors)
+// removed — dropping the whole segment there would delete the filename
+// along with it, which is never the intent. A format with no
 // {DiscNumber} at all is returned unchanged.
 func stripDiscNumberSegment(format string) string {
 	segments := strings.Split(format, "/")
 	kept := make([]string, 0, len(segments))
 	for _, seg := range segments {
-		if !strings.Contains(seg, discNumberPlaceholder) {
+		idx := strings.Index(seg, discNumberPlaceholder)
+		if idx == -1 {
 			kept = append(kept, seg)
 			continue
 		}
@@ -81,7 +93,19 @@ func stripDiscNumberSegment(format string) string {
 		if dedicated {
 			continue // drop the whole segment
 		}
-		kept = append(kept, strings.ReplaceAll(seg, discNumberPlaceholder, ""))
+		end := idx + len(discNumberPlaceholder)
+		switch {
+		case end < len(seg) && strings.ContainsRune(discNumberConnectors, rune(seg[end])):
+			// A connector right after (the common case: "{DiscNumber}."
+			// or "{DiscNumber}-" leading into the next placeholder) goes
+			// with it, not left dangling as a new leading separator.
+			seg = seg[:idx] + seg[end+1:]
+		case idx > 0 && strings.ContainsRune(discNumberConnectors, rune(seg[idx-1])):
+			seg = seg[:idx-1] + seg[end:]
+		default:
+			seg = seg[:idx] + seg[end:]
+		}
+		kept = append(kept, seg)
 	}
 	return strings.Join(kept, "/")
 }
