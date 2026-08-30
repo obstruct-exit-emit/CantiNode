@@ -211,6 +211,14 @@ func (s *Store) Delete(id int64) error {
 // instead of each stampeding the clients.
 const queueCacheTTL = 15 * time.Second
 
+// lastGoodMaxAge bounds how long a client's last successful List() result
+// is trusted as a stand-in after it fails to answer a sweep — see
+// sweepQueueLocked's own doc comment. Long enough to bridge the transient
+// blip ("disappears for a couple seconds, then reappears") this exists
+// for, short enough that a client genuinely down for a while shows nothing
+// rather than an indefinitely frozen, increasingly inaccurate progress bar.
+const lastGoodMaxAge = 5 * time.Minute
+
 // Service picks clients and aggregates across them.
 type Service struct {
 	store *Store
@@ -221,6 +229,14 @@ type Service struct {
 	cachedErr    []string
 	cachedFailed map[int64]bool // client config id -> failed to answer, this snapshot
 	clients      map[int64]clientEntry
+	// lastGood/lastGoodAt hold each client's most recent successful List()
+	// result, keyed by client config id — read and written only from
+	// within sweepQueueLocked (see its own doc comment), which sweepMu
+	// already guarantees never runs concurrently with itself, so the same
+	// per-sweep mutex that already guards items/errs/failed below covers
+	// these too.
+	lastGood   map[int64][]Item
+	lastGoodAt map[int64]time.Time
 	// sweepMu serializes cold queue sweeps: concurrent callers wait for the
 	// one in flight and then read its snapshot instead of re-hitting clients.
 	sweepMu sync.Mutex
@@ -451,6 +467,15 @@ func (s *Service) sweepQueue(ctx context.Context) ([]Item, []string, error) {
 
 // sweepQueueLocked does the actual live sweep and updates the cache.
 // Callers must already hold sweepMu.
+//
+// A client that fails to answer this one sweep (a transient network blip,
+// a slow response past its own timeout) falls back to its last successful
+// List() result (see lastGood/lastGoodMaxAge) instead of contributing
+// nothing — found live: a download still genuinely in progress used to
+// disappear from the Activity page for one sweep and reappear the next,
+// purely because its client missed a single poll. The failure is still
+// recorded in errs/failed either way, so a client that's actually down
+// stays visible as such rather than silently masked.
 func (s *Service) sweepQueueLocked(ctx context.Context) ([]Item, []string, error) {
 	configs, err := s.store.List()
 	if err != nil {
@@ -477,6 +502,9 @@ func (s *Service) sweepQueueLocked(ctx context.Context) ([]Item, []string, error
 				mu.Lock()
 				errs = append(errs, fmt.Sprintf("%s: %v", cfg.Name, err))
 				failed[cfg.ID] = true
+				if stale, ok := s.lastGood[cfg.ID]; ok && time.Since(s.lastGoodAt[cfg.ID]) < lastGoodMaxAge {
+					items = append(items, stale...)
+				}
 				mu.Unlock()
 				return
 			}
@@ -486,9 +514,18 @@ func (s *Service) sweepQueueLocked(ctx context.Context) ([]Item, []string, error
 			if err != nil {
 				errs = append(errs, fmt.Sprintf("%s: %v", cfg.Name, err))
 				failed[cfg.ID] = true
+				if stale, ok := s.lastGood[cfg.ID]; ok && time.Since(s.lastGoodAt[cfg.ID]) < lastGoodMaxAge {
+					items = append(items, stale...)
+				}
 				return
 			}
 			items = append(items, found...)
+			if s.lastGood == nil {
+				s.lastGood = map[int64][]Item{}
+				s.lastGoodAt = map[int64]time.Time{}
+			}
+			s.lastGood[cfg.ID] = found
+			s.lastGoodAt[cfg.ID] = time.Now()
 		}()
 	}
 	wg.Wait()

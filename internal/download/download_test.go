@@ -442,6 +442,83 @@ func TestQueueServesStaleSnapshotWhileRevalidating(t *testing.T) {
 	}
 }
 
+// TestQueueFallsBackToLastGoodOnTransientClientFailure is the regression
+// test for a real bug found live: "Activity sometimes shows a downloading
+// file disappearing for a couple seconds, then reappearing." A client's
+// List() failing on any single sweep (a transient network blip, a slow
+// response that timed out) used to drop that client's items from the
+// aggregated queue entirely for that sweep — even a download still
+// genuinely in progress vanished from the Activity page until a later
+// sweep happened to succeed again. sweepQueueLocked must fall back to
+// that client's last successful result instead, while still reporting
+// the failure.
+func TestQueueFallsBackToLastGoodOnTransientClientFailure(t *testing.T) {
+	var call int32
+	sab := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("apikey") != "sab-key" {
+			w.Write([]byte(`{"status": false, "error": "API Key Incorrect"}`))
+			return
+		}
+		switch q.Get("mode") {
+		case "queue":
+			if atomic.AddInt32(&call, 1) == 2 {
+				// Second sweep: a transient failure fetching the live
+				// queue — the download is still genuinely in progress in
+				// reality, this client just didn't answer this one poll.
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Write([]byte(`{"queue": {"slots": [
+				{"nzo_id": "d1", "filename": "Still Downloading", "percentage": "40", "status": "Downloading", "cat": "cantinode"}
+			]}}`))
+		case "history":
+			w.Write([]byte(`{"history": {"slots": []}}`))
+		default:
+			w.Write([]byte(`{"status": false, "error": "unknown mode"}`))
+		}
+	}))
+	defer sab.Close()
+
+	svc := newTestService(t)
+	if err := svc.Store().Add(sabConfig(sab.URL)); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	// First sweep: succeeds, the download shows up.
+	items, errs, err := svc.sweepQueue(ctx)
+	if err != nil {
+		t.Fatalf("first sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].Title != "Still Downloading" {
+		t.Fatalf("first sweep items = %+v, want [Still Downloading]", items)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("first sweep errs = %v, want none", errs)
+	}
+
+	// Force staleness so the next call actually re-sweeps instead of
+	// reusing the cache untouched.
+	svc.mu.Lock()
+	svc.cachedAt = time.Time{}
+	svc.mu.Unlock()
+
+	// Second sweep: this client fails to answer — the download must still
+	// be there, carried over from the last good sweep, not vanished; the
+	// failure itself is still surfaced.
+	items, errs, err = svc.sweepQueue(ctx)
+	if err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+	if len(items) != 1 || items[0].Title != "Still Downloading" {
+		t.Fatalf("second sweep (client failed to answer) items = %+v, want [Still Downloading] preserved from the last good sweep", items)
+	}
+	if len(errs) == 0 {
+		t.Error("second sweep should still report the client's failure, not silently hide it")
+	}
+}
+
 func TestServiceGrabAndQueue(t *testing.T) {
 	qbit := mockQbit(t)
 	defer qbit.Close()
