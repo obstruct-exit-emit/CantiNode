@@ -23,6 +23,20 @@ import (
 // (same, plus a seeded METADATA_BLOCK_PICTURE). clear passes taglib.Clear
 // instead, an explicit opt-in for a caller that wants a clean slate — see
 // Write's own doc comment.
+//
+// One real, investigated-and-understood quirk: TagLib canonicalizes every
+// Vorbis comment field name to uppercase the moment it writes ANY field to
+// a FLAC/Ogg file — confirmed against the raw on-disk bytes, and true even
+// for a field this function never touches, spec-compliant since Vorbis
+// comment field names are case-insensitive. A pre-existing field like
+// "Ripping Tool" survives a merge-mode write with its value fully intact,
+// just under the canonicalized key "RIPPING TOOL" — see
+// TestWriteTagLibFLACForeignFieldsSurviveCanonicalizedToUppercase. Not
+// something CantiNode itself needs to work around: internal/tagreader's
+// own normalizeKey already lowercases every key it reads, so CantiNode's
+// own "Tags" viewer displays the same value either way — only an external
+// tool that preserves/displays a file's exact original key casing would
+// ever notice the difference, and even then the data itself is intact.
 func writeTagLib(path string, tags Tags, clear bool, enabled Toggles) error {
 	// See repairInvalidUTF8VorbisComment's own doc comment: a FLAC whose
 	// existing VORBIS_COMMENT block contains non-UTF-8 bytes (a real,

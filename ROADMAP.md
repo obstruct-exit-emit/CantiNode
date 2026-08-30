@@ -371,21 +371,28 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
     original scope): Spotify (OAuth) and MusicBrainz Collections (not
     supported by Lidarr itself yet either).
 
-17. [ ] **Investigate "Write tags" dropping foreign Vorbis comment
-    fields** — found live 2026-08-29 while fixing a related bug (an
-    EAC-ripped FLAC's invalid-UTF8 tag data crashing go.senan.xyz/taglib
-    on any read *or* write — see CHANGELOG). Once that crash was fixed and
-    a normal "Write tags" ran successfully, every pre-existing Vorbis
-    comment key CantiNode doesn't itself manage (Ripping Tool, Catalog,
-    Encoded By, Language, Retail Date, ...) was gone from the file
-    afterward — even in merge mode (`clear=false`), which is documented
-    (and tested) to preserve untouched fields. The existing test coverage
-    only confirms fields CantiNode *has an opinion about but left blank*
-    this write (Genre/Composer, via `setFieldIfPresent`) survive — never
-    that a genuinely foreign, CantiNode-unknown comment key does. Needs a
-    closer look at whether go.senan.xyz/taglib's FLAC writer actually
-    round-trips arbitrary Vorbis comment keys in merge mode, or only
-    re-applies its own recognized property set regardless.
+17. [x] **Investigate "Write tags" dropping foreign Vorbis comment
+    fields** — found live 2026-08-29 (see [Next steps](#next-steps-)
+    item above), investigated and resolved 2026-08-30: **not data loss**.
+    Three new regression tests in `internal/tagwriter` (a standalone
+    foreign field, a foreign field alongside the UTF-8-repair trigger from
+    the original crash fix, and the exact Title-Case field names/values
+    the live report named) all show a genuinely foreign, CantiNode-unknown
+    Vorbis comment key survives a merge-mode write with its value fully
+    intact. The real, confirmed-against-raw-on-disk-bytes explanation:
+    TagLib canonicalizes every Vorbis comment field name to uppercase the
+    moment it writes *any* field to a FLAC/Ogg file — spec-compliant,
+    since Vorbis comment field names are case-insensitive by spec, and
+    true even for a field CantiNode's own write never touches. A
+    pre-existing "Ripping Tool" field survives as "RIPPING TOOL" — almost
+    certainly what the live report actually saw: checking for the exact
+    original-case string after a write and not finding it, when the data
+    was still there under its now-canonicalized key. Not something
+    CantiNode itself needs to work around: `internal/tagreader`'s own
+    `normalizeKey` already lowercases every key it reads, so CantiNode's
+    own "Tags" viewer shows the same value either way — only an external
+    tool that preserves/displays a file's exact original key casing would
+    ever notice the difference.
 
 ## Future 💡
 

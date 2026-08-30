@@ -1,9 +1,11 @@
 package tagwriter
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/cantinode/cantinode/internal/tagreader"
@@ -250,6 +252,152 @@ func TestWriteTagLibFLACPreservesUntrackedFields(t *testing.T) {
 	}
 	if len(after[taglibpkg.Composer]) == 0 {
 		t.Errorf("COMPOSER should survive untouched, got %v", after[taglibpkg.Composer])
+	}
+}
+
+// TestWriteTagLibFLACPreservesGenuinelyForeignVorbisField is the empirical
+// answer to ROADMAP's open question on this: TestWriteTagLibFLACPreserves
+// UntrackedFields above only proves a field TagLib itself recognizes as a
+// standard property (GENRE, COMPOSER — both have their own taglib.Genre/
+// taglib.Composer constants) survives a merge-mode write when CantiNode's
+// own Tags struct leaves it blank. It says nothing about a genuinely
+// foreign key TagLib has no built-in property mapping for at all (an old
+// ripping tool's own custom Vorbis comment, e.g. "RIPPING TOOL" or
+// "CATALOG") — seeded here directly via taglib.WriteTags, bypassing
+// CantiNode's own writer entirely, so this is a real pre-existing file
+// tag, not something the merge path itself just wrote.
+func TestWriteTagLibFLACPreservesGenuinelyForeignVorbisField(t *testing.T) {
+	path := copyFixture(t, "sample.flac")
+
+	foreign := map[string][]string{
+		"RIPPING TOOL": {"dBpoweramp CD Ripper"},
+		"CATALOG":      {"CAT-00123"},
+	}
+	if err := taglibpkg.WriteTags(path, foreign, 0); err != nil {
+		t.Fatalf("seed foreign fields: %v", err)
+	}
+	seeded, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read seeded fixture: %v", err)
+	}
+	if len(seeded["RIPPING TOOL"]) == 0 || len(seeded["CATALOG"]) == 0 {
+		t.Fatal("failed to seed foreign fields — test assumption broken")
+	}
+
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}, false, AllEnabled); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	after, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(after["RIPPING TOOL"]) == 0 || after["RIPPING TOOL"][0] != "dBpoweramp CD Ripper" {
+		t.Errorf("RIPPING TOOL = %v, want untouched (%v)", after["RIPPING TOOL"], seeded["RIPPING TOOL"])
+	}
+	if len(after["CATALOG"]) == 0 || after["CATALOG"][0] != "CAT-00123" {
+		t.Errorf("CATALOG = %v, want untouched (%v)", after["CATALOG"], seeded["CATALOG"])
+	}
+}
+
+// TestWriteTagLibFLACPreservesForeignFieldAlongsideUTF8Repair reproduces
+// the exact live scenario ROADMAP flags: a foreign Vorbis comment field
+// coexisting with a DIFFERENT field that has invalid UTF-8 bytes (the
+// repairInvalidUTF8VorbisComment trigger), both already on the file before
+// Write ever runs — not seeded independently the way the test above does.
+func TestWriteTagLibFLACPreservesForeignFieldAlongsideUTF8Repair(t *testing.T) {
+	path := copyFixture(t, "sample.flac")
+
+	if err := taglibpkg.WriteTags(path, map[string][]string{
+		"RIPPING TOOL":   {"dBpoweramp CD Ripper"},
+		taglibpkg.Artist: {"placeholder"},
+	}, 0); err != nil {
+		t.Fatalf("seed fields: %v", err)
+	}
+	corruptArtistFieldWithInvalidUTF8(t, path)
+
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}, false, AllEnabled); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	after, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if len(after["RIPPING TOOL"]) == 0 || after["RIPPING TOOL"][0] != "dBpoweramp CD Ripper" {
+		t.Errorf("RIPPING TOOL = %v, want untouched", after["RIPPING TOOL"])
+	}
+	if len(after[taglibpkg.Artist]) == 0 || after[taglibpkg.Artist][0] != "New Artist" {
+		t.Errorf("ARTIST = %v, want [New Artist] (repaired then overwritten by this write)", after[taglibpkg.Artist])
+	}
+}
+
+// corruptArtistFieldWithInvalidUTF8 patches path's own ARTIST=placeholder
+// Vorbis comment value in place with a raw invalid UTF-8 byte (0xB4, the
+// same byte the real live bug report found), the same fixed-length,
+// no-reencoding technique repairInvalidUTF8VorbisComment itself uses to
+// undo it — reproducing the trigger condition directly on disk rather than
+// via a synthetic in-memory block.
+func corruptArtistFieldWithInvalidUTF8(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := bytes.Index(data, []byte("placeholder"))
+	if idx == -1 {
+		t.Fatal("seeded ARTIST=placeholder value not found in file")
+	}
+	data[idx] = 0xB4 // invalid UTF-8 continuation-less high byte
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestWriteTagLibFLACPreservesMixedCaseForeignFields uses the exact field
+// names ROADMAP's live report named (a ripping tool's own custom fields:
+// "Ripping Tool", "Catalog", "Encoded By", "Language", "Retail Date"),
+// written in the Title-Case-with-spaces convention that report used —
+// documents a real TagLib behavior found while investigating that report:
+// TagLib canonicalizes every Vorbis comment field name to uppercase the
+// moment it writes ANY field to the file (confirmed by inspecting the raw
+// bytes on disk after just the seed write below, before CantiNode's own
+// Write ever runs) — a real, spec-compliant normalization (Vorbis comment
+// field names are case-insensitive by spec), not data loss: the value
+// survives intact under the canonicalized key. This is almost certainly
+// what the live report actually observed — checking for the exact
+// original-case string and not finding it, when the data was still there
+// under its now-uppercased key.
+func TestWriteTagLibFLACForeignFieldsSurviveCanonicalizedToUppercase(t *testing.T) {
+	path := copyFixture(t, "sample.flac")
+
+	foreign := map[string][]string{
+		"Ripping Tool": {"dBpoweramp CD Ripper"},
+		"Catalog":      {"CAT-00123"},
+		"Encoded By":   {"LAME3.100"},
+		"Language":     {"English"},
+		"Retail Date":  {"2010-01-01"},
+	}
+	if err := taglibpkg.WriteTags(path, foreign, 0); err != nil {
+		t.Fatalf("seed foreign fields: %v", err)
+	}
+
+	if err := Write(path, Tags{Title: "New Title", Artist: "New Artist"}, false, AllEnabled); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	after, err := taglibpkg.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	for key, want := range foreign {
+		upper := strings.ToUpper(key)
+		if got := after[upper]; len(got) == 0 || got[0] != want[0] {
+			t.Errorf("%s = %v, want %v under its canonicalized key %s", key, got, want, upper)
+		}
+		if _, stillMixedCase := after[key]; stillMixedCase {
+			t.Errorf("%s: expected TagLib to canonicalize this key to uppercase, but the original mixed-case key is still present too", key)
+		}
 	}
 }
 
