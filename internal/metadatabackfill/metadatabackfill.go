@@ -242,11 +242,21 @@ func (s *Service) CacheReleaseGroupVersions(ctx context.Context, releaseGroupMBI
 }
 
 // pickRepresentativeRelease chooses which of a release group's releases to
-// show a tracklist preview for: an "Official" release over any other status
+// show a tracklist/cover preview for, before anything's actually been
+// matched to a real file: prefers a US "Official" CD edition — the
+// closest thing to "what you'll most likely end up owning" for the
+// typical case — over anything else. When no release is a US CD, falls
+// back to preferring any "Official" release over another status
 // (promos/bootlegs/pseudo-releases are frequently missing tracks or
 // reordered), then the earliest dated one as a stable, deterministic
-// tie-break. Returns nil for an empty slice.
+// tie-break — the "closest equivalent." Returns nil for an empty slice.
+// Once a file is actually matched, its own real release always takes
+// over from whatever this picked (see GetReleaseGroupVersionByRelease) —
+// this only ever governs the preview shown before that happens.
 func pickRepresentativeRelease(releases []musicbrainz.ReleaseSearchResult) *musicbrainz.ReleaseSearchResult {
+	if usCD := pickUSCD(releases); usCD != nil {
+		return usCD
+	}
 	var best *musicbrainz.ReleaseSearchResult
 	for i := range releases {
 		r := &releases[i]
@@ -265,6 +275,33 @@ func pickRepresentativeRelease(releases []musicbrainz.ReleaseSearchResult) *musi
 		}
 	}
 	return best
+}
+
+// pickUSCD returns the earliest-dated Official release whose country is
+// "US" and which has at least one CD medium — nil if no release matches
+// all three, so pickRepresentativeRelease falls back to its own more
+// general preference instead.
+func pickUSCD(releases []musicbrainz.ReleaseSearchResult) *musicbrainz.ReleaseSearchResult {
+	var best *musicbrainz.ReleaseSearchResult
+	for i := range releases {
+		r := &releases[i]
+		if r.Country != "US" || r.Status != "Official" || !hasCDMedium(r) {
+			continue
+		}
+		if best == nil || (r.Date != "" && (best.Date == "" || r.Date < best.Date)) {
+			best = r
+		}
+	}
+	return best
+}
+
+func hasCDMedium(r *musicbrainz.ReleaseSearchResult) bool {
+	for _, m := range r.Media {
+		if m.Format == "CD" {
+			return true
+		}
+	}
+	return false
 }
 
 // CacheAllVersionTracklists eagerly fetches and caches every one of

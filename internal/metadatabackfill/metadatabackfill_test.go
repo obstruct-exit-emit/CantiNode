@@ -259,6 +259,36 @@ func TestRunPeriodicSweepsImmediatelyThenAgainOnTick(t *testing.T) {
 	t.Fatal("artist added after RunPeriodic started was never picked up by a later tick")
 }
 
+// TestPickRepresentativeReleasePrefersUSCD covers the new preference
+// tier: a non-US release with an earlier date must still lose to a later
+// -dated US Official CD release, and — when no release is a US CD at
+// all — the original Official-then-earliest-date fallback still applies
+// unchanged.
+func TestPickRepresentativeReleasePrefersUSCD(t *testing.T) {
+	usCD := musicbrainz.ReleaseSearchResult{
+		ID: "us-cd", Country: "US", Status: "Official", Date: "2020-06-01",
+		Media: []musicbrainz.ReleaseMediumSummary{{Format: "CD"}},
+	}
+	earlierUKVinyl := musicbrainz.ReleaseSearchResult{
+		ID: "uk-vinyl", Country: "GB", Status: "Official", Date: "2019-01-01",
+		Media: []musicbrainz.ReleaseMediumSummary{{Format: "Vinyl"}},
+	}
+	got := pickRepresentativeRelease([]musicbrainz.ReleaseSearchResult{earlierUKVinyl, usCD})
+	if got == nil || got.ID != "us-cd" {
+		t.Errorf("got = %+v, want the US CD release even though it's dated later", got)
+	}
+
+	// No US CD anywhere: falls back to Official + earliest date, exactly
+	// as before this preference existed.
+	official2021 := musicbrainz.ReleaseSearchResult{ID: "official-2021", Status: "Official", Date: "2021-01-01"}
+	official2019 := musicbrainz.ReleaseSearchResult{ID: "official-2019", Status: "Official", Date: "2019-01-01"}
+	bootleg := musicbrainz.ReleaseSearchResult{ID: "bootleg", Status: "Bootleg", Date: "2018-01-01"}
+	got = pickRepresentativeRelease([]musicbrainz.ReleaseSearchResult{official2021, bootleg, official2019})
+	if got == nil || got.ID != "official-2019" {
+		t.Errorf("got = %+v, want the earliest Official release when no US CD exists", got)
+	}
+}
+
 // TestRunPeriodicStopsPromptlyOnCancel proves canceling ctx stops the wait
 // immediately rather than sitting through the full PollInterval fallback.
 func TestRunPeriodicStopsPromptlyOnCancel(t *testing.T) {

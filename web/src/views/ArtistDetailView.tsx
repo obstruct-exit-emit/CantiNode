@@ -16,7 +16,6 @@ import {
 import AddToPlaylistModal from "../components/AddToPlaylistModal";
 import AlbumCover from "../components/AlbumCover";
 import RemovePanel from "../components/RemovePanel";
-import ReleaseBrowser from "../components/ReleaseBrowser";
 import { DetailSkeleton } from "../components/Skeleton";
 import {
   SortSelect,
@@ -97,17 +96,18 @@ export default function ArtistDetailView({
   onError,
   onBack,
   onOpenAlbum,
+  onOpenWanted,
 }: {
   id: number;
   isAdmin: boolean;
   onError: (message: string) => void;
   onBack: () => void;
   onOpenAlbum: (albumId: number) => void;
+  onOpenWanted: (wantedAlbumId: number, artistId: number) => void;
 }) {
   const [artist, setArtist] = useState<MusicArtist | null>(null);
   const [albums, setAlbums] = useState<MusicAlbum[]>([]);
   const [wanted, setWanted] = useState<WantedAlbum[]>([]);
-  const [selectedWantedId, setSelectedWantedId] = useState<number | null>(null);
   const [addToPlaylist, setAddToPlaylist] = useState<{ label: string; trackIds: number[] } | null>(null);
   const [loadingAlbumTracks, setLoadingAlbumTracks] = useState<number | null>(null);
 
@@ -127,11 +127,6 @@ export default function ArtistDetailView({
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setLoadingAlbumTracks(null));
   };
-  // Mirrors LibriNode's book page: opening a wanted album never searches by
-  // itself — ReleaseBrowser (and the indexer search it fires on mount) only
-  // shows up once the user explicitly asks for it via "Search releases".
-  const [showReleases, setShowReleases] = useState(false);
-  const [removingWanted, setRemovingWanted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [showWriteTags, setShowWriteTags] = useState(false);
@@ -360,26 +355,6 @@ export default function ArtistDetailView({
       .finally(() => setBusy(false));
   };
 
-  const removeWanted = (wantedId: number) => {
-    setRemovingWanted(true);
-    api
-      .removeWantedMusicAlbum(wantedId)
-      .then(() => {
-        setSelectedWantedId(null);
-        refreshMissingAndWanted();
-      })
-      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
-      .finally(() => setRemovingWanted(false));
-  };
-
-  // Selecting a different wanted album always starts with releases hidden —
-  // switching straight from one album's open ReleaseBrowser to another's
-  // would otherwise carry the panel (and its auto-search) over silently.
-  const selectWanted = (albumId: number) => {
-    setSelectedWantedId((cur) => (cur === albumId ? null : albumId));
-    setShowReleases(false);
-  };
-
   const gridAlbums: GridAlbum[] = [
     ...albums.map((a) => ({
       kind: "owned" as const,
@@ -401,8 +376,6 @@ export default function ArtistDetailView({
       releaseGroupMbid: w.releaseGroupMbid,
     })),
   ];
-  const selectedWantedAlbum = wanted.find((w) => w.id === selectedWantedId) ?? null;
-
   return (
     <>
       <button className="link back" onClick={onBack}>
@@ -616,8 +589,7 @@ export default function ArtistDetailView({
                 <div className="row">
                   <button
                     className="link"
-                    onClick={() => (g.kind === "owned" ? onOpenAlbum(g.id) : selectWanted(g.id))}
-                    title={g.kind === "wanted" ? "Show this wanted album's actions" : undefined}
+                    onClick={() => (g.kind === "owned" ? onOpenAlbum(g.id) : onOpenWanted(g.id, id))}
                   >
                     {g.title}
                   </button>
@@ -662,9 +634,9 @@ export default function ArtistDetailView({
               ) : (
                 <button
                   key={g.key}
-                  className={selectedWantedId === g.id ? "poster-card selected" : "poster-card"}
-                  onClick={() => selectWanted(g.id)}
-                  title="Show this wanted album's actions"
+                  className="poster-card"
+                  onClick={() => onOpenWanted(g.id, id)}
+                  title="Open this wanted album"
                 >
                   <WantedPoster releaseGroupMbid={g.releaseGroupMbid} title={g.title} />
                   <span className="poster-title">{g.title}</span>
@@ -676,37 +648,6 @@ export default function ArtistDetailView({
                   </span>
                 </button>
               ),
-            )}
-          </div>
-        )}
-        {selectedWantedAlbum && (
-          <div className="missing-detail">
-            <div className="row">
-              <strong>{selectedWantedAlbum.title}</strong>
-              <span className="row-actions">
-                <button
-                  className={showReleases ? "toggle on" : ""}
-                  onClick={() => setShowReleases(!showReleases)}
-                  title="Browse every release candidate — sort, filter, pick one yourself"
-                >
-                  {showReleases ? "Hide releases" : "Search releases"}
-                </button>
-                <button
-                  className="toggle"
-                  disabled={removingWanted}
-                  title="Stop wanting this album — it moves back to Missing"
-                  onClick={() => removeWanted(selectedWantedAlbum.id)}
-                >
-                  Stop wanting
-                </button>
-              </span>
-            </div>
-            {showReleases && (
-              <ReleaseBrowser
-                wantedAlbumId={selectedWantedAlbum.id}
-                onGrabbed={refreshMissingAndWanted}
-                onClose={() => setShowReleases(false)}
-              />
             )}
           </div>
         )}

@@ -21,6 +21,7 @@ import SearchView from "./views/SearchView";
 import SettingsView from "./views/SettingsView";
 import SystemView from "./views/SystemView";
 import UnmatchedFilesView from "./views/UnmatchedFilesView";
+import WantedAlbumDetailView from "./views/WantedAlbumDetailView";
 import "./App.css";
 
 // Music is the only library — Plex-style, its nav entry appears once a
@@ -29,6 +30,7 @@ type Page =
   | { name: "library" }
   | { name: "artist"; id: number }
   | { name: "album"; id: number; artistId: number }
+  | { name: "wanted"; id: number; artistId: number }
   | { name: "unmatched" }
   | { name: "search"; q: string }
   | { name: "calendar" }
@@ -50,6 +52,8 @@ function pageToHash(p: Page): string {
       return `#/artist/${p.id}`;
     case "album":
       return `#/album/${p.id}?artist=${p.artistId}`;
+    case "wanted":
+      return `#/wanted/${p.id}?artist=${p.artistId}`;
     case "playlist":
       return `#/playlist/${p.id}`;
     case "search":
@@ -72,6 +76,10 @@ function hashToPage(hash: string): Page {
     case "album":
       return id > 0
         ? { name: "album", id, artistId: Number(q.get("artist")) || 0 }
+        : { name: "library" };
+    case "wanted":
+      return id > 0
+        ? { name: "wanted", id, artistId: Number(q.get("artist")) || 0 }
         : { name: "library" };
     case "unmatched":
       return { name: "unmatched" };
@@ -319,6 +327,7 @@ function AppInner() {
             onError={onError}
             onBack={() => go({ name: "library" })}
             onOpenAlbum={(albumId) => go({ name: "album", id: albumId, artistId: page.id })}
+            onOpenWanted={(wantedAlbumId, artistId) => go({ name: "wanted", id: wantedAlbumId, artistId })}
           />
         )}
         {connected && page.name === "album" && (
@@ -332,6 +341,19 @@ function AppInner() {
                 : go({ name: "library" })
             }
             onOpenPlaylist={(id) => go({ name: "playlist", id })}
+          />
+        )}
+        {connected && page.name === "wanted" && (
+          <WantedAlbumDetailView
+            key={page.id}
+            id={page.id}
+            artistId={page.artistId}
+            onError={onError}
+            onBack={() =>
+              page.artistId > 0
+                ? go({ name: "artist", id: page.artistId })
+                : go({ name: "library" })
+            }
           />
         )}
         {connected && page.name === "unmatched" && <UnmatchedFilesView onError={onError} />}

@@ -14,17 +14,17 @@ import (
 // each candidate's own TrackCount) without ever calling MusicBrainz again
 // once an artist's discography has been synced.
 type ReleaseGroupVersion struct {
-	ID               int64     `json:"id"`
-	ReleaseGroupMBID string    `json:"releaseGroupMbid"`
-	ReleaseMBID      string    `json:"releaseMbid"`
-	Title            string    `json:"title"`
-	ReleaseDate      string    `json:"releaseDate"`
-	Country          string    `json:"country"`
-	Status           string    `json:"status"`
-	Disambiguation   string    `json:"disambiguation"`
-	TrackCount       int       `json:"trackCount"`
-	MediaSummary     string    `json:"mediaSummary"`
-	IsRepresentative bool      `json:"isRepresentative"`
+	ID               int64  `json:"id"`
+	ReleaseGroupMBID string `json:"releaseGroupMbid"`
+	ReleaseMBID      string `json:"releaseMbid"`
+	Title            string `json:"title"`
+	ReleaseDate      string `json:"releaseDate"`
+	Country          string `json:"country"`
+	Status           string `json:"status"`
+	Disambiguation   string `json:"disambiguation"`
+	TrackCount       int    `json:"trackCount"`
+	MediaSummary     string `json:"mediaSummary"`
+	IsRepresentative bool   `json:"isRepresentative"`
 	// Fetched is false only for a placeholder row migration 022 carried
 	// over from the old single-release-tracklist scheme (release_mbid/
 	// title only, everything else blank) — every row ReplaceReleaseGroupVersions
@@ -166,13 +166,27 @@ func (s *Store) HasReleaseGroupVersions(releaseGroupMBID string) (bool, error) {
 	return n > 0, nil
 }
 
+// representativeOrderBy picks the single best cached version to preview —
+// a US "Official" CD edition first (the closest thing to "what you'll
+// most likely end up owning"), else any "Official" release, else the
+// earliest dated one as a stable tie-break — mirroring internal/
+// metadatabackfill's own pickRepresentativeRelease exactly. Computed live
+// from whatever's cached rather than trusting the stored is_representative
+// flag (set once, at cache time, by that same Go logic): a release group
+// cached before this preference existed self-heals the moment it's read
+// again, with no separate recompute/migration step needed.
+const representativeOrderBy = `
+	CASE WHEN country = 'US' AND status = 'Official' AND media_summary LIKE '%CD%' THEN 0 ELSE 1 END,
+	CASE WHEN status = 'Official' THEN 0 ELSE 1 END,
+	CASE WHEN release_date = '' OR release_date IS NULL THEN 1 ELSE 0 END,
+	release_date ASC`
+
 // GetRepresentativeReleaseVersion returns releaseGroupMBID's representative
-// version (see internal/api's pickRepresentativeRelease — an Official
-// release, earliest-dated tie-break), or ErrNotFound if nothing's cached
+// version (see representativeOrderBy), or ErrNotFound if nothing's cached
 // yet for this release group at all.
 func (s *Store) GetRepresentativeReleaseVersion(releaseGroupMBID string) (*ReleaseGroupVersion, error) {
 	v, err := scanReleaseGroupVersion(s.db.QueryRow(
-		releaseGroupVersionSelect+` WHERE release_group_mbid = ? ORDER BY is_representative DESC, release_date DESC LIMIT 1`,
+		releaseGroupVersionSelect+` WHERE release_group_mbid = ? ORDER BY `+representativeOrderBy+` LIMIT 1`,
 		releaseGroupMBID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

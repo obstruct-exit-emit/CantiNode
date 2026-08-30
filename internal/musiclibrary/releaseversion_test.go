@@ -5,6 +5,41 @@ import (
 	"testing"
 )
 
+// TestGetRepresentativeReleaseVersionPrefersUSCDOverStaleFlag is the
+// regression test for representativeOrderBy's own self-healing property:
+// a release group cached before the US-CD preference existed has its
+// is_representative bit already stamped on some other row (by whatever
+// picked it at cache time) — GetRepresentativeReleaseVersion must still
+// return the US CD row live, without needing any recompute/migration
+// step to fix up the stored flag first.
+func TestGetRepresentativeReleaseVersionPrefersUSCDOverStaleFlag(t *testing.T) {
+	s := newTestStore(t)
+
+	versions := []ReleaseGroupVersion{
+		{
+			ReleaseGroupMBID: "rg-2", ReleaseMBID: "rel-uk-vinyl", Title: "Album (UK Vinyl)",
+			Country: "GB", Status: "Official", ReleaseDate: "2018-01-01", MediaSummary: "Vinyl",
+			IsRepresentative: true, // stale: this is the OLD pick, before US-CD preference existed
+		},
+		{
+			ReleaseGroupMBID: "rg-2", ReleaseMBID: "rel-us-cd", Title: "Album (US CD)",
+			Country: "US", Status: "Official", ReleaseDate: "2018-03-01", MediaSummary: "CD",
+			IsRepresentative: false,
+		},
+	}
+	if err := s.ReplaceReleaseGroupVersions("rg-2", versions); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+
+	rep, err := s.GetRepresentativeReleaseVersion("rg-2")
+	if err != nil {
+		t.Fatalf("GetRepresentativeReleaseVersion: %v", err)
+	}
+	if rep.ReleaseMBID != "rel-us-cd" {
+		t.Errorf("representative = %q, want rel-us-cd (live-computed) even though rel-uk-vinyl has the stale stored flag", rep.ReleaseMBID)
+	}
+}
+
 func TestReplaceAndListReleaseGroupVersions(t *testing.T) {
 	s := newTestStore(t)
 

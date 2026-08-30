@@ -33,8 +33,14 @@ Compilation/…); each row has **+ Add** (want it without touching the
 artist's monitored state) and **+ Add & Monitor** (want it and monitor the
 artist) — neither one searches or grabs anything by itself, they just mark
 the album wanted and it moves into the Albums grid. Clicking a wanted
-album's card there opens **Search releases** (scored candidates to
-hand-pick a **Grab** from) and **Stop wanting**. A **monitored** artist's
+album's card there opens its own full page — the same shell as an owned
+album's, with **Search releases** (scored candidates to hand-pick a
+**Grab** from) and **Stop wanting** in place of the owned actions, and its
+tracklist (from the release group's own cached representative release —
+see [Release versions](#release-versions)) flagged **wanted** track by
+track instead of showing file info. Once a real file is actually matched,
+the album moves to the owned side of the grid and this preview is
+replaced by the real matched release. A **monitored** artist's
 wanted albums are additionally swept and grabbed automatically on a
 schedule (see [Acquisition](acquisition.md)) — monitoring is what opts an
 artist into that, independent of which specific albums are wanted. A
@@ -201,6 +207,16 @@ layout, track count) and full tracklist gets cached the first time an
 artist's discography is synced — monitoring, an explicit refresh, or the
 backfill sweep that runs on the next scan for an artist added before this
 existed — so picking among them afterward never calls MusicBrainz again.
+
+Before any file is actually matched, wherever a release group needs one
+representative release to preview (a wanted album's own page, its cover
+art, Missing's tracklist preview) picks a US "Official" CD edition when
+one exists — the closest thing to what you'll most likely end up owning
+— falling back to the earliest "Official" release of any kind when it
+doesn't. Computed fresh each time from whatever's cached, so this applies
+retroactively to an artist synced before this preference existed, with no
+separate refresh needed. Once a real file is matched, that release's own
+real metadata always takes over instead.
 
 ## Cover art
 

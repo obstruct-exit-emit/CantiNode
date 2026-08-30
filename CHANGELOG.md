@@ -27,6 +27,16 @@ in progress. Highlights from the hardening period, newest first:
   for exactly this check; it just wasn't wired up here.
 
 ### Added
+- **A wanted album now opens its own full page**, matching an owned
+  album's layout instead of an inline panel below the Albums grid:
+  cover, tracklist (each track flagged **wanted**), **Search
+  releases**/**Grab** and **Stop wanting** in place of the owned-album
+  actions. Before any file is matched, the tracklist/cover preview now
+  prefers a US "Official" CD edition when one exists — the closest thing
+  to what you'll most likely end up owning — falling back to the
+  earliest Official release otherwise; computed fresh each time, so this
+  applies retroactively to already-synced artists too. Once a real file
+  is matched, the real release always takes over from the preview.
 - **Plex integration** (Settings → Integrations): a "refresh this path"
   notification pushed to a Plex Media Server whenever CantiNode adds,
   moves, or removes files on disk, scoped to just the folder that
