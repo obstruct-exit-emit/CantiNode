@@ -23,6 +23,7 @@ import (
 	"github.com/cantinode/cantinode/internal/indexer/prowlarr"
 	"github.com/cantinode/cantinode/internal/logging"
 	"github.com/cantinode/cantinode/internal/metadatabackfill"
+	"github.com/cantinode/cantinode/internal/plexplaylistsync"
 )
 
 // Background cadences (wanted search, metadata refresh, health checks,
@@ -154,10 +155,13 @@ func run(dataDir string) error {
 	// up any artist still missing discography/bio/photo metadata — normally
 	// finished inline right after a scan, but restart-safe against an
 	// interruption mid-sweep since it also runs independently on its own
-	// timer (see internal/metadatabackfill) — and importlist resolving every
+	// timer (see internal/metadatabackfill) — importlist resolving every
 	// enabled import list (a MusicBrainz Series, a plain artist list, or a
 	// Last.fm user/tag) to add and monitor any newly-appearing artist (see
-	// internal/importlist).
+	// internal/importlist) — and plexplaylistsync keeping a linked Plex
+	// server's playlists and CantiNode's own in sync both ways, when
+	// Settings → Integrations has playlist sync turned on (see
+	// internal/plexplaylistsync).
 	bgCtx, cancelBg := context.WithCancel(context.Background())
 	defer cancelBg()
 	// Cadences: built-in defaults unless tuned under Settings → General →
@@ -175,6 +179,7 @@ func run(dataDir string) error {
 	go bg.ImportLists.RunPeriodic(bgCtx, func(now time.Time) time.Time {
 		return now.Add(timings.ImportListSyncInterval())
 	})
+	go bg.PlexPlaylistSync.RunPeriodic(bgCtx, plexplaylistsync.PollInterval)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr(),

@@ -27,6 +27,23 @@ in progress. Highlights from the hardening period, newest first:
   for exactly this check; it just wasn't wired up here.
 
 ### Added
+- **Plex integration** (Settings → Integrations): a "refresh this path"
+  notification pushed to a Plex Media Server whenever CantiNode adds,
+  moves, or removes files on disk, scoped to just the folder that
+  changed rather than a full library scan — the same pattern
+  Sonarr/Radarr/Lidarr call a "Plex Media Server" connection. Every
+  section's own real library path is shown right in the picker (a
+  refresh to a path Plex doesn't recognize silently returns the same
+  success response a real one does, so there'd be no other way to catch
+  a wrong or missing path mapping before it silently does nothing), and
+  every refresh is logged, success or failure. Also adds **two-way
+  playlist sync**: a playlist created or edited in CantiNode or in Plex
+  is reflected in the other within about ten minutes, matching tracks
+  between the two by file path since Plex has no MBID lookup of its own.
+  Conflicts (both sides edited between two syncs) resolve last-write-
+  wins; deleting a linked playlist on either side either just unlinks
+  the pair (the default — never deletes real data) or, with an explicit
+  opt-in, deletes the counterpart too.
 - **Import Lists**: point CantiNode at an external source and it
   periodically resolves it to MusicBrainz artist MBIDs, adding and
   monitoring any new one automatically — joining the existing autosearch

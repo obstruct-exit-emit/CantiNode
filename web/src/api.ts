@@ -258,7 +258,16 @@ export interface PlexSettings {
   // mappings, just in the opposite conceptual direction: here
   // remotePrefix is CantiNode's own path prefix and localPrefix is Plex's.
   pathMappings: PathMapping[];
+  // Two-way playlist sync (see internal/plexplaylistsync) — independent
+  // of `enabled` above.
+  playlistSyncEnabled: boolean;
+  // "" (the default, safe) or "propagate" — see PLAYLIST_DELETE_PROPAGATE.
+  playlistDeleteMode: string;
 }
+
+// The one non-default PlaylistDeleteMode value — anything else (including
+// "") means "unlink only, never delete" (see config.PlaylistDeleteUnlink).
+export const PLAYLIST_DELETE_PROPAGATE = "propagate";
 
 // PlexSection is one of Plex's own music ("artist"-type) library
 // sections — the Settings picker's own data source, fetched live from

@@ -316,6 +316,60 @@ func TestSetPlexPersistsAcrossReload(t *testing.T) {
 	}
 }
 
+// TestSetPlexNormalizesPlaylistDeleteMode is the regression test for
+// SetPlex's own safe-default normalization: PlaylistDeleteMode only ever
+// persists as the exact PlaylistDeletePropagate opt-in string, or empty —
+// never an invalid/unrecognized value a stale client or hand-edited config
+// file might supply.
+func TestSetPlexNormalizesPlaylistDeleteMode(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if err := cfg.SetPlex(PlexSettings{
+		Enabled:             true,
+		ServerURL:           "http://192.168.1.10:32400",
+		Token:               "t",
+		PlaylistSyncEnabled: true,
+		PlaylistDeleteMode:  "delete-everything", // not a real mode
+	}); err != nil {
+		t.Fatalf("SetPlex: %v", err)
+	}
+	got := cfg.PlexSettings()
+	if got.PlaylistDeleteMode != "" {
+		t.Errorf("PlaylistDeleteMode = %q, want normalized to empty (safe default)", got.PlaylistDeleteMode)
+	}
+	if got.PlaylistDeletePropagates() {
+		t.Error("PlaylistDeletePropagates() = true for an unrecognized mode, want false")
+	}
+	if !got.PlaylistSyncEnabled {
+		t.Error("PlaylistSyncEnabled was not persisted")
+	}
+
+	if err := cfg.SetPlex(PlexSettings{
+		Enabled:            true,
+		ServerURL:          "http://192.168.1.10:32400",
+		Token:              "t",
+		PlaylistDeleteMode: PlaylistDeletePropagate,
+	}); err != nil {
+		t.Fatalf("SetPlex: %v", err)
+	}
+
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got = reloaded.PlexSettings()
+	if got.PlaylistDeleteMode != PlaylistDeletePropagate {
+		t.Errorf("PlaylistDeleteMode after reload = %q, want %q", got.PlaylistDeleteMode, PlaylistDeletePropagate)
+	}
+	if !got.PlaylistDeletePropagates() {
+		t.Error("PlaylistDeletePropagates() = false after persisting the explicit opt-in, want true")
+	}
+}
+
 // TestSetPlexTrimsURLAndRejectsIncompletePathMapping mirrors
 // SetPathMappings' own validation: a mapping missing either prefix is
 // rejected outright rather than silently saved half-empty, and a trailing

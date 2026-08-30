@@ -411,7 +411,8 @@ Under consideration, in no particular order:
   the work back up, not redesigning it
 - [ ] **External notifications**: Discord/webhook/email on grab, import,
   upgrade, and failure
-- [ ] **Player integrations**: notify Navidrome/Plex on import
+- [ ] **Player integrations**: notify Navidrome on import (Plex has this —
+  scan-notify plus two-way playlist sync, Settings → Integrations)
 - [ ] **Accessibility, the systematic pass**: focus trapping, full keyboard
   paths, a screen-reader walk of the main flows
 - [ ] **Localization** — and with it, language/date preferences

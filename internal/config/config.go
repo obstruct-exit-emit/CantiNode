@@ -195,6 +195,41 @@ type PlexSettings struct {
 	// RemotePrefix is CantiNode's own path prefix and LocalPrefix is
 	// Plex's. Empty means CantiNode and Plex already agree on paths.
 	PathMappings []PathMapping `yaml:"path_mappings,omitempty" json:"pathMappings"`
+	// PlaylistSyncEnabled turns on two-way playlist sync with Plex (see
+	// internal/plexplaylistsync) — independent of Enabled above, since an
+	// operator might want the scan-notify half without also syncing
+	// playlists, or vice versa. Requires the connection fields above to
+	// already be configured; a playlist matches across the two systems by
+	// its tracks' own file paths (through PathMappings), the same way
+	// scan-notify does.
+	PlaylistSyncEnabled bool `yaml:"playlist_sync_enabled" json:"playlistSyncEnabled"`
+	// PlaylistDeleteMode controls what happens to a linked playlist's
+	// other side when it's deleted on one side. Two values:
+	// PlaylistDeleteUnlink (the default — the surviving side's playlist
+	// and its own content are never deleted, matching CantiNode's "never
+	// auto-delete" posture elsewhere; the pair is simply unlinked, so a
+	// playlist deleted only in CantiNode is never re-adopted from Plex
+	// again, but one deleted only in Plex may still get pushed back to
+	// Plex as a new playlist on a later sync pass, since its CantiNode
+	// side still exists independently) or PlaylistDeletePropagate
+	// (deleting on either side deletes it on the other too — a deliberate,
+	// explicit opt-in, since it's real data loss if the delete that
+	// triggered it was a mistake).
+	PlaylistDeleteMode string `yaml:"playlist_delete_mode,omitempty" json:"playlistDeleteMode"`
+}
+
+// Playlist-delete propagation modes — see PlexSettings.PlaylistDeleteMode.
+const (
+	PlaylistDeleteUnlink    = "unlink"
+	PlaylistDeletePropagate = "propagate"
+)
+
+// PlaylistDeletePropagates reports whether a deleted playlist's link
+// should propagate the delete to its counterpart — anything other than
+// the exact PlaylistDeletePropagate value (including empty/unrecognized)
+// is treated as the safe default, PlaylistDeleteUnlink.
+func (p PlexSettings) PlaylistDeletePropagates() bool {
+	return p.PlaylistDeleteMode == PlaylistDeletePropagate
 }
 
 // Wanted-search schedule modes — see TimingSettings.WantedSearchMode.
@@ -668,6 +703,9 @@ func (c *Config) PlexSettings() PlexSettings {
 // rather than silently saved half-empty.
 func (c *Config) SetPlex(p PlexSettings) error {
 	p.ServerURL = strings.TrimRight(strings.TrimSpace(p.ServerURL), "/")
+	if p.PlaylistDeleteMode != PlaylistDeletePropagate {
+		p.PlaylistDeleteMode = "" // anything but the exact opt-in value normalizes to the safe default
+	}
 	clean := make([]PathMapping, 0, len(p.PathMappings))
 	for _, m := range p.PathMappings {
 		m.RemotePrefix = strings.TrimSpace(m.RemotePrefix)

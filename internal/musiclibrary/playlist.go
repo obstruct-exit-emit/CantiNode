@@ -19,6 +19,15 @@ type Playlist struct {
 	TotalDurationMs int64     `json:"totalDurationMs"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+	// PlexRatingKey is this playlist's own linked Plex playlist id, or
+	// empty when never synced — see internal/plexplaylistsync. PlexSyncedAt/
+	// PlexUpdatedAt are that package's own bookkeeping (this playlist's
+	// UpdatedAt, and Plex's own reported updatedAt, both as of the last
+	// successful sync) for deciding which side changed since then; neither
+	// means anything to a caller that isn't the sync engine itself.
+	PlexRatingKey string     `json:"plexRatingKey,omitempty"`
+	PlexSyncedAt  *time.Time `json:"plexSyncedAt,omitempty"`
+	PlexUpdatedAt int64      `json:"-"`
 }
 
 // PlaylistTrack is one playlist_items row, joined out to what a UI (or the
@@ -89,10 +98,26 @@ func (s *Store) CreatePlaylist(name, description string) (*Playlist, error) {
 
 const playlistSummarySelectBase = `
 	SELECT p.id, p.name, p.description, p.created_at, p.updated_at,
-	       COUNT(pi.id), COALESCE(SUM(t.duration_ms), 0)
+	       COUNT(pi.id), COALESCE(SUM(t.duration_ms), 0),
+	       COALESCE(p.plex_rating_key, ''), p.plex_synced_at, p.plex_updated_at
 	FROM playlists p
 	LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
 	LEFT JOIN tracks t ON t.id = pi.track_id`
+
+// scanPlaylist scans one playlistSummarySelectBase row.
+func scanPlaylist(row interface{ Scan(...any) error }) (Playlist, error) {
+	var p Playlist
+	var plexSyncedAt sql.NullTime
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.TrackCount, &p.TotalDurationMs,
+		&p.PlexRatingKey, &plexSyncedAt, &p.PlexUpdatedAt)
+	if err != nil {
+		return p, err
+	}
+	if plexSyncedAt.Valid {
+		p.PlexSyncedAt = &plexSyncedAt.Time
+	}
+	return p, nil
+}
 
 // ListPlaylists returns every playlist with its track count and total
 // duration, alphabetically.
@@ -105,8 +130,8 @@ func (s *Store) ListPlaylists() ([]Playlist, error) {
 
 	out := []Playlist{}
 	for rows.Next() {
-		var p Playlist
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.TrackCount, &p.TotalDurationMs); err != nil {
+		p, err := scanPlaylist(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan playlist: %w", err)
 		}
 		out = append(out, p)
@@ -117,9 +142,7 @@ func (s *Store) ListPlaylists() ([]Playlist, error) {
 // GetPlaylist returns one playlist by id, with the same track count/total
 // duration ListPlaylists reports.
 func (s *Store) GetPlaylist(id int64) (*Playlist, error) {
-	var p Playlist
-	err := s.db.QueryRow(playlistSummarySelectBase+` WHERE p.id = ? GROUP BY p.id`, id).
-		Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.TrackCount, &p.TotalDurationMs)
+	p, err := scanPlaylist(s.db.QueryRow(playlistSummarySelectBase+` WHERE p.id = ? GROUP BY p.id`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -127,6 +150,109 @@ func (s *Store) GetPlaylist(id int64) (*Playlist, error) {
 		return nil, fmt.Errorf("get playlist: %w", err)
 	}
 	return &p, nil
+}
+
+// SetPlaylistPlexLink records playlistID's own link to Plex's ratingKey,
+// plus the sync bookkeeping (this playlist's own UpdatedAt and Plex's own
+// reported updatedAt, both as of this successful sync) internal/
+// plexplaylistsync needs to tell which side changes next time. Called
+// after every successful sync of this playlist, in either direction —
+// not just the first time it's linked.
+func (s *Store) SetPlaylistPlexLink(playlistID int64, ratingKey string, plexUpdatedAt int64, syncedAt time.Time) error {
+	res, err := s.db.Exec(
+		`UPDATE playlists SET plex_rating_key = ?, plex_updated_at = ?, plex_synced_at = ? WHERE id = ?`,
+		ratingKey, plexUpdatedAt, syncedAt, playlistID)
+	if err != nil {
+		return fmt.Errorf("set playlist plex link: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearPlaylistPlexLink unlinks playlistID from Plex entirely — used when
+// its counterpart is deleted on Plex's side and Settings' own "unlink
+// only" playlist-delete mode is in effect (see config.PlexSettings), so
+// this row is simply never considered for sync again rather than either
+// side being deleted.
+func (s *Store) ClearPlaylistPlexLink(playlistID int64) error {
+	_, err := s.db.Exec(`UPDATE playlists SET plex_rating_key = NULL, plex_updated_at = 0, plex_synced_at = NULL WHERE id = ?`, playlistID)
+	if err != nil {
+		return fmt.Errorf("clear playlist plex link: %w", err)
+	}
+	return nil
+}
+
+// RecordPlexPlaylistTombstone remembers that ratingKey's own CantiNode
+// counterpart was deleted while still linked to it, so a later sync pass
+// never "resurrects" it as a brand-new CantiNode playlist just because
+// Plex's own copy still exists — see migration 036's own comment on
+// plex_playlist_tombstones. Idempotent: recording the same ratingKey twice
+// is harmless.
+func (s *Store) RecordPlexPlaylistTombstone(ratingKey string) error {
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO plex_playlist_tombstones (plex_rating_key) VALUES (?)`, ratingKey); err != nil {
+		return fmt.Errorf("record plex playlist tombstone: %w", err)
+	}
+	return nil
+}
+
+// IsPlexPlaylistTombstoned reports whether ratingKey was tombstoned by
+// RecordPlexPlaylistTombstone — internal/plexplaylistsync checks this
+// before adopting an otherwise-unhandled Plex playlist as a new CantiNode
+// one.
+func (s *Store) IsPlexPlaylistTombstoned(ratingKey string) (bool, error) {
+	var exists int64
+	err := s.db.QueryRow(`SELECT 1 FROM plex_playlist_tombstones WHERE plex_rating_key = ?`, ratingKey).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check plex playlist tombstone: %w", err)
+	}
+	return true, nil
+}
+
+// ReplacePlaylistItems replaces playlistID's entire track list with
+// trackIDs, in order — delete-then-reinsert, the same "whatever the
+// source of truth has now, wholesale" convention ReplaceArtistReleaseGroups
+// already uses, rather than a fine-grained diff. Used by
+// internal/plexplaylistsync to pull Plex's own current playlist content
+// into CantiNode wholesale, the mirror image of AppendPlaylistItems'
+// incremental use elsewhere. A trackID with no local match (deleted, or a
+// track Plex has that CantiNode doesn't) is simply skipped rather than
+// failing the whole replace.
+//
+// Returns the UpdatedAt timestamp this call just stamped on the playlist
+// — the sync engine immediately records this same value as
+// SetPlaylistPlexLink's own syncedAt, so this pull is never mistaken for
+// a fresh local edit on the very next sync pass (re-fetching UpdatedAt
+// separately would risk it advancing again between the two calls).
+func (s *Store) ReplacePlaylistItems(playlistID int64, trackIDs []int64) (time.Time, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM playlist_items WHERE playlist_id = ?`, playlistID); err != nil {
+		return time.Time{}, fmt.Errorf("clear existing items: %w", err)
+	}
+	now := time.Now().UTC()
+	for i, trackID := range trackIDs {
+		if _, err := tx.Exec(
+			`INSERT INTO playlist_items (playlist_id, track_id, position, added_at) VALUES (?, ?, ?, ?)`,
+			playlistID, trackID, i, now); err != nil {
+			return time.Time{}, fmt.Errorf("insert item: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`UPDATE playlists SET updated_at = ? WHERE id = ?`, now, playlistID); err != nil {
+		return time.Time{}, fmt.Errorf("touch playlist: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, fmt.Errorf("commit: %w", err)
+	}
+	return now, nil
 }
 
 // UpdatePlaylist renames/redescribes a playlist.
@@ -372,8 +498,8 @@ func (s *Store) ListPlaylistsForTrack(trackID int64) ([]Playlist, error) {
 
 	out := []Playlist{}
 	for rows.Next() {
-		var p Playlist
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.TrackCount, &p.TotalDurationMs); err != nil {
+		p, err := scanPlaylist(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan playlist: %w", err)
 		}
 		out = append(out, p)

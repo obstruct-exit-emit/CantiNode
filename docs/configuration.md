@@ -244,6 +244,44 @@ the same files) — same longest-prefix mechanism as the download-client
 [remote path mappings](#remote-path-mappings) above, just in the opposite
 direction. Leave it empty when CantiNode and Plex already agree on paths.
 
+### Two-way playlist sync
+
+The same **Settings → Integrations** card's **Enable two-way playlist
+sync** checkbox keeps CantiNode's own playlists and this Plex server's
+playlists in sync, both directions — a playlist created or edited in
+either place is reflected in the other within about ten minutes.
+Independent of the notification setting above (either can be on without
+the other), but does need the same server URL/token/library section/path
+mapping already configured, since it matches a track between the two
+systems by file path, the same way the notification does. Plex has no
+"look up by MBID" API of its own, so path is the only reliable match.
+
+A playlist edited on both sides between two sync passes is resolved
+**last write wins** — whichever side changed more recently overwrites the
+other. A brand-new playlist on either side is created on the other
+outright, the first time a track in it resolves to a file the other side
+already knows about (a still-unmatched or not-yet-scanned track is simply
+skipped, and picked up on the next pass once it resolves).
+
+**When a linked playlist is deleted on one side**, a dropdown next to the
+sync checkbox controls what happens to its counterpart:
+
+- **Unlink only — never delete the other side** (the default): the
+  surviving playlist and its content are left completely untouched;
+  CantiNode never deletes anything the other side didn't already delete
+  itself. A playlist deleted only in CantiNode is never pulled back in
+  from Plex again; one deleted only in Plex may still get pushed back to
+  Plex as a new playlist on a later pass, since its CantiNode copy still
+  exists independently.
+- **Delete the other side too**: deleting a linked playlist on either
+  side — including deleting it directly in Plex's own app — deletes its
+  counterpart too. A deliberate, explicit opt-in: this is real data loss
+  if the delete that triggered it was a mistake, so it's never the
+  default.
+
+A CantiNode-side delete propagates immediately (not on the next periodic
+pass); a Plex-side delete is caught the next time the sync runs.
+
 ## Tags to write
 
 **Settings → Music → Tags to write** controls which fields the "Write

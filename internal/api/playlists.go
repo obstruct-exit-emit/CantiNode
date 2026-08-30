@@ -5,15 +5,18 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/plex"
 )
 
 func (s *server) handleListPlaylists(w http.ResponseWriter, r *http.Request) {
@@ -110,11 +113,47 @@ func (s *server) handleDeletePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	// Read the playlist before deleting it so its own Plex link (if any)
+	// is still known afterward — DeletePlaylist itself only reports
+	// row-affected, not what the row used to contain.
+	p, err := s.musicStore.GetPlaylist(id)
+	if err != nil {
+		writeMusicStoreError(w, err)
+		return
+	}
 	if err := s.musicStore.DeletePlaylist(id); err != nil {
 		writeMusicStoreError(w, err)
 		return
 	}
+	if p.PlexRatingKey != "" {
+		s.propagatePlaylistDelete(p.PlexRatingKey)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// propagatePlaylistDelete reacts to a linked playlist just deleted on
+// CantiNode's own side. Handled here, synchronously (not left to the next
+// internal/plexplaylistsync poll), since waiting up to PollInterval to
+// reflect something CantiNode itself already knows happened would be a
+// needless delay for a user-initiated action. Records a tombstone
+// unconditionally — see migration 036's own comment — so a later sync pass
+// never "resurrects" this playlist as new just because Plex's own copy
+// still exists (whether it was left in place by "unlink" mode, or a
+// "propagate" delete below transiently failed to reach Plex).
+func (s *server) propagatePlaylistDelete(ratingKey string) {
+	if err := s.musicStore.RecordPlexPlaylistTombstone(ratingKey); err != nil {
+		slog.Default().Warn("plex: recording playlist tombstone", "ratingKey", ratingKey, "error", err)
+	}
+	settings := s.cfg.PlexSettings()
+	if !settings.PlaylistDeletePropagates() || settings.ServerURL == "" || settings.Token == "" {
+		return
+	}
+	go func() {
+		client := plex.NewClient(settings.ServerURL, settings.Token)
+		if err := client.DeletePlaylist(context.Background(), ratingKey); err != nil {
+			slog.Default().Warn("plex: deleting linked playlist", "ratingKey", ratingKey, "error", err)
+		}
+	}()
 }
 
 // writeAppendPlaylistError maps AppendPlaylistItem(s)'s two distinct

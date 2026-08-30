@@ -34,6 +34,7 @@ import (
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
 	"github.com/cantinode/cantinode/internal/plex"
+	"github.com/cantinode/cantinode/internal/plexplaylistsync"
 	"github.com/cantinode/cantinode/web"
 )
 
@@ -80,6 +81,7 @@ type Background struct {
 	DiscoveryRefresh *discoveryrefresh.Service
 	MetadataBackfill *metadatabackfill.Service
 	ImportLists      *importlist.Service
+	PlexPlaylistSync *plexplaylistsync.Service
 }
 
 // NewRouter builds the API handler and returns the background services the
@@ -117,6 +119,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	imp := importer.New(downloads, musicScanner, musicStore, cfg)
 	lastfmClient := lastfm.NewClient(musicSettings.LastFMAPIKey)
 	importListsSvc := importlist.New(importlist.NewStore(db), mb, musicStore, discographySvc, lastfmClient)
+	plexPlaylistSyncSvc := plexplaylistsync.New(musicStore, cfg)
 
 	s := &server{
 		cfg:              cfg,
@@ -318,7 +321,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	auto := autosearch.New(musicStore, indexers, downloads, store)
 	discoveryRefresh := discoveryrefresh.New(musicStore, discographySvc)
 
-	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto, DiscoveryRefresh: discoveryRefresh, MetadataBackfill: metadataBackfillSvc, ImportLists: importListsSvc}
+	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto, DiscoveryRefresh: discoveryRefresh, MetadataBackfill: metadataBackfillSvc, ImportLists: importListsSvc, PlexPlaylistSync: plexPlaylistSyncSvc}
 }
 
 // handleHealth returns the cached result of the last background health run

@@ -1,12 +1,11 @@
 // Package plex is a thin client for the Plex Media Server API
-// (https://support.plex.tv/articles/201638786-plex-media-server-url-commands/),
-// used to push a "refresh this path" notification whenever CantiNode adds,
-// moves, or removes files on disk — the same pattern Sonarr/Radarr/Lidarr
-// call a "Plex Media Server" connection, so Plex's own library stays
-// current without a manual rescan. Deliberately narrow: a partial
-// library-section scan by path, plus enough of the sections list to let
-// Settings offer a picker and a Test button — not a general Plex API
-// client.
+// (https://support.plex.tv/articles/201638786-plex-media-server-url-commands/).
+// Two independent capabilities: pushing a "refresh this path" notification
+// whenever CantiNode adds, moves, or removes files on disk (client.go,
+// notify.go — the same pattern Sonarr/Radarr/Lidarr call a "Plex Media
+// Server" connection), and the playlist CRUD/lookup primitives
+// internal/plexplaylistsync's two-way sync builds on (playlist.go).
+// Deliberately narrow either way — not a general Plex API client.
 package plex
 
 import (
@@ -16,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -114,6 +114,28 @@ func (c *Client) RefreshPath(ctx context.Context, sectionKey, path string) error
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	return c.do(ctx, http.MethodGet, path, query)
+}
+
+// put issues a PUT — Plex's own API uses it for both "add these items"
+// (POST-like) and "rename this" (PATCH-like) actions, always via query
+// parameters rather than a request body.
+func (c *Client) put(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	return c.do(ctx, http.MethodPut, path, query)
+}
+
+func (c *Client) delete(ctx context.Context, path string) error {
+	_, err := c.do(ctx, http.MethodDelete, path, nil)
+	return err
+}
+
+// getPaged is get with Plex's own pagination headers set — a library
+// section's full track list (AllTrackPaths) is the one response this
+// client can't safely assume fits in a single page.
+func (c *Client) getPaged(ctx context.Context, path string, query url.Values, start, size int) ([]byte, error) {
+	if query == nil {
+		query = url.Values{}
+	}
 	u := c.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -124,7 +146,26 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 	}
 	req.Header.Set("X-Plex-Token", c.token)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Plex-Container-Start", strconv.Itoa(start))
+	req.Header.Set("X-Plex-Container-Size", strconv.Itoa(size))
+	return c.doRequest(req, path)
+}
 
+func (c *Client) do(ctx context.Context, method, path string, query url.Values) ([]byte, error) {
+	u := c.baseURL + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("X-Plex-Token", c.token)
+	req.Header.Set("Accept", "application/json")
+	return c.doRequest(req, path)
+}
+
+func (c *Client) doRequest(req *http.Request, path string) ([]byte, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request %s: %w", path, err)

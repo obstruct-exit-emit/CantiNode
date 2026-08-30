@@ -12,6 +12,7 @@ import {
   type MusicSettings,
   type NamingSettings,
   type NativeIndexer,
+  PLAYLIST_DELETE_PROPAGATE,
   type PathMapping,
   type PlexSection,
   type PlexSettings,
@@ -2738,6 +2739,47 @@ function PlexCard({ onError }: { onError: (message: string) => void }) {
           + Add mapping
         </button>
       </div>
+
+      <h3 className="settings-subhead">Playlist sync</h3>
+      <p className="muted">
+        Keep CantiNode's own playlists and this Plex server's playlists in
+        sync, both ways — a playlist created or edited in either place
+        shows up in the other within a few minutes. Matches tracks between
+        the two by file path (through the mapping above), the same way
+        the notification above does. Independent of the notification
+        setting — either can be on without the other.
+      </p>
+      <label>
+        <span>
+          <input
+            type="checkbox"
+            checked={settings.playlistSyncEnabled}
+            onChange={(e) => set({ playlistSyncEnabled: e.target.checked })}
+          />{" "}
+          Enable two-way playlist sync
+        </span>
+      </label>
+      <div className="settings-form">
+        <label>
+          When a linked playlist is deleted on one side
+          <select
+            value={settings.playlistDeleteMode}
+            onChange={(e) => set({ playlistDeleteMode: e.target.value })}
+          >
+            <option value="">Unlink only — never delete the other side (recommended)</option>
+            <option value={PLAYLIST_DELETE_PROPAGATE}>
+              Delete the other side too
+            </option>
+          </select>
+        </label>
+      </div>
+      {settings.playlistDeleteMode === PLAYLIST_DELETE_PROPAGATE && (
+        <p className="muted field-note">
+          ⚠ Deleting a synced playlist on either side will delete its
+          counterpart too — including a playlist you delete in Plex itself.
+          This is real data loss if that delete was a mistake.
+        </p>
+      )}
     </section>
   );
 }
