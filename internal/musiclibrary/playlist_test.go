@@ -261,42 +261,6 @@ func TestAppendPlaylistItemsBulk(t *testing.T) {
 	}
 }
 
-func TestImportPlaylistFromM3U(t *testing.T) {
-	db := newTestStore(t)
-	seedTrackWithFile(t, db, "Artist A", "Album A", "Song A", "C:/music/Artist A/Album A/01 Song A.flac", 200_000)
-	seedTrackWithFile(t, db, "Artist B", "Album B", "Song B", "C:/music/Artist B/Album B/01 Song B.flac", 180_000)
-
-	m3u := "#EXTM3U\n" +
-		"#EXTINF:200,Artist A - Song A\n" +
-		"C:/music/Artist A/Album A/01 Song A.flac\n" +
-		"\n" +
-		"C:/music/nonexistent/gone.flac\n" +
-		"#EXTINF:180,Artist B - Song B\n" +
-		"C:/music/Artist B/Album B/01 Song B.flac\n"
-
-	result, err := db.ImportPlaylistFromM3U("Imported Mix", m3u)
-	if err != nil {
-		t.Fatalf("ImportPlaylistFromM3U: %v", err)
-	}
-	if result.Imported != 2 {
-		t.Errorf("Imported = %d, want 2", result.Imported)
-	}
-	if result.Skipped != 1 {
-		t.Errorf("Skipped = %d, want 1 (the nonexistent path)", result.Skipped)
-	}
-	if result.Playlist.Name != "Imported Mix" || result.Playlist.TrackCount != 2 {
-		t.Errorf("Playlist = %+v, want Name=Imported Mix TrackCount=2", result.Playlist)
-	}
-
-	tracks, err := db.ListPlaylistTracks(result.Playlist.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tracks) != 2 || tracks[0].Title != "Song A" || tracks[1].Title != "Song B" {
-		t.Fatalf("tracks = %+v, want [Song A, Song B] in file order", tracks)
-	}
-}
-
 func TestSearchOwnedTracks(t *testing.T) {
 	db := newTestStore(t)
 	seedTrackWithFile(t, db, "Artist A", "Album A", "Moonlight Sonata", "C:/music/a.flac", 200_000)

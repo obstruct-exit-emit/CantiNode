@@ -178,35 +178,6 @@ func (s *server) handleAppendPlaylistItemsBulk(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusCreated, items)
 }
 
-// handleImportPlaylist creates a new playlist from an uploaded M3U file's
-// raw text content — the frontend reads the file client-side and posts it
-// as a JSON string, so this needs no multipart form handling.
-func (s *server) handleImportPlaylist(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name    string `json:"name"`
-		Content string `json:"content"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	if strings.TrimSpace(req.Content) == "" {
-		writeError(w, http.StatusBadRequest, "content is required")
-		return
-	}
-	result, err := s.musicStore.ImportPlaylistFromM3U(req.Name, req.Content)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusCreated, result)
-}
-
 // handleSearchOwnedTracks answers the Search page's track results — only
 // owned tracks a playlist could actually use (see SearchOwnedTracks' own
 // doc comment on why a file-less track is excluded).

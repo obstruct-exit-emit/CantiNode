@@ -203,44 +203,6 @@ func TestSearchOwnedTracksEndpoint(t *testing.T) {
 	}
 }
 
-// TestImportPlaylistEndpoint covers importing an M3U that round-trips one
-// of CantiNode's own exports plus a line that doesn't resolve to anything.
-func TestImportPlaylistEndpoint(t *testing.T) {
-	a := newTestAPI(t)
-	musicStore := musiclibrary.NewStore(a.db)
-	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Artist", "Artist")
-	if err != nil {
-		t.Fatal(err)
-	}
-	album, err := musicStore.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "Album", "2020-01-01", "Album")
-	if err != nil {
-		t.Fatal(err)
-	}
-	track, err := musicStore.GetOrCreateTrack(album.ID, "t-mbid", "Real Track", 1, 1, 100_000, "", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rf := addRootFolder(t, a, t.TempDir(), "music")
-	realPath := rf.Path + "/real.flac"
-	tf, err := musicStore.UpsertTrackFileByPath(rf.ID, realPath, 100, "flac", 0, 0, "{}")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := musicStore.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
-		t.Fatal(err)
-	}
-
-	m3u := "#EXTM3U\n" + realPath + "\n/nowhere/gone.flac\n"
-	var result musiclibrary.ImportM3UResult
-	a.want(a.call("POST", "/api/v1/music/playlist/import", map[string]any{"name": "Recovered", "content": m3u}, &result), http.StatusCreated)
-	if result.Imported != 1 || result.Skipped != 1 {
-		t.Errorf("result = %+v, want Imported=1 Skipped=1", result)
-	}
-	if result.Playlist.Name != "Recovered" {
-		t.Errorf("playlist name = %q, want Recovered", result.Playlist.Name)
-	}
-}
-
 // TestListPlaylistsForTrackEndpoint covers the "in playlist" badge's own
 // detail view: which playlist(s) a track is actually in.
 func TestListPlaylistsForTrackEndpoint(t *testing.T) {

@@ -421,12 +421,6 @@ export interface PlaylistDetail extends Playlist {
   tracks: PlaylistTrack[];
 }
 
-export interface ImportM3UResult {
-  playlist: Playlist;
-  imported: number;
-  skipped: number;
-}
-
 // TrackSearchResult is one owned, file-backed track matching a title
 // search — the Search page's track-level results.
 export interface TrackSearchResult {
@@ -918,8 +912,6 @@ export const api = {
     if (!resp.ok) throw new ApiError(resp.status, resp.statusText);
     return resp.blob();
   },
-  importPlaylist: (name: string, content: string) =>
-    request<ImportM3UResult>("/api/v1/music/playlist/import", json({ name, content })),
   searchOwnedTracks: (q: string) =>
     request<TrackSearchResult[]>(`/api/v1/music/track/search?q=${encodeURIComponent(q)}`),
   listPlaylistsForTrack: (trackId: number) =>

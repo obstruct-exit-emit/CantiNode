@@ -305,51 +305,6 @@ func (s *Store) AppendPlaylistItems(playlistID int64, trackIDs []int64) ([]Playl
 	return out, nil
 }
 
-// ImportM3UResult reports what an M3U import actually did.
-type ImportM3UResult struct {
-	Playlist *Playlist `json:"playlist"`
-	Imported int       `json:"imported"`
-	Skipped  int       `json:"skipped"`
-}
-
-// ImportPlaylistFromM3U creates a new playlist named name from an M3U
-// file's content: every non-comment, non-blank line is a path, resolved
-// against this library's own track_files by an exact match. A line that
-// doesn't resolve (not this library's own export, moved since, or from a
-// different library entirely) is silently skipped and counted, rather
-// than failing the whole import — a playlist with 8 of 10 tracks
-// recovered is still useful.
-func (s *Store) ImportPlaylistFromM3U(name, content string) (*ImportM3UResult, error) {
-	var trackIDs []int64
-	skipped := 0
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		tf, err := s.getTrackFileByPath(line)
-		if err != nil || tf.TrackID == nil {
-			skipped++
-			continue
-		}
-		trackIDs = append(trackIDs, *tf.TrackID)
-	}
-
-	p, err := s.CreatePlaylist(name, "")
-	if err != nil {
-		return nil, err
-	}
-	if len(trackIDs) > 0 {
-		if _, err := s.AppendPlaylistItems(p.ID, trackIDs); err != nil {
-			return nil, err
-		}
-		if p, err = s.GetPlaylist(p.ID); err != nil {
-			return nil, err
-		}
-	}
-	return &ImportM3UResult{Playlist: p, Imported: len(trackIDs), Skipped: skipped}, nil
-}
-
 // TrackSearchResult is one owned track matching a title search, joined the
 // same way PlaylistTrack is — the Search page's track-level results. Only
 // a track with a real current file is worth surfacing here: the whole
