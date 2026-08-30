@@ -168,6 +168,35 @@ func TranslatePath(mappings []PathMapping, p string) string {
 	return local + rest
 }
 
+// PlexSettings configures pushing a "refresh this path" notification to a
+// Plex Media Server whenever CantiNode adds, moves, or removes files on
+// disk, so Plex's own library stays current without a manual rescan — the
+// same pattern Sonarr/Radarr/Lidarr call a "Plex Media Server" connection.
+// Off by default (Enabled false), since it depends on a real Plex server,
+// token, and library section the operator configures.
+type PlexSettings struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// ServerURL is Plex's own base URL, e.g. "http://192.168.1.10:32400".
+	ServerURL string `yaml:"server_url" json:"serverUrl"`
+	// Token is Plex's own X-Plex-Token, scoped to this server
+	// (https://support.plex.tv/articles/204059436).
+	Token string `yaml:"token" json:"token"`
+	// SectionKey is the numeric key of Plex's own music library section to
+	// refresh (see plex.Client.MusicSections) — CantiNode may manage
+	// several root folders that all map onto one Plex music library, but a
+	// refresh call is always scoped to one section.
+	SectionKey string `yaml:"section_key" json:"sectionKey"`
+	// PathMappings translates a path as CantiNode itself sees it into the
+	// path Plex sees for the same file — for a Plex server on another
+	// machine or in a container that sees this same music share mounted at
+	// a different path than CantiNode does. Reuses the exact longest-
+	// prefix mapping mechanism the download-client path mappings already
+	// use (TranslatePath), just in the opposite conceptual direction: here
+	// RemotePrefix is CantiNode's own path prefix and LocalPrefix is
+	// Plex's. Empty means CantiNode and Plex already agree on paths.
+	PathMappings []PathMapping `yaml:"path_mappings,omitempty" json:"pathMappings"`
+}
+
 // Wanted-search schedule modes — see TimingSettings.WantedSearchMode.
 const (
 	WantedSearchModeInterval = "interval"
@@ -432,6 +461,7 @@ type Config struct {
 	Music    MusicSettings    `yaml:"music,omitempty"`
 	TagWrite TagWriteSettings `yaml:"tag_write,omitempty"`
 	Timings  TimingSettings   `yaml:"timings,omitempty"`
+	Plex     PlexSettings     `yaml:"plex,omitempty"`
 	// PathMappingList translates client-reported download paths onto this
 	// machine's filesystem (Completed Download Handling reads them).
 	PathMappingList []PathMapping `yaml:"path_mappings,omitempty"`
@@ -617,6 +647,39 @@ func (c *Config) TagWriteSettings() TagWriteSettings {
 func (c *Config) SetTagWrite(t TagWriteSettings) error {
 	c.mu.Lock()
 	c.TagWrite = t
+	c.mu.Unlock()
+	return c.save()
+}
+
+// PlexSettings returns the current Plex notification settings.
+func (c *Config) PlexSettings() PlexSettings {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p := c.Plex
+	out := make([]PathMapping, len(p.PathMappings))
+	copy(out, p.PathMappings)
+	p.PathMappings = out
+	return p
+}
+
+// SetPlex replaces the Plex notification settings and persists the
+// config. Path mappings are trimmed the same way SetPathMappings trims
+// the download-client ones; a mapping missing either prefix is rejected
+// rather than silently saved half-empty.
+func (c *Config) SetPlex(p PlexSettings) error {
+	p.ServerURL = strings.TrimRight(strings.TrimSpace(p.ServerURL), "/")
+	clean := make([]PathMapping, 0, len(p.PathMappings))
+	for _, m := range p.PathMappings {
+		m.RemotePrefix = strings.TrimSpace(m.RemotePrefix)
+		m.LocalPrefix = strings.TrimSpace(m.LocalPrefix)
+		if m.RemotePrefix == "" || m.LocalPrefix == "" {
+			return fmt.Errorf("path mapping needs both prefixes")
+		}
+		clean = append(clean, m)
+	}
+	p.PathMappings = clean
+	c.mu.Lock()
+	c.Plex = p
 	c.mu.Unlock()
 	return c.save()
 }

@@ -176,6 +176,7 @@ func (s *Scanner) moveTrackFile(trackFileID, destRootFolderID int64, newPath str
 			"old_path", tf.Path, "new_path", newPath, "error", err)
 	}
 	removeEmptyParents(filepath.Dir(tf.Path), srcRoot.Path)
+	s.notifyPlexPaths(tf.Path, newPath)
 	return nil
 }
 

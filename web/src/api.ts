@@ -242,6 +242,33 @@ export interface TimingSettings {
   importListSyncIntervalMinutes: number;
 }
 
+// PlexSettings pushes a "refresh this path" notification to a Plex Media
+// Server whenever CantiNode adds, moves, or removes files on disk, so
+// Plex's own library stays current without a manual rescan. Off by
+// default (enabled: false) — depends on a real Plex server, token, and
+// library section.
+export interface PlexSettings {
+  enabled: boolean;
+  serverUrl: string;
+  token: string;
+  sectionKey: string;
+  // Translates a path as CantiNode itself sees it into the path Plex
+  // sees for the same file — for a Plex server on another machine or in
+  // a container. Reuses the same PathMapping shape as the download-client
+  // mappings, just in the opposite conceptual direction: here
+  // remotePrefix is CantiNode's own path prefix and localPrefix is Plex's.
+  pathMappings: PathMapping[];
+}
+
+// PlexSection is one of Plex's own music ("artist"-type) library
+// sections — the Settings picker's own data source, fetched live from
+// the server URL/token currently in the form (not yet saved).
+export interface PlexSection {
+  key: string;
+  title: string;
+  type: string;
+}
+
 // ImportList is one configured external source (Settings → Import Lists)
 // that's periodically resolved to MusicBrainz artist MBIDs, adding and
 // monitoring any newly-appearing one automatically. Add-only — an artist
@@ -861,6 +888,19 @@ export const api = {
       ...json(settings),
       method: "PUT",
     }),
+
+  getPlexSettings: () => request<PlexSettings>("/api/v1/settings/plex"),
+  savePlexSettings: (settings: PlexSettings) =>
+    request<PlexSettings>("/api/v1/settings/plex", {
+      ...json(settings),
+      method: "PUT",
+    }),
+  // Looks up every music library section a not-yet-saved server URL/token
+  // can see — also serves as the "test connection" action (a failure here
+  // is a connectivity/auth problem, surfaced the same way a Test button
+  // failure is elsewhere).
+  listPlexSections: (serverUrl: string, token: string) =>
+    request<PlexSection[]>("/api/v1/settings/plex/sections", json({ serverUrl, token })),
 
   listRootFolders: () => request<RootFolder[]>("/api/v1/rootfolder"),
   browseFolders: (path?: string) =>

@@ -275,7 +275,7 @@ func setupOrganizeScanner(t *testing.T) (*Scanner, musiclibrary.RootFolder) {
 		t.Fatal(err)
 	}
 
-	s := New(db, nil, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+	s := New(db, nil, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
 	return s, *rf
 }
 
@@ -332,6 +332,50 @@ func TestOrganizeFileMovesAndRecordsPath(t *testing.T) {
 	}
 	if got.OrganizedAt == nil {
 		t.Error("OrganizedAt should be set")
+	}
+}
+
+// TestOrganizeFileNotifiesPlexWithOldAndNewPaths is the regression test
+// for the Plex-notify hook: a successful organize must report both the
+// file's old and new paths to notifyPlex, so a caller (internal/api's own
+// closure wiring config.PlexSettings/plex.NotifyPaths) can push a refresh
+// covering both the folder a file left and the one it landed in.
+func TestOrganizeFileNotifiesPlexWithOldAndNewPaths(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	var notified []string
+	s.notifyPlex = func(paths []string) { notified = paths }
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, "t-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcPath := filepath.Join(rf.Path, "unsorted.flac")
+	if err := os.WriteFile(srcPath, []byte("fake audio data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, srcPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	newPath, err := s.OrganizeFile(tf.ID)
+	if err != nil {
+		t.Fatalf("OrganizeFile: %v", err)
+	}
+
+	if len(notified) != 2 || notified[0] != srcPath || notified[1] != newPath {
+		t.Errorf("notified = %v, want [%q, %q]", notified, srcPath, newPath)
 	}
 }
 

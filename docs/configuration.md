@@ -68,6 +68,14 @@ timings:                                # background cadences — omit for defau
 path_mappings:                   # remote client paths → local ones
   - remote: /storage_1           # as the download client reports them
     local: /mnt/media            # where this server sees the same files
+plex:                            # optional — see "Plex notifications" below
+  enabled: false
+  server_url: "http://192.168.1.10:32400"
+  token: ""
+  section_key: ""                 # Plex's own music library section id
+  path_mappings:                  # CantiNode's own path → the path Plex sees
+    - remote: /mnt/music          # CantiNode's own prefix (same field names
+      local: /data/music          #   as path_mappings above, reused as-is)
 ```
 
 Environment variables override the file: `CANTINODE_HOST`, `CANTINODE_PORT`,
@@ -201,6 +209,34 @@ Three source types:
 Each list has its own **test** button that resolves it right now without
 saving or adding anything — `{"resolvedCount": N}` — to confirm it names
 what you expect before waiting for the next scheduled sync.
+
+## Plex notifications
+
+**Settings → Plex** pushes a "refresh this path" notification to a Plex
+Media Server whenever CantiNode adds, moves, or removes files on disk —
+the same pattern Sonarr/Radarr/Lidarr call a "Plex Media Server"
+connection. Off by default; needs a **server URL** (e.g.
+`http://192.168.1.10:32400`), a **token**
+([finding yours](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)),
+and a **library section** — click **Fetch library sections** once the
+server URL and token are filled in to pick from a dropdown instead of
+looking up the section id by hand (the same click also doubles as a
+connection test).
+
+The notification is a **partial scan scoped to just the folder that
+changed** (an album, or the specific file's own directory for a
+single-file action), never a full library scan — organizing an album, a
+cross-root-folder artist move, an import, and a delete all trigger one,
+each covering only the directories that actually changed. Writing tags
+never triggers one — that action edits a file in place, never moving or
+removing it, so there's nothing for Plex's own scanner to need to see.
+
+If Plex runs on another machine or in a container and sees this same
+music share mounted at a different path than CantiNode does, add a
+**path mapping** (CantiNode's own path prefix → the path Plex sees for
+the same files) — same longest-prefix mechanism as the download-client
+[remote path mappings](#remote-path-mappings) above, just in the opposite
+direction. Leave it empty when CantiNode and Plex already agree on paths.
 
 ## Tags to write
 

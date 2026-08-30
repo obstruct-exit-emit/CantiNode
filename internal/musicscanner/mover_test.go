@@ -41,7 +41,7 @@ func setupMoveScanner(t *testing.T) (s *Scanner, db *musiclibrary.Store, srcRoot
 	srcRoot = mk("Source", t.TempDir())
 	destRoot = mk("Destination", t.TempDir())
 
-	s = New(db, nil, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+	s = New(db, nil, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
 	return s, db, srcRoot, destRoot
 }
 
@@ -163,6 +163,29 @@ func TestMoveArtistCopiesUpdatesDBAndRemovesOriginal(t *testing.T) {
 	}
 	if tf.Path != newPath {
 		t.Errorf("Path = %q, want %q", tf.Path, newPath)
+	}
+}
+
+// TestMoveArtistNotifiesPlexPerFile is the regression test for the
+// Plex-notify hook on the move-to-a-different-root-folder path: each
+// successfully moved file reports its own old and new path to
+// notifyPlex, so a caller can push a refresh covering both the source and
+// destination directories.
+func TestMoveArtistNotifiesPlexPerFile(t *testing.T) {
+	s, db, srcRoot, destRoot := setupMoveScanner(t)
+	var notified [][]string
+	s.notifyPlex = func(paths []string) { notified = append(notified, paths) }
+
+	artistID, _ := seedMoveFile(t, db, 0, srcRoot, "Artist/Album/01.flac", "z1", []byte("hello world"))
+	oldPath := filepath.Join(srcRoot.Path, "Artist/Album/01.flac")
+	newPath := filepath.Join(destRoot.Path, "Artist/Album/01.flac")
+
+	if _, errs, err := s.MoveArtist(context.Background(), artistID, destRoot.ID); err != nil || len(errs) != 0 {
+		t.Fatalf("MoveArtist: err=%v errs=%v", err, errs)
+	}
+
+	if len(notified) != 1 || len(notified[0]) != 2 || notified[0][0] != oldPath || notified[0][1] != newPath {
+		t.Errorf("notified = %v, want one call with [%q, %q]", notified, oldPath, newPath)
 	}
 }
 

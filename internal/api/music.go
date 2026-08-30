@@ -24,6 +24,7 @@ import (
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/plex"
 	"github.com/cantinode/cantinode/internal/release"
 	"github.com/cantinode/cantinode/internal/tagreader"
 )
@@ -842,7 +843,16 @@ func (s *server) cancelInFlightGrabs(wantedAlbumIDs []int64, reason string) {
 // helper and frontend/tests already depend on it.
 func (s *server) writeDeleteResult(w http.ResponseWriter, deleteFiles bool, paths []string) {
 	if deleteFiles {
-		if _, errs := s.removeFilesFromDisk(paths); len(errs) > 0 {
+		deleted, errs := s.removeFilesFromDisk(paths)
+		// Notified even when some paths errored — deleted, not errs, is
+		// deliberately what gates this: a partial failure still means
+		// *something* really changed on disk that Plex should know about,
+		// same "best-effort, worth doing anyway" reasoning as every other
+		// per-item failure in this codebase not aborting the rest.
+		if deleted > 0 {
+			plex.NotifyPaths(s.cfg.PlexSettings(), slog.Default(), paths)
+		}
+		if len(errs) > 0 {
 			writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "fileErrors": errs})
 			return
 		}

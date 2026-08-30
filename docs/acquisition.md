@@ -127,7 +127,9 @@ linking working regardless of what name the bridge shows.
   scan to be picked up. If **Organize on match** is enabled (**Settings →
   Music**, off by default), a newly-matched file also moves into the
   naming-template layout immediately; otherwise run **Organize…** yourself
-  once you've reviewed things.
+  once you've reviewed things. If a [Plex connection](configuration.md#plex-notifications)
+  is configured, landing a newly-imported (and organized) file also
+  pushes a partial refresh to Plex, scoped to just the album it landed in.
 - **Failed and junk downloads** are blocklisted (never offered again by a
   future search) and deleted — out of the client and off disk. This covers
   client-side failures and spam whose content isn't the media (an `.exe`

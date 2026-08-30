@@ -49,7 +49,7 @@ func setupOrganizeScannerWithCoverart(t *testing.T, caaHandler http.HandlerFunc)
 	}
 
 	coverartClient := coverart.NewClientWithBaseURL(t.TempDir(), "cantinode-test/0.1", caa.URL, nil)
-	s := New(db, nil, coverartClient, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+	s := New(db, nil, coverartClient, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
 	return s, *rf
 }
 

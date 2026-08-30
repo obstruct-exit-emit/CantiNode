@@ -58,6 +58,11 @@ add a root folder for it.
   fetched again just from browsing.
 - Local image cache: provider art is downloaded on add/refresh and served
   from CantiNode, surviving provider link rot.
+- **Plex notifications**: push a partial "refresh this path" scan to a
+  Plex Media Server whenever a file is added, moved, or removed — organize,
+  a cross-root-folder move, an import, and a delete all trigger one,
+  scoped to just the folder that changed, so Plex's own library stays
+  current without a manual rescan.
 
 ## Documentation
 

@@ -89,7 +89,7 @@ func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musi
 	}
 
 	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", "http://127.0.0.1:0")
-	scanner := musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+	scanner := musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
 
 	cfg := &config.Config{}
 
@@ -159,7 +159,7 @@ func newRealMatchScanner(t *testing.T, musicStore *musiclibrary.Store, recording
 	t.Cleanup(srv.Close)
 
 	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", srv.URL)
-	return musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+	return musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
 }
 
 // TestImportGrabOrganizesNewlyMatchedFilesRegardlessOfSetting is the

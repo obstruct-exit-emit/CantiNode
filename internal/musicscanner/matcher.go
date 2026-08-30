@@ -524,6 +524,7 @@ func (s *Scanner) DeleteTrackFile(trackFileID int64) error {
 	if err := s.db.DeleteTrackFile(trackFileID); err != nil {
 		return err
 	}
+	s.notifyPlexPaths(tf.Path)
 	return s.reapIfOrphaned(albumID)
 }
 

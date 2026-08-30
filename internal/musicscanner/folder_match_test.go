@@ -242,7 +242,7 @@ func newFolderTestScanner(t *testing.T, fs *folderTestServer) (*Scanner, musicli
 		t.Fatal(err)
 	}
 
-	s := New(db, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+	s := New(db, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
 	return s, *rf
 }
 

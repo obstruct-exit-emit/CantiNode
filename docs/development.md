@@ -56,6 +56,8 @@ internal/musicbrainz/  MusicBrainz API client (artist/release lookup+search)
 internal/audiodb/      TheAudioDB client (artist bio/photo)
 internal/lastfm/       Last.fm client (a user's/tag's top artists, for
                        import lists)
+internal/plex/         Plex Media Server client + best-effort "refresh
+                       this path" notification on file changes
 internal/coverart/     Cover Art Archive client + local album-art cache
 internal/tagreader/    reads embedded audio tags (MBIDs, title, track#)
 internal/tagwriter/    rewrites embedded audio tags (the standalone

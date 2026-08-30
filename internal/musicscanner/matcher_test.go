@@ -342,7 +342,7 @@ func newTestScanner(t *testing.T, lookupResponses map[string]mbRecording, search
 		t.Fatal(err)
 	}
 
-	s := New(db, mb, nil, slog.Default(), "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
+	s := New(db, mb, nil, slog.Default(), "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
 	return s, *rf
 }
 
@@ -999,6 +999,29 @@ func TestDeleteTrackFileRemovesFileAndRow(t *testing.T) {
 	}
 	if _, err := s.db.GetTrackFile(tf.ID); err != musiclibrary.ErrNotFound {
 		t.Errorf("GetTrackFile after delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestDeleteTrackFileNotifiesPlex is the regression test for the
+// Plex-notify hook on the single-track-file delete path: a successful
+// delete reports the removed file's own path to notifyPlex.
+func TestDeleteTrackFileNotifiesPlex(t *testing.T) {
+	s, rf := newTestScanner(t, nil, nil)
+	var notified []string
+	s.notifyPlex = func(paths []string) { notified = paths }
+
+	path := buildFLACFile(t, rf.Path, "song.flac", map[string]string{"TITLE": "Untitled"})
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteTrackFile(tf.ID); err != nil {
+		t.Fatalf("DeleteTrackFile: %v", err)
+	}
+
+	if len(notified) != 1 || notified[0] != path {
+		t.Errorf("notified = %v, want [%q]", notified, path)
 	}
 }
 

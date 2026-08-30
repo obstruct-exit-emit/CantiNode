@@ -45,6 +45,7 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 - Match against a specific MusicBrainz release version/edition, not just one fixed default — every known version's metadata and tracklist is cached, so picking among them never calls MusicBrainz again
 - Matched files are organized into a configurable `{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}` layout, and can have their tags rewritten to match — MP3, FLAC, M4A/M4B/M4P, OGG/OGA, Opus, DSF, and WAV
 - Artist bio/photo (TheAudioDB), genres/tags/rating (MusicBrainz), and album art (Cover Art Archive, including for wanted/missing albums) are cached automatically the first time an artist is added — never re-fetched just from browsing
+- **Plex notifications** — push a partial "refresh this path" scan to a Plex Media Server whenever a file is added, moved, or removed, scoped to just the folder that changed, so Plex's own library stays current without a manual rescan
 
 **🖥️ A modern web UI**
 - A poster-grid artist library (sortable by name/recently-added/album count/missing count) with per-artist detail pages — one **Albums** grid (sortable, with Grid/Compact/List views) holding owned and wanted albums together, badged accordingly, plus a **Missing** section grouped by release type (Album/EP/Single/Live/Compilation/…) for the rest of the discography

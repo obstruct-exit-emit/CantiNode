@@ -1,13 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"github.com/cantinode/cantinode/internal/config"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/plex"
 	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
@@ -173,4 +176,49 @@ func (s *server) handlePutTimingSettings(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.cfg.TimingSettings())
+}
+
+// --- Plex notification settings ---
+
+func (s *server) handleGetPlexSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.PlexSettings())
+}
+
+func (s *server) handlePutPlexSettings(w http.ResponseWriter, r *http.Request) {
+	var req config.PlexSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.cfg.SetPlex(req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.cfg.PlexSettings())
+}
+
+// handleListPlexSections looks up every music library section an
+// unsaved Plex server URL/token can see — the Settings page's own "Test"
+// action and its library-section picker's data source in one call, so
+// there's no separate button for each. Takes the draft server URL/token
+// straight from the request body rather than whatever's already saved, so
+// this works before the settings are saved at all (the normal case: you
+// fill in the server and token, then pick a section from what comes back).
+func (s *server) handleListPlexSections(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ServerURL string `json:"serverUrl"`
+		Token     string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ServerURL == "" || req.Token == "" {
+		writeError(w, http.StatusBadRequest, "serverUrl and token are required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	sections, err := plex.NewClient(req.ServerURL, req.Token).MusicSections(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, sections)
 }

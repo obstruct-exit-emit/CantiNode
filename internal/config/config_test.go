@@ -284,6 +284,70 @@ func TestSetMusicPersistsAcrossReload(t *testing.T) {
 	}
 }
 
+func TestSetPlexPersistsAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := PlexSettings{
+		Enabled:    true,
+		ServerURL:  "http://192.168.1.10:32400",
+		Token:      "my-token",
+		SectionKey: "2",
+		PathMappings: []PathMapping{
+			{RemotePrefix: "/data/music", LocalPrefix: "/mnt/music"},
+		},
+	}
+	if err := cfg.SetPlex(want); err != nil {
+		t.Fatalf("SetPlex: %v", err)
+	}
+
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	got := reloaded.PlexSettings()
+	if got.Enabled != want.Enabled || got.ServerURL != want.ServerURL || got.Token != want.Token || got.SectionKey != want.SectionKey {
+		t.Errorf("PlexSettings() after reload = %+v, want %+v", got, want)
+	}
+	if len(got.PathMappings) != 1 || got.PathMappings[0] != want.PathMappings[0] {
+		t.Errorf("PathMappings after reload = %+v, want %+v", got.PathMappings, want.PathMappings)
+	}
+}
+
+// TestSetPlexTrimsURLAndRejectsIncompletePathMapping mirrors
+// SetPathMappings' own validation: a mapping missing either prefix is
+// rejected outright rather than silently saved half-empty, and a trailing
+// slash on the server URL (easy to paste by accident from a browser
+// address bar) is trimmed so path-building elsewhere never double-slashes.
+func TestSetPlexTrimsURLAndRejectsIncompletePathMapping(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cfg.SetPlex(PlexSettings{
+		Enabled:      true,
+		ServerURL:    "http://192.168.1.10:32400",
+		Token:        "t",
+		PathMappings: []PathMapping{{RemotePrefix: "/data"}},
+	}); err == nil {
+		t.Error("expected an error for a path mapping missing its local prefix")
+	}
+
+	if err := cfg.SetPlex(PlexSettings{
+		Enabled:   true,
+		ServerURL: "http://192.168.1.10:32400/",
+		Token:     "t",
+	}); err != nil {
+		t.Fatalf("SetPlex: %v", err)
+	}
+	if got := cfg.PlexSettings().ServerURL; got != "http://192.168.1.10:32400" {
+		t.Errorf("ServerURL = %q, want the trailing slash trimmed", got)
+	}
+}
+
 func TestSetTimingsNormalizesWantedSearchFields(t *testing.T) {
 	cfg, err := Load(t.TempDir())
 	if err != nil {

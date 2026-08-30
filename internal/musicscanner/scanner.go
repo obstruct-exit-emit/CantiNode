@@ -55,6 +55,15 @@ type Scanner struct {
 	organizeOnMatch                bool
 	tagToggles                     tagwriter.Toggles
 	disableDiscNumberForSingleDisc bool
+
+	// notifyPlex is called with the set of files that just moved (old and
+	// new paths together) after a successful organize or root-folder move
+	// — nil-safe (Plex notification disabled, or a test/caller that
+	// doesn't care). A plain function type rather than a *plex.Client or
+	// *config.Config dependency, so this package doesn't need to import
+	// either just to fire an optional notification — see New's own doc
+	// comment for the same reasoning already applied to namingFormat et al.
+	notifyPlex func(paths []string)
 }
 
 // New returns a Scanner. namingFormat/minMatchConfidence/organizeOnMatch
@@ -67,7 +76,9 @@ type Scanner struct {
 // at all. tagToggles gates which tagwriter.Tags fields WriteTags actually
 // writes — pass tagwriter.AllEnabled for a caller (most tests) that
 // doesn't care about per-field settings.
-func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverart.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles, disableDiscNumberForSingleDisc bool) *Scanner {
+// notifyPlex may be nil (Plex notification disabled, or a caller/test
+// that doesn't care) — see the Scanner field's own doc comment.
+func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverart.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles, disableDiscNumberForSingleDisc bool, notifyPlex func(paths []string)) *Scanner {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -81,6 +92,15 @@ func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverar
 		organizeOnMatch:                organizeOnMatch,
 		tagToggles:                     tagToggles,
 		disableDiscNumberForSingleDisc: disableDiscNumberForSingleDisc,
+		notifyPlex:                     notifyPlex,
+	}
+}
+
+// notifyPlexPaths calls s.notifyPlex if set — a tiny nil-safe wrapper so
+// every call site (organizer.go, mover.go) doesn't need its own nil check.
+func (s *Scanner) notifyPlexPaths(paths ...string) {
+	if s.notifyPlex != nil {
+		s.notifyPlex(paths)
 	}
 }
 

@@ -13,6 +13,8 @@ import {
   type NamingSettings,
   type NativeIndexer,
   type PathMapping,
+  type PlexSection,
+  type PlexSettings,
   type QualityProfile,
   type RootFolder,
   type SystemStatus,
@@ -32,6 +34,7 @@ const settingsGroups = [
   { name: "Indexers", icon: "🔎", blurb: "Newznab and Torznab search sources — added by hand or synced from Prowlarr." },
   { name: "Download Clients", icon: "⬇️", blurb: "Where grabbed releases are sent, and how finished downloads are handled." },
   { name: "Import Lists", icon: "📥", blurb: "External sources that automatically add and monitor new artists." },
+  { name: "Plex", icon: "📺", blurb: "Push a library refresh to a Plex Media Server when files change." },
   { name: "General", icon: "⚙️", blurb: "Login accounts, the API key, and this instance's details." },
 ] as const;
 type SettingsGroup = (typeof settingsGroups)[number]["name"];
@@ -165,6 +168,7 @@ export default function SettingsView({
         </>
       )}
       {group === "Import Lists" && <ImportListsCard onError={onError} />}
+      {group === "Plex" && <PlexCard onError={onError} />}
       {group === "General" && <GeneralCard onError={onError} />}
     </>
   );
@@ -2517,6 +2521,205 @@ function ImportListsCard({
             </span>
           )}
         </div>
+      </div>
+    </section>
+  );
+}
+
+// PlexCard configures pushing a "refresh this path" notification to a
+// Plex Media Server whenever CantiNode adds, moves, or removes files on
+// disk. One coherent form (server/token/section/path mappings all saved
+// together via a single Save), unlike PathMappingsPanel's own
+// immediate-save-per-edit — Plex path mappings are nested inside the same
+// settings blob rather than their own endpoint, so there's nothing to
+// save independently anyway.
+function PlexCard({ onError }: { onError: (message: string) => void }) {
+  const [settings, setSettings] = useState<PlexSettings | null>(null);
+  const [sections, setSections] = useState<PlexSection[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [mapCantiNodePath, setMapCantiNodePath] = useState("");
+  const [mapPlexPath, setMapPlexPath] = useState("");
+
+  useEffect(() => {
+    api
+      .getPlexSettings()
+      .then(setSettings)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  }, [onError]);
+
+  if (!settings) return <p className="muted">Loading…</p>;
+
+  const set = (patch: Partial<PlexSettings>) => setSettings({ ...settings, ...patch });
+
+  const fetchSections = () => {
+    setBusy(true);
+    setNotice("");
+    api
+      .listPlexSections(settings.serverUrl, settings.token)
+      .then((secs) => {
+        setSections(secs);
+        setNotice(
+          secs.length > 0
+            ? `✓ Found ${secs.length} music section${secs.length === 1 ? "" : "s"}`
+            : "✓ Connected, but no music library sections found",
+        );
+      })
+      .catch((err: unknown) => setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => setBusy(false));
+  };
+
+  const save = () => {
+    setBusy(true);
+    setNotice("");
+    api
+      .savePlexSettings(settings)
+      .then((saved) => {
+        setSettings(saved);
+        setNotice("✓ Saved");
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setBusy(false));
+  };
+
+  const addMapping = () => {
+    if (!mapCantiNodePath.trim() || !mapPlexPath.trim()) return;
+    set({
+      pathMappings: [
+        ...settings.pathMappings,
+        { remotePrefix: mapCantiNodePath.trim(), localPrefix: mapPlexPath.trim() },
+      ],
+    });
+    setMapCantiNodePath("");
+    setMapPlexPath("");
+  };
+
+  const removeMapping = (i: number) => {
+    set({ pathMappings: settings.pathMappings.filter((_, j) => j !== i) });
+  };
+
+  return (
+    <section className="card">
+      <h2>Plex</h2>
+      <p className="muted">
+        Push a "refresh this path" notification to a Plex Media Server
+        whenever CantiNode adds, moves, or removes files on disk — a
+        partial scan scoped to just the folder that changed, not a full
+        library scan — so Plex's own library stays current without a
+        manual rescan. Off by default.
+      </p>
+      <label>
+        <span>
+          <input
+            type="checkbox"
+            checked={settings.enabled}
+            onChange={(e) => set({ enabled: e.target.checked })}
+          />{" "}
+          Enable Plex notifications
+        </span>
+      </label>
+      <div className="settings-form">
+        <label>
+          Server URL
+          <input
+            placeholder="http://192.168.1.10:32400"
+            value={settings.serverUrl}
+            onChange={(e) => set({ serverUrl: e.target.value })}
+          />
+        </label>
+        <label>
+          Token
+          <input
+            type="password"
+            placeholder="X-Plex-Token"
+            value={settings.token}
+            onChange={(e) => set({ token: e.target.value })}
+          />
+        </label>
+        <label>
+          Library section
+          {sections.length > 0 ? (
+            <select value={settings.sectionKey} onChange={(e) => set({ sectionKey: e.target.value })}>
+              <option value="">Choose a section…</option>
+              {sections.map((sec) => (
+                <option key={sec.key} value={sec.key}>
+                  {sec.title}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              placeholder="fetch sections below, or enter a section key directly"
+              value={settings.sectionKey}
+              onChange={(e) => set({ sectionKey: e.target.value })}
+            />
+          )}
+        </label>
+      </div>
+      <div className="settings-actions">
+        <button
+          disabled={busy || !settings.serverUrl.trim() || !settings.token.trim()}
+          onClick={fetchSections}
+        >
+          Fetch library sections
+        </button>
+        <button disabled={busy} onClick={save}>
+          Save
+        </button>
+        {notice && (
+          <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>{notice}</span>
+        )}
+      </div>
+
+      <h3 className="settings-subhead">Path mapping</h3>
+      <p className="muted">
+        Only needed if Plex sees this same music share mounted at a
+        different path than CantiNode does (Plex on another machine or in
+        a container) — leave empty if they already agree.
+      </p>
+      {settings.pathMappings.length > 0 && (
+        <ul className="rows">
+          {settings.pathMappings.map((m, i) => (
+            <li key={`${m.remotePrefix}→${m.localPrefix}`}>
+              <div className="row">
+                <span className="file-path">
+                  <code>{m.remotePrefix}</code> → <code>{m.localPrefix}</code>
+                </span>
+                <span className="row-actions">
+                  <button className="toggle" disabled={busy} onClick={() => removeMapping(i)}>
+                    remove
+                  </button>
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="settings-form">
+        <label>
+          CantiNode's own path
+          <input
+            placeholder="/mnt/music"
+            value={mapCantiNodePath}
+            onChange={(e) => setMapCantiNodePath(e.target.value)}
+          />
+        </label>
+        <label>
+          Plex's own path for the same files
+          <input
+            placeholder="/data/music"
+            value={mapPlexPath}
+            onChange={(e) => setMapPlexPath(e.target.value)}
+          />
+        </label>
+      </div>
+      <div className="settings-actions">
+        <button
+          disabled={busy || !mapCantiNodePath.trim() || !mapPlexPath.trim()}
+          onClick={addMapping}
+        >
+          + Add mapping
+        </button>
       </div>
     </section>
   );

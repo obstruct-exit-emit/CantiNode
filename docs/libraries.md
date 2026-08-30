@@ -282,6 +282,11 @@ files out of a finished download (see [Acquisition](acquisition.md)), and
 a manual scan only ever looks at audio files too — so there's nothing for
 Organize to clean up after the fact.
 
+Organizing, moving to a different root folder (see below), importing, and
+deleting a file all push a partial Plex refresh — scoped to just the
+folder that changed — when a
+[Plex connection](configuration.md#plex-notifications) is configured.
+
 ## Root folders
 
 **Settings → Media Management → Root Folders** supports more than one —

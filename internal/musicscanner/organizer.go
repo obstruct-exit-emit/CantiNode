@@ -311,6 +311,7 @@ func (s *Scanner) OrganizeFile(trackFileID int64) (string, error) {
 		return "", fmt.Errorf("record organized path: %w", err)
 	}
 	removeEmptyParents(oldDir, rootFolder.Path)
+	s.notifyPlexPaths(tf.Path, newPath)
 	return newPath, nil
 }
 

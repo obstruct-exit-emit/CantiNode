@@ -33,6 +33,7 @@ import (
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/plex"
 	"github.com/cantinode/cantinode/web"
 )
 
@@ -109,7 +110,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	coverartClient := coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient)
 	musicScanner := musicscanner.New(musicStore, mb, coverartClient, slog.Default(),
 		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch, tagWriteToggles(cfg.TagWriteSettings()),
-		cfg.NamingSettings().DisableDiscNumberForSingleDisc)
+		cfg.NamingSettings().DisableDiscNumberForSingleDisc,
+		func(paths []string) { plex.NotifyPaths(cfg.PlexSettings(), slog.Default(), paths) })
 	discographySvc := discography.New(mb, musicStore)
 	metadataBackfillSvc := metadatabackfill.New(musicStore, mb, audiodbClient, discographySvc)
 	imp := importer.New(downloads, musicScanner, musicStore, cfg)
@@ -272,6 +274,9 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("PUT /api/v1/settings/timings", s.requireAdmin(s.handlePutTimingSettings))
 	mux.HandleFunc("GET /api/v1/settings/pathmappings", s.requireAdmin(s.handleGetPathMappings))
 	mux.HandleFunc("PUT /api/v1/settings/pathmappings", s.requireAdmin(s.handlePutPathMappings))
+	mux.HandleFunc("GET /api/v1/settings/plex", s.requireAdmin(s.handleGetPlexSettings))
+	mux.HandleFunc("PUT /api/v1/settings/plex", s.requireAdmin(s.handlePutPlexSettings))
+	mux.HandleFunc("POST /api/v1/settings/plex/sections", s.requireAdmin(s.handleListPlexSections))
 
 	mux.HandleFunc("GET /api/v1/qualityprofile", s.requireAdmin(s.handleListProfiles))
 	mux.HandleFunc("POST /api/v1/qualityprofile", s.requireAdmin(s.handleAddProfile))
