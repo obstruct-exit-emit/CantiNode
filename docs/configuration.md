@@ -212,11 +212,11 @@ what you expect before waiting for the next scheduled sync.
 
 ## Plex notifications
 
-**Settings → Plex** pushes a "refresh this path" notification to a Plex
-Media Server whenever CantiNode adds, moves, or removes files on disk —
-the same pattern Sonarr/Radarr/Lidarr call a "Plex Media Server"
-connection. Off by default; needs a **server URL** (e.g.
-`http://192.168.1.10:32400`), a **token**
+**Settings → Integrations** (Plex today, more to come) pushes a "refresh
+this path" notification to a Plex Media Server whenever CantiNode adds,
+moves, or removes files on disk — the same pattern Sonarr/Radarr/Lidarr
+call a "Plex Media Server" connection. Off by default; needs a
+**server URL** (e.g. `http://192.168.1.10:32400`), a **token**
 ([finding yours](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)),
 and a **library section** — click **Fetch library sections** once the
 server URL and token are filled in to pick from a dropdown instead of

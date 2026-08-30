@@ -34,7 +34,7 @@ const settingsGroups = [
   { name: "Indexers", icon: "🔎", blurb: "Newznab and Torznab search sources — added by hand or synced from Prowlarr." },
   { name: "Download Clients", icon: "⬇️", blurb: "Where grabbed releases are sent, and how finished downloads are handled." },
   { name: "Import Lists", icon: "📥", blurb: "External sources that automatically add and monitor new artists." },
-  { name: "Plex", icon: "📺", blurb: "Push a library refresh to a Plex Media Server when files change." },
+  { name: "Integrations", icon: "🔌", blurb: "External services CantiNode talks to — Plex today, more to come." },
   { name: "General", icon: "⚙️", blurb: "Login accounts, the API key, and this instance's details." },
 ] as const;
 type SettingsGroup = (typeof settingsGroups)[number]["name"];
@@ -168,7 +168,7 @@ export default function SettingsView({
         </>
       )}
       {group === "Import Lists" && <ImportListsCard onError={onError} />}
-      {group === "Plex" && <PlexCard onError={onError} />}
+      {group === "Integrations" && <PlexCard onError={onError} />}
       {group === "General" && <GeneralCard onError={onError} />}
     </>
   );
