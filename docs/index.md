@@ -33,6 +33,10 @@ add a root folder for it.
   automatically — no manual "Search releases" or "Scan files" step needed
   unless you want one (e.g. to search an unmonitored artist, or grab a
   quality upgrade for something you already own).
+- **Import Lists**: point CantiNode at a MusicBrainz Series, a plain
+  artist list, or a Last.fm user's/tag's top artists, and every artist it
+  names is added and monitored automatically on a periodic sync — one
+  more way in besides adding artists one at a time by hand.
 - Tag-first matching: a file's own `MUSICBRAINZ_TRACKID`/`MUSICBRAINZ_ALBUMID`
   tags resolve it exactly; otherwise whole-folder release matching (CD1/CD2/
   Disc-N subfolders of one album are detected and merged first), then

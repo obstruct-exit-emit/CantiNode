@@ -29,7 +29,7 @@ npm run build    # production build into web/dist
 cmd/cantinode/         entrypoint; wires up and runs the background loops
                        (health check, Completed Download Handling, the
                        wanted-list sweep, discography refresh, metadata
-                       backfill); restore staging
+                       backfill, import-list sync); restore staging
 internal/api/          REST handlers, router, auth, backups
 internal/musiclibrary/ domain model + SQLite store (artists/albums/tracks)
 internal/musicscanner/ file scanning, MusicBrainz matching, organize/rename
@@ -39,18 +39,23 @@ internal/importer/     Completed Download Handling: polls in-flight grabs,
                        library, scans them in
 internal/autosearch/   wanted-list sweep: searches and grabs for every
                        monitored artist's still-wanted albums, on a timer
-internal/discography/  caches an artist's (or tracked series') own
-                       discography from MusicBrainz - the cheap "did
-                       anything new appear" half of a full artist refresh
+internal/discography/  caches an artist's own discography from
+                       MusicBrainz - the cheap "did anything new appear"
+                       half of a full artist refresh
 internal/discoveryrefresh/ periodic sweep re-caching every monitored
-                       artist's/series' discography, so a new release
-                       lands in Missing without a manual "Refresh metadata"
+                       artist's discography, so a new release lands in
+                       Missing without a manual "Refresh metadata"
 internal/metadatabackfill/ fills in discography/bio/photo for an artist
                        that only ever got a bare name/MBID row - restart-
                        safe backstop for the same work a scan or "Monitor"
                        already does inline, on its own periodic timer
+internal/importlist/   periodic sync resolving every enabled import list
+                       (a MusicBrainz Series, a plain artist list, or a
+                       Last.fm user/tag) to add+monitor new artists
 internal/musicbrainz/  MusicBrainz API client (artist/release lookup+search)
 internal/audiodb/      TheAudioDB client (artist bio/photo)
+internal/lastfm/       Last.fm client (a user's/tag's top artists, for
+                       import lists)
 internal/coverart/     Cover Art Archive client + local album-art cache
 internal/tagreader/    reads embedded audio tags (MBIDs, title, track#)
 internal/tagwriter/    rewrites embedded audio tags (the standalone

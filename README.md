@@ -32,6 +32,7 @@ CantiNode is an **alternative** to tools like Lidarr, in the familiar *arr style
 **🔍 One acquisition pipeline, fully automatic**
 - **A Prowlarr connection** — one indexer that searches everything a self-hosted Prowlarr instance already has configured, no per-indexer duplication and no pretending to be a Readarr app; manual Newznab/Torznab entry works too
 - A background sweep searches and grabs monitored artists' wanted albums on its own (default daily, tunable); a finished download is copied into the library and scanned in automatically too — search-to-organized-file with no manual steps unless you want them
+- **Import Lists** — point CantiNode at a MusicBrainz Series, a plain artist list, or a Last.fm user's/tag's top artists, and it adds and monitors every artist named automatically on a periodic sync, joining the same wanted-list sweep as an artist added by hand
 - Release parsing and scoring that understands formats and retail editions
 - Quality profiles with upgrade handling (search for — and grab — a better release than what you already own, auto-swapping the old file out once the better one is matched in), a failed-release blocklist, and per-indexer failure backoff
 

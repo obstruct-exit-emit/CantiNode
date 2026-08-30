@@ -10,6 +10,295 @@ once the pre-1.0 hardening (see [ROADMAP](ROADMAP.md)) wraps up.
 Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardening
 in progress. Highlights from the hardening period, newest first:
 
+### Fixed
+- **A release group's cached version list was re-fetched from MusicBrainz on
+  every metadata-backfill retry, even when it was already fully cached.**
+  `CacheReleaseGroupVersions` called `BrowseReleaseGroupReleases`
+  unconditionally, with no check for whether that release group's versions
+  were already cached. Every caller in `internal/api` already pre-checks its
+  own cache first, so this looked idempotent from the outside — but
+  `CacheFullArtistMetadata`'s own retry path doesn't: a transient TheAudioDB
+  failure deliberately leaves `MetadataFetchedAt` unset so a later sweep
+  retries the whole artist. Retrying re-ran the version-caching step for the
+  artist's *entire* discography every single pass, re-fetching every
+  release group's version list from MusicBrainz for no reason, at its
+  ~1/sec throttle, repeating every 15 minutes until TheAudioDB happened to
+  succeed once. `musiclibrary.Store.HasReleaseGroupVersions` already existed
+  for exactly this check; it just wasn't wired up here.
+
+### Added
+- **Import Lists**: point CantiNode at an external source and it
+  periodically resolves it to MusicBrainz artist MBIDs, adding and
+  monitoring any new one automatically — joining the existing autosearch
+  wanted-list sweep with no manual "+ Add" step. Add-only, matching the
+  "never auto-delete" posture used elsewhere: an artist that later falls
+  off a list stays in the library. Three source types: **MusicBrainz
+  Series** (resolves each linked release group's own artist-credit to a
+  real artist — a compilation/sampler series where every entry is credited
+  to "Various Artists" correctly resolves to zero artists, since there's no
+  single real performer to attribute those to); a **plain list** (pasted
+  text or a fetched URL, one artist name per line, resolved the same way a
+  manual "+ Add artist" search does); and **Last.fm** (a new
+  `internal/lastfm` client — a user's or a tag's top artists, resolved via
+  Last.fm's own MBID when present, a MusicBrainz name search otherwise;
+  needs a new Last.fm API key under Settings → Music). An artist already
+  monitored (by any source) is looked up once per sweep via one `ListArtists`
+  call rather than re-fetched from MusicBrainz per list, so a popular
+  Last.fm list mostly full of already-owned artists stays cheap. REST CRUD
+  mirrors `internal/api/indexers.go`; sync cadence is a new tunable field
+  on the existing background-timings settings; the UI is a new
+  **Import Lists** settings card, structurally identical to Indexers'.
+
+### Removed
+- **"Paste series link"** — the whole synthetic-series-artist feature never
+  worked reliably and is gone end to end: the Add panel's own tab,
+  `POST /api/v1/music/series` and its input-parsing helpers, the
+  series-aware filing logic in file matching, and the series branch in
+  artist refresh (API, discography, metadata backfill). `Artist.Kind` stays
+  as a column (existing rows already have a value, and nothing but this
+  removed feature ever set it to anything but "artist"). The underlying
+  MusicBrainz series API bindings (`LookupSeries`, `Series`) are kept —
+  generic, not specific to the removed feature — and now back the
+  MusicBrainz Series import-list source type above instead.
+
+### Fixed
+- **A scan re-read every file's tags from disk on every pass, even an
+  already-matched file that hadn't changed since the last scan** — real,
+  avoidable I/O at scale, worse on a network-mounted library. A matched
+  file's on-disk size is now used as a cheap freshness check (a `stat`, not
+  a full read): unchanged size skips the tag re-read entirely, while a
+  genuinely different size (a real re-tag/re-encode/replacement) still gets
+  read fresh, and unmatched files are always read regardless.
+- **A downloading file could flicker out of Activity for a couple of
+  seconds, then reappear.** `sweepQueueLocked` aggregates every enabled
+  download client's live queue call in parallel; a client that failed to
+  answer any single sweep (a transient network blip, a slow response past
+  its own timeout) had its items dropped from the aggregated queue
+  entirely for that sweep, even a download still genuinely in progress —
+  reappearing only once a later sweep happened to succeed again. Each
+  client's last successful result is now kept as a fallback (capped at 5
+  minutes old, so a client genuinely down for a while shows nothing rather
+  than an indefinitely stale progress bar) instead of blanking a real
+  download out of Activity for one missed poll.
+
+### Added
+- **A newly-imported grab is now organized immediately, regardless of the
+  general "Organize on match" setting.** That setting defaults off because
+  a first library-wide scan can match hundreds of pre-existing files at
+  once, and moving files on disk is harder to casually undo than a database
+  row — neither reason applies to a single release the user explicitly
+  searched for and grabbed. The importer now organizes whichever of its own
+  just-copied files the post-import scan matched, scoped strictly to the
+  files that one grab brought in, never touching anything else in the
+  library.
+- **An opt-out setting for `{DiscNumber}` on single-disc releases**
+  (Settings → File Naming), default off so nothing changes for an existing
+  library unless turned off — a multi-disc release always keeps its real
+  disc number regardless. Three real bugs turned up testing this against
+  real naming templates and were fixed the same day: a
+  `{DiscNumber}.{TrackNumber}` template left a dangling leading "." once
+  `{DiscNumber}` was removed (worse than cosmetic — a leading "." makes it
+  a hidden file on Unix); a connector on *both* sides of `{DiscNumber}`
+  (`-{DiscNumber}-{TrackNumber}`) only had the trailing one cleaned up,
+  leaving the leading one dangling too; and a literal disc-label word right
+  before the punctuation (`CD{DiscNumber}`) was left behind as literal text
+  ("CD05 - Title.flac" instead of "05 - Title.flac") — now a short,
+  explicit list of recognized labels ("Disc", "Disk", "CD", "D") is
+  stripped alongside the punctuation.
+
+### Removed
+- **Import M3U** (playlists). Every line resolved to a track by an exact
+  database path match with no fallback — that only ever works for
+  re-importing CantiNode's own prior export of the exact same library; an
+  M3U from any other player, or built against a different library layout,
+  failed on every single line, silently importing a playlist with a name
+  and zero tracks. Rather than build path/filename-fallback matching for a
+  real use case that "+ New" plus per-track/per-album "+ playlist" already
+  cover, the feature is removed outright. Export is unaffected.
+
+### Fixed
+- **"Write tags" failed every file in an album with invalid UTF-8 in its
+  existing FLAC tags.** Root-caused against a real, live file: TagLib's
+  WASM-compiled build throws on *any* read or write of a FLAC whose
+  existing `VORBIS_COMMENT` block contains a byte sequence that isn't valid
+  UTF-8 — this file's `Artist` comment had a raw Windows-1252 byte where a
+  UTF-8 apostrophe belonged, tagged with a ripping tool known for this
+  exact mistake. A write now runs a small repair pass first: for a FLAC
+  file, any invalid UTF-8 byte inside the existing comment block is
+  replaced with `?` in place (every block's declared length stays exactly
+  the same, so nothing else in the file needs to move) before TagLib ever
+  touches it — a no-op for anything that isn't FLAC, or a FLAC that's
+  already fine. Investigated further after a live report that a normal
+  merge-mode write afterward seemed to drop every pre-existing Vorbis
+  comment key CantiNode doesn't itself manage ("Ripping Tool", "Catalog",
+  ...): turned out not to be data loss at all — TagLib canonicalizes every
+  Vorbis comment field name to uppercase the moment it writes *any* field
+  to a FLAC/Ogg file (spec-compliant, since Vorbis field names are
+  case-insensitive), so a field survives fully intact just under its
+  now-uppercased key. Confirmed with regression tests reading the raw
+  on-disk bytes directly.
+- **Multi-disc albums showed disc 1 with a bare track number while disc 2+
+  got a "2.01"-style prefix**, inconsistent within the same album. Now
+  checks whether the album has any track past disc 1 at all — if so every
+  disc's tracks get the "N." prefix, disc 1 included.
+- **Downloaded albums could sometimes vanish from Activity entirely.**
+  Three independent code paths could each trigger a full library scan on
+  the same `Scanner` (a manual "Scan library", the periodic importer sweep,
+  and a completed grab's own post-copy scan) with nothing serializing them
+  against each other — two full scans could race on the same database,
+  matching (and writing) the same files at once. When a completed grab's
+  post-copy scan lost that race, it could come back having matched
+  nothing, so the import reverted the album back to "wanted" even though
+  its files really were copied in — the album just disappeared, looking
+  like the download never happened. `ScanAll` now serializes via its own
+  lock: a second caller waits its turn instead of running concurrently.
+
+### Changed
+- **The playlist detail and list pages got the same visual treatment**:
+  a split header card above the content, numbered/tiled rows instead of
+  plain text, and destructive actions (delete/remove) tucked into a small
+  "⋯" row menu instead of a permanently-visible red button.
+### Added
+- **The "in playlist" badge on a track row is now clickable** — opens a
+  modal listing every playlist the track actually belongs to, with an
+  "Open" action that jumps straight to that playlist's own page.
+### Changed
+- **Album track rows tidied into a "⋯" overflow menu** for the per-track
+  "+ playlist" and "Tags" actions, which had made for a cluttered row
+  (and, without an explicit CSS grid column, actually threw off the
+  layout of everything after it). Added a compact "in playlist" badge
+  alongside "Featuring" so a track already in some playlist is visible at
+  a glance.
+
+### Fixed
+- **A track-title search treated literal `%` and `_` characters as SQL
+  wildcards**, since the query was spliced straight into a `LIKE` pattern —
+  a search for "Track_A" also matched an unrelated "TrackXA". Both
+  characters (and the escape character itself) are now escaped before the
+  pattern is built.
+- **Reordering a playlist accepted a partial or stale item list**, setting
+  each submitted item's position by its index in the request — an item
+  left out of the list (a racing delete, two browser tabs, a stale
+  drag-and-drop payload) kept its old position value, which could collide
+  with a position just assigned to a different item, leaving the
+  playlist's order unstable. A reorder request is now validated against
+  the playlist's actual current item set (right count, no duplicates,
+  nothing foreign) before anything is touched, rejecting the whole request
+  otherwise.
+- **A restore replaying stale WAL frames onto the restored database.**
+  Restoring swapped in the backed-up database file but left any
+  `-wal`/`-shm` sidecars from the pre-restore session in place — invisible
+  after a graceful shutdown (which checkpoints and clears them first), but
+  after an unclean one (crash, OOM kill, power loss) SQLite replayed those
+  stale WAL frames onto the freshly restored file, silently reintroducing
+  the very writes the restore was meant to undo. Both sidecars are now
+  removed right after the swap.
+- **Three live-found bugs from a manual testing pass**: appending a
+  nonexistent track id to a playlist leaked a raw SQLite constraint error
+  as a 500 instead of a proper 400; adding a root folder accepted path
+  traversal (`../`) and relative paths, storing them unresolved, instead
+  of requiring a clean absolute path; and adding a user silently coerced
+  any unrecognized role string into "member" instead of rejecting it.
+
+### Added
+- **Playlist support** — DB-backed playlists independent of any
+  album/artist: create, rename, delete, add/remove/reorder tracks, and
+  export as a standard M3U (the only "player" CantiNode itself offers,
+  since it doesn't play music — any real player pointed at the same
+  library can load the export). Playlist entries reference the musical
+  work (a track), not a specific physical file, so an entry survives
+  reorganization or a rematch. Follow-up round added bulk-add (a whole
+  album into a playlist in one request), drag-and-drop reordering
+  alongside the existing up/down buttons, and made the global search box
+  also search owned track titles, each with its own "+ playlist" action.
+- **The release Calendar is back for music.** It had been documented as
+  shipped but never actually rebuilt after the ebook/audiobook/comics
+  removal that made this app music-only — no route, view, or endpoint
+  existed anywhere. Lists every monitored artist's not-yet-owned releases
+  in a date window across the whole library (including an unreleased
+  album not yet marked wanted), rendered as a day-grouped agenda.
+- **A manual "Import now" trigger on the Activity page.** The importer
+  previously only ran on its own ~2-minute periodic interval, with no way
+  to run it on demand for a download already sitting complete in the
+  queue; the button reports what it found (checked/imported/failed)
+  rather than firing and forgetting.
+
+### Fixed
+- **The direct download client's own content-based file-type detection
+  only ever recognized the ebook formats it served before CantiNode went
+  music-only** — a real audio file fetched from an opaque URL (no
+  extension in the path, no filename in the response headers) silently
+  fell through to a generic binary type and was never recognized as
+  audio, orphaning a genuinely completed download.
+- **A wanted album whose files matched nothing at all was force-deleted
+  from Wanted instead of staying wanted.** A real "whole-disc rip" torrent
+  (one giant file per CD side, never split into tracks) copied
+  successfully and passed the completed-download checks, but the post-copy
+  scan couldn't match any of it — the import still marked the grab
+  imported and removed the wanted row regardless, so the album silently
+  vanished from Wanted without ever actually becoming owned, while the
+  copied files sat correctly in Unmatched Files with nothing pointing back
+  at them. Deliberately not blocklisted, since this could just as easily
+  be a transient matching miss as a genuinely unsplittable release.
+- **The failed-release blocklist was fully built and tested but nothing in
+  production code ever actually wrote to it** — a release could never
+  really be blocklisted through the app itself. Now wired up for a
+  failure that's real evidence the release itself is bad (the download
+  client rejected it, or a completed download turned out to contain no
+  usable audio), never for an environmental one (a local copy error, a
+  grab simply vanishing from the client's queue).
+- **The metadata-backfill sweep retried a tracked series forever.** A
+  tracked series has no MusicBrainz `/artist/` entity at all, so the
+  artist-lookup step 404'd on its series MBID — and since that failure
+  path never marked the row as attempted, every 15-minute sweep retried
+  and failed on the same row forever. (The series feature this applied to
+  has since been removed entirely — see above.)
+
+### Added
+- **A "Clear history" option on Activity's grab history** — deletes every
+  resolved grab (imported or failed); a still in-flight grab is left
+  untouched.
+
+### Fixed
+- **Two live-found bugs from a burn-in pass**: triggering a scan or an
+  artist move logged a harmless but noisy "superfluous WriteHeader" warning
+  on every call; and removing an artist or album with "delete files from
+  disk" left an orphaned, unmatched database row pointing at a file that
+  no longer existed, instead of deleting the row outright.
+- **A completed download with no audio files inside it was silently
+  treated as a successful import** — a real usenet grab reported
+  "completed" but nothing was actually copied, yet the import still
+  resolved as successful, deleting the wanted-album row (so it could never
+  be automatically retried) and the download's own data, for content that
+  was never added to the library. An empty copy result is now treated as a
+  real failure: the grab fails, the wanted album reverts to "wanted," and
+  the source is left alone in the download client for inspection.
+
+### Changed
+- **The sidebar's "Libraries" section is now "Library"** — matching its
+  singular, generic sibling header ("App"), now that music is the only
+  library type.
+- **The main artist library gained a Grid/Compact/List view toggle**
+  (mirroring the one an artist's own Albums section already had), and both
+  view choices are now remembered per signed-in account (previously reset
+  to Grid on every reload) rather than per browser.
+- **The "Move to a different root folder" and "Remove" actions moved
+  behind a collapsed "Advanced" section** on artist and album pages — both
+  rarer and more consequential than the primary action row (Refresh
+  metadata, Scan files, Organize, Write tags) they used to sit alongside.
+- **Track credits reworked into a "Featuring" button.** Names no longer
+  show inline on the track row at all; a button labeled with the full
+  count is the only way to see them, and the primary artist (always the
+  first name, already shown as the album's own artist) is dropped from the
+  list entirely so only genuine guests remain. Each name in the modal also
+  gets a direct Wikipedia link.
+- **The organize and cross-root-folder move previews were collapsed from a
+  full per-file list to one example plus a "Show N more" disclosure** —
+  the full list added noise without adding information for anything past
+  a handful of files, and a move between root folders is always a
+  same-relative-path move for one artist's whole discography anyway, never
+  a reorganize or a cross-artist batch.
+
 ### Added
 - **The default naming template now includes the release year:
   `{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}`** (previously

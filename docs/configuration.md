@@ -33,6 +33,9 @@ music:
                                  #   recommended
   audiodb_api_key: ""            # TheAudioDB key for artist bio/photo lookup;
                                  #   empty uses TheAudioDB's public test key
+  lastfm_api_key: ""             # required for a "lastfm"-type import list
+                                 #   (a user's or tag's top artists) — Last.fm
+                                 #   has no public test key to fall back to
   musicbrainz_base_url: ""       # point at a self-hosted MusicBrainz-API-
                                  #   compatible mirror instead of the real
                                  #   musicbrainz.org; empty (default) uses
@@ -55,8 +58,12 @@ timings:                                # background cadences — omit for defau
   wanted_search_interval_minutes: 1440  # interval mode's cadence (15–1440,
                                          #   default 1440 = 24h)
   discography_refresh_interval_minutes: 1440  # how often every monitored
-                                         #   artist's/series' discography is
+                                         #   artist's discography is
                                          #   re-checked for new releases
+                                         #   (15–1440, default 1440 = 24h)
+  import_list_sync_interval_minutes: 1440     # how often every enabled
+                                         #   import list is resolved to
+                                         #   add+monitor new artists
                                          #   (15–1440, default 1440 = 24h)
 path_mappings:                   # remote client paths → local ones
   - remote: /storage_1           # as the download client reports them
@@ -80,17 +87,20 @@ client-reported path before import touches disk.
 
 ## Background timings
 
-**Settings → General → Advanced: background timings** tunes three loops:
+**Settings → General → Advanced: background timings** tunes four loops:
 the health check, the **wanted-list sweep** (`internal/autosearch`, which
-searches and grabs for every monitored artist's wanted albums), and the
+searches and grabs for every monitored artist's wanted albums), the
 **discography refresh** (`internal/discoveryrefresh`, which re-caches
-every monitored artist's/series' own discography from MusicBrainz so a
-new release lands in Missing without a manual "Refresh metadata" click —
-never auto-wanted). Manual search/grab, scan, and organize are still
-triggered by you and unaffected by any of these; see
-[Acquisition](acquisition.md). Blank uses the default; entered values are
-clamped to the range shown in the settings form so a typo can't
-misconfigure it. Changes apply on the next server start.
+every monitored artist's own discography from MusicBrainz so a new
+release lands in Missing without a manual "Refresh metadata" click —
+never auto-wanted), and the **import-list sync** (`internal/importlist`,
+which resolves every enabled import list — see
+[Import Lists](#import-lists) below — to add and monitor any new artist).
+Manual search/grab, scan, and organize are still triggered by you and
+unaffected by any of these; see [Acquisition](acquisition.md). Blank uses
+the default; entered values are clamped to the range shown in the
+settings form so a typo can't misconfigure it. Changes apply on the next
+server start.
 
 The wanted-list sweep has two mutually-exclusive modes, not both active
 at once:
@@ -112,6 +122,10 @@ common case); bio/photo and per-release-group version/tracklist caching
 stay on the existing manual-refresh/backfill paths, so this stays cheap
 enough to run across a whole monitored-artist library unconditionally.
 
+The import-list sync is likewise a plain interval only (15–1440 minutes,
+default 1440 = 24h) — see [Import Lists](#import-lists) below for what it
+actually does.
+
 Completed Download Handling (copying a finished grab into the library and
 scanning it in) isn't tunable here — it polls as fast as a download can
 realistically finish, not on a preference.
@@ -129,12 +143,16 @@ and where artist bio/photo lookups come from:
 - **TheAudioDB API key** — optional; an empty key falls back to TheAudioDB's
   shared public test key, which can rate-limit under heavier use. A free key
   removes that limit.
+- **Last.fm API key** — required only if you want a "lastfm"-type
+  [import list](#import-lists) (a user's or tag's top artists). Unlike
+  TheAudioDB, Last.fm has no shared public key to fall back to — a Last.fm
+  import list simply fails to sync until this is set.
 - **MusicBrainz server URL** — optional; points CantiNode at a self-hosted
   MusicBrainz-API-compatible mirror instead of the real musicbrainz.org.
   Blank (the default) always uses the real one. This is for an operator
   who genuinely runs their own mirror — CantiNode has no bundled or
   recommended one to suggest here. Applied only when the server starts,
-  so changing it needs a restart, same as the two fields above.
+  so changing it needs a restart, same as the fields above.
 - **Organize on match** — off by default. When on, a scan moves/renames a
   file into the naming template immediately once it's matched, instead of
   waiting for you to review the scan and run Organize yourself.
@@ -154,6 +172,35 @@ and where artist bio/photo lookups come from:
 
 The same page has a **Clear image cache** button — see
 [Image cache](#image-cache) below.
+
+## Import Lists
+
+**Settings → Import Lists** points CantiNode at an external source that's
+periodically resolved to MusicBrainz artist MBIDs, adding and monitoring
+any new one automatically — the same outcome a manual search-and-monitor
+produces, just triggered on a timer (see
+[Background timings](#background-timings) above for the cadence) instead
+of by hand. **Add-only**: an artist that later falls off a list stays in
+your library.
+
+Three source types:
+
+- **MusicBrainz Series** — a series MBID (e.g. from
+  `musicbrainz.org/series/<mbid>`). Resolves to the real artist behind
+  each linked release group. Works best for a series where each entry is
+  one artist's own release; a compilation/sampler-style series (where
+  every entry is credited to "Various Artists") always resolves to zero
+  artists by design — there's no single real performer to attribute a
+  various-artists release to.
+- **Plain list** — pasted text (one artist name per line) or a URL
+  fetched fresh on every sync, same one-name-per-line shape. Each name is
+  resolved the same way a manual "+ Add artist" search would.
+- **Last.fm** — a user's or a tag's top artists. Needs the **Last.fm API
+  key** set under [Music matching](#music-matching) above.
+
+Each list has its own **test** button that resolves it right now without
+saving or adding anything — `{"resolvedCount": N}` — to confirm it names
+what you expect before waiting for the next scheduled sync.
 
 ## Tags to write
 
