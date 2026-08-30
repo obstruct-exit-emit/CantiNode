@@ -146,17 +146,6 @@ func (s *Scanner) correctArtistCreditForCompilation(ctx context.Context, rec *mu
 	if release.ID == "" {
 		return nil
 	}
-	// A release group tracked as part of a monitored series gets its
-	// filing artist resolved locally by applyMatch regardless of what this
-	// function does to rec.ArtistCredit (see
-	// GetSeriesArtistForReleaseGroup) — paying for a network
-	// LookupReleaseWithTracklist call here whose result would just get
-	// overridden anyway is pure waste, and a series entry is almost always
-	// also a compilation release, so this early exit matters in practice
-	// for every series-tracked match.
-	if _, isSeries, err := s.db.GetSeriesArtistForReleaseGroup(release.ReleaseGroup.ID); err == nil && isSeries {
-		return nil
-	}
 	if !releaseNeedsArtistCreditCheck(release.ReleaseGroup) {
 		return nil
 	}
@@ -381,11 +370,10 @@ func (s *Scanner) matchFileFuzzy(ctx context.Context, tf *musiclibrary.TrackFile
 //
 // trackArtistCredit/trackArtistMBID are stored on the created track as
 // display metadata only — deliberately separate from the artist actually
-// resolved below for filing (via rec.PrimaryArtist(), or a tracked series —
-// see GetSeriesArtistForReleaseGroup): on a "Various Artists" release (or a
-// tracked series, almost always one too), every track must still file
-// under the same shared artist/album, but each has its own real performer
-// (and that performer's own MusicBrainz ID) worth showing/embedding.
+// resolved below for filing (via rec.PrimaryArtist()): on a "Various
+// Artists" release, every track must still file under the same shared
+// artist/album, but each has its own real performer (and that performer's
+// own MusicBrainz ID) worth showing/embedding.
 // Callers working from a bare recording lookup (matchFileDirect/
 // matchFileFuzzy/ManualMatch) pass the same rec's own credit/ID for both;
 // matchEntriesToRelease passes the track's real per-recording credit/ID
@@ -397,30 +385,13 @@ func (s *Scanner) applyMatch(tf *musiclibrary.TrackFile, rec musicbrainz.Recordi
 		return fmt.Errorf("recording %s has no associated release", rec.ID)
 	}
 
-	// A release group already tracked as part of a monitored series (see
-	// musiclibrary.Artist.Kind) files under that series artist instead of
-	// the recording/release's own real MusicBrainz artist-credit — almost
-	// always "Various Artists" for a compilation series, which is far less
-	// useful for browsing than grouping every entry under the series
-	// itself. Cheap, local, no network: the check this whole feature
-	// depends on to actually work end to end.
-	seriesArtist, isSeries, err := s.db.GetSeriesArtistForReleaseGroup(release.ReleaseGroup.ID)
-	if err != nil {
-		return fmt.Errorf("check series membership: %w", err)
+	artistRef := rec.PrimaryArtist()
+	if artistRef.ID == "" {
+		return fmt.Errorf("recording %s has no artist credit", rec.ID)
 	}
-
-	var artist *musiclibrary.Artist
-	if isSeries {
-		artist = seriesArtist
-	} else {
-		artistRef := rec.PrimaryArtist()
-		if artistRef.ID == "" {
-			return fmt.Errorf("recording %s has no artist credit", rec.ID)
-		}
-		artist, err = s.db.GetOrCreateArtist(artistRef.ID, artistRef.Name, artistRef.SortName)
-		if err != nil {
-			return fmt.Errorf("get or create artist: %w", err)
-		}
+	artist, err := s.db.GetOrCreateArtist(artistRef.ID, artistRef.Name, artistRef.SortName)
+	if err != nil {
+		return fmt.Errorf("get or create artist: %w", err)
 	}
 
 	album, err := s.db.GetOrCreateAlbum(artist.ID, release.ID, release.ReleaseGroup.ID, release.Title, release.Date, release.ReleaseGroup.PrimaryType)

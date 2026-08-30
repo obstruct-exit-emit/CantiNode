@@ -83,37 +83,6 @@ release group's or artist's own MusicBrainz page) and **TheAudioDB ↗**
 (when TheAudioDB has an entry for it; hidden otherwise) — for anyone who
 wants to check or correct the underlying metadata at the source.
 
-## Adding via a MusicBrainz series link
-
-A second way into the library besides searching for one real artist at a
-time: **+ Add → Paste series link** takes a MusicBrainz **Series** link or
-a bare series ID and tracks its whole discography as a monitored artist
-page, same as a real artist — every numbered entry becomes an album,
-browsable under one shared page instead of scattered across whichever real
-MusicBrainz artist-credit each entry actually carries (almost always
-"Various Artists" for a compilation series like "Now That's What I Call
-Music!"). Both MusicBrainz series types that resolve to albums are
-supported — "Release group series" (each entry a release group directly)
-and "Release series" (each entry a specific release/edition, resolved to
-its own release group with one extra lookup per entry — slower to add,
-since MusicBrainz doesn't include that in the series data itself, but
-otherwise identical afterward); a series linking recordings, works, or
-events instead is rejected with a clear error, since none of those resolve
-to an album. A track's own real performer still shows on the album page
-and in its written tags, same as any other compilation (see
-[Existing-file import](#existing-file-import-unmatched-files) below) —
-only the grouping/browsing identity is the series itself.
-
-Behaves exactly like a monitored real artist otherwise: discography lands
-in Missing (nothing auto-wanted), **Refresh metadata** re-syncs the
-series for new entries (no bio/photo to refresh — a series has neither),
-and **Remove artist** removes it the same way. A new numbered entry
-released after the series was added shows up in Missing on its own —
-picked up by the same periodic discography refresh (see
-[Background timings](configuration.md#background-timings)) a real
-monitored artist's new releases already get, not just on a manual
-Refresh metadata click.
-
 ## Existing-file import (unmatched files)
 
 Scanning matches files in layers. First by **tag**: a file's own embedded

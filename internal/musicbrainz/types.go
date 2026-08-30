@@ -201,10 +201,6 @@ type releaseGroupBrowseResponse struct {
 // Series is a MusicBrainz Series entity, resolved via LookupSeries — a
 // stable, ordered collection of release groups (a numbered compilation
 // series, e.g. "Now That's What I Call Music!", is the common case).
-// CantiNode tracks one as a synthetic library "artist" (see
-// musiclibrary.Artist.Kind's own doc comment for why) rather than
-// scattering its entries across whichever real MusicBrainz artist-credit
-// each one happens to carry.
 type Series struct {
 	ID string
 	// Type is MusicBrainz's own series type — "Release group series" (each
@@ -227,11 +223,9 @@ type Series struct {
 }
 
 // SeriesReleaseGroupRelation is one release group's membership in a
-// tracked series — its own identity (same fields ReleaseGroupSummary
-// carries elsewhere) plus its position in the series and its own real
-// artist-credit, captured for completeness even though CantiNode's
-// matching pipeline resolves a series-tracked file's filing artist from
-// the local library instead (see musiclibrary.GetSeriesArtistForReleaseGroup).
+// series — its own identity (same fields ReleaseGroupSummary carries
+// elsewhere) plus its position in the series and its own real
+// artist-credit.
 type SeriesReleaseGroupRelation struct {
 	OrderingKey      int
 	ReleaseGroupMBID string

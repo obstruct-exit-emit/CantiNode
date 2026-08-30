@@ -1,6 +1,6 @@
 // Package discoveryrefresh periodically re-caches every monitored artist's
-// (and tracked series') own discography from MusicBrainz, so a new
-// release shows up in that artist's Missing section without the user
+// own discography from MusicBrainz, so a new release shows up in that
+// artist's Missing section without the user
 // having to click "Refresh metadata" by hand — the automatic half of
 // release monitoring internal/autosearch doesn't cover: autosearch only
 // ever sweeps albums already sitting in wanted_albums, it never discovers
@@ -16,8 +16,7 @@
 // seriously strain MusicBrainz's shared ~1.1s request throttle for a
 // large library. A newly-discovered release lands in Missing only — no
 // auto-want, matching the deliberate choice already made for monitoring
-// in general (see internal/autosearch's own package doc comment) and for
-// the series feature specifically.
+// in general (see internal/autosearch's own package doc comment).
 package discoveryrefresh
 
 import (

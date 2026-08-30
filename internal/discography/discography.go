@@ -1,12 +1,12 @@
-// Package discography re-caches an artist's (or a tracked series') own
-// discography from MusicBrainz — the cheap, "did anything new appear"
-// half of a full artist refresh, deliberately kept separate from the
-// heavier per-release-group version/tracklist caching and TheAudioDB
-// bio/photo fetch (both stay callers' own responsibility, see Refresh's
-// own doc comment). Shared by internal/api's manual "Refresh metadata"/
-// "Add artist"/"Add series" handlers and the periodic
-// internal/discoveryrefresh sweep, so there's exactly one implementation
-// of "what does re-caching a discography actually mean" for each kind.
+// Package discography re-caches an artist's own discography from
+// MusicBrainz — the cheap, "did anything new appear" half of a full
+// artist refresh, deliberately kept separate from the heavier
+// per-release-group version/tracklist caching and TheAudioDB bio/photo
+// fetch (both stay callers' own responsibility, see Refresh's own doc
+// comment). Shared by internal/api's manual "Refresh metadata"/"Add
+// artist" handlers and the periodic internal/discoveryrefresh sweep, so
+// there's exactly one implementation of "what does re-caching a
+// discography actually mean".
 package discography
 
 import (
@@ -91,38 +91,11 @@ func (s *Service) RefreshArtist(ctx context.Context, artistID int64, mbArtist *m
 	return groups, nil
 }
 
-// RefreshSeries stores series' release-group membership as artistID's own
-// discography — the series counterpart to RefreshArtist, reusing the same
-// ReplaceArtistReleaseGroups/SetArtistSynced primitives directly rather
-// than anything artist-specific (BrowseArtistReleaseGroups/genre-tag
-// caching don't apply to a series).
-func (s *Service) RefreshSeries(ctx context.Context, artistID int64, series *musicbrainz.Series) ([]musiclibrary.ReleaseGroupCache, error) {
-	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(series.Relations))
-	for _, rel := range series.Relations {
-		groups = append(groups, musiclibrary.ReleaseGroupCache{
-			ReleaseGroupMBID: rel.ReleaseGroupMBID,
-			Title:            rel.Title,
-			PrimaryType:      rel.PrimaryType,
-			SecondaryTypes:   rel.SecondaryTypes,
-			FirstReleaseDate: rel.FirstReleaseDate,
-		})
-	}
-	if err := s.store.ReplaceArtistReleaseGroups(artistID, groups); err != nil {
-		return nil, err
-	}
-	if err := s.store.SetArtistSynced(artistID, time.Now().UTC()); err != nil {
-		return nil, err
-	}
-	return groups, nil
-}
-
-// Refresh is the kind-branching entry point for a caller with nothing
-// already looked up — just an artist row (real or a tracked series),
-// which is all internal/discoveryrefresh's periodic sweep ever has in
-// hand. Looks the artist up fresh via LookupArtist or LookupSeries
-// (artist.Kind decides which, mirroring internal/api's own
-// handleRefreshMusicArtist branch) and delegates to RefreshArtist/
-// RefreshSeries — one MusicBrainz request in the common case.
+// Refresh is the entry point for a caller with nothing already looked
+// up — just an artist row, which is all internal/discoveryrefresh's
+// periodic sweep ever has in hand. Looks the artist up fresh via
+// LookupArtist and delegates to RefreshArtist — one MusicBrainz request in
+// the common case.
 //
 // Deliberately stops there: never touches bio/photo (TheAudioDB) or
 // per-release-group version/tracklist caching, both of which cost far
@@ -131,14 +104,6 @@ func (s *Service) RefreshSeries(ctx context.Context, artistID int64, series *mus
 // their existing manual-refresh/backfill-sweep paths so this stays cheap
 // enough to run unconditionally across every monitored artist on a timer.
 func (s *Service) Refresh(ctx context.Context, artist *musiclibrary.Artist) error {
-	if artist.Kind == "series" {
-		series, err := s.mb.LookupSeries(ctx, artist.MBID)
-		if err != nil {
-			return err
-		}
-		_, err = s.RefreshSeries(ctx, artist.ID, series)
-		return err
-	}
 	mbArtist, err := s.mb.LookupArtist(ctx, artist.MBID)
 	if err != nil {
 		return err

@@ -149,8 +149,8 @@ func run(dataDir string) error {
 	// (see internal/importer), autosearch sweeping monitored artists'
 	// wanted albums to search and grab automatically (see
 	// internal/autosearch), discoveryrefresh re-caching every monitored
-	// artist's/series' own discography so a new release lands in Missing on
-	// its own (see internal/discoveryrefresh), and metadatabackfill catching
+	// artist's own discography so a new release lands in Missing on its own
+	// (see internal/discoveryrefresh), and metadatabackfill catching
 	// up any artist still missing discography/bio/photo metadata — normally
 	// finished inline right after a scan, but restart-safe against an
 	// interruption mid-sweep since it also runs independently on its own

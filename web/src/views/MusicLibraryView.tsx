@@ -25,7 +25,6 @@ export default function MusicLibraryView({
   const [busyHeader, setBusyHeader] = useState(false);
   const [notice, setNotice] = useState("");
   const [showAdd, setShowAdd] = useState(false);
-  const [addMode, setAddMode] = useState<"artist" | "series">("artist");
   const [filter, setFilter] = useState("");
   const [visible, setVisible] = useState(60);
   const [sort, setSort] = useState("name");
@@ -103,30 +102,7 @@ export default function MusicLibraryView({
         {notice && <p className="muted">{notice}</p>}
 
         {showAdd && (
-          <>
-            <span className="view-toggle">
-              <button
-                type="button"
-                className={addMode === "artist" ? "toggle on" : "toggle"}
-                onClick={() => setAddMode("artist")}
-              >
-                Search artist
-              </button>
-              <button
-                type="button"
-                className={addMode === "series" ? "toggle on" : "toggle"}
-                onClick={() => setAddMode("series")}
-                title="e.g. a numbered compilation series like Now That's What I Call Music!"
-              >
-                Paste series link
-              </button>
-            </span>
-            {addMode === "artist" ? (
-              <AddArtistPanel onAdded={() => { setShowAdd(false); reload(); }} onError={onError} />
-            ) : (
-              <AddSeriesPanel onAdded={() => { setShowAdd(false); reload(); }} />
-            )}
-          </>
+          <AddArtistPanel onAdded={() => { setShowAdd(false); reload(); }} onError={onError} />
         )}
 
         {artists.length === 0 ? (
@@ -360,63 +336,6 @@ function AddArtistPanel({
             );
           })}
         </ul>
-      )}
-    </div>
-  );
-}
-
-// AddSeriesPanel adds a MusicBrainz Series (e.g. a numbered compilation
-// series like "Now That's What I Call Music!") as a synthetic library
-// artist, tracking its whole discography going forward — CantiNode's
-// second way to add music beyond one real artist at a time. No search
-// step like AddArtistPanel has: the pasted link/ID already names exactly
-// what to add, so submit goes straight to the backend, which does the
-// actual MusicBrainz lookup and validation (see api.addMusicSeries).
-function AddSeriesPanel({ onAdded }: { onAdded: () => void }) {
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    setBusy(true);
-    setNotice("");
-    api
-      .addMusicSeries(input)
-      .then((a) => {
-        setNotice(`✓ "${a.name}" added and monitored`);
-        setInput("");
-        onAdded();
-      })
-      .catch((err: unknown) =>
-        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
-      )
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <div className="add-panel">
-      <form onSubmit={submit} className="search-form">
-        <input
-          placeholder="Paste a MusicBrainz series link or ID…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          autoFocus
-        />
-        <button type="submit" disabled={busy || !input.trim()}>
-          {busy ? "Adding…" : "Add & Monitor"}
-        </button>
-      </form>
-      {notice && (
-        <p className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>{notice}</p>
-      )}
-      {!busy && !notice && (
-        <p className="muted">
-          For a numbered compilation series (e.g. "Now That's What I Call
-          Music!") — every entry is tracked as an album under one artist
-          page, same as a real artist's discography.
-        </p>
       )}
     </div>
   );

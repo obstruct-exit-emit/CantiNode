@@ -40,13 +40,11 @@ type Artist struct {
 	RatingVotes int       `json:"ratingVotes"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
-	// Kind distinguishes a real MusicBrainz artist ("artist", the default)
-	// from a synthetic entry standing in for a monitored MusicBrainz Series
-	// ("series" — see GetOrCreateSeriesArtist). Set once at creation, never
-	// exposed for mutation afterward: it decides which metadata-refresh
-	// path an artist row uses (LookupArtist+BrowseArtistReleaseGroups vs.
-	// LookupSeries) and, in matching, whether a release group belongs to it
-	// (see GetSeriesArtistForReleaseGroup).
+	// Kind is always "artist" today. Left in place (rather than dropped
+	// along with the removed MusicBrainz-series-add feature that used to
+	// set it to "series") since it's a real schema column and every
+	// existing row already has a value — nothing currently reads it as
+	// anything but "artist".
 	Kind string `json:"kind"`
 }
 
@@ -73,19 +71,8 @@ func scanArtist(row interface{ Scan(...any) error }) (*Artist, error) {
 
 // SearchRelevanceName is the wantedArtist value a release search should
 // check candidates against (see internal/release.Score's own doc comment
-// on artistRelevant) — a's own Name for a real artist, empty for a series
-// artist. A series' real MusicBrainz name essentially never appears
-// verbatim in a release's own file/torrent name the way a real artist's
-// does (it happens to for "Now That's What I Call Music!" by luck, but
-// nothing guarantees that in general), and there's no equivalent
-// "Various Artists"-style free-pass phrase for a series to lean on — so
-// gating on it here would reject real matches instead of catching bad
-// ones. artistRelevant already treats an empty wantedArtist as always
-// relevant.
+// on artistRelevant).
 func (a Artist) SearchRelevanceName() string {
-	if a.Kind == "series" {
-		return ""
-	}
 	return a.Name
 }
 
@@ -126,58 +113,6 @@ func (s *Store) GetOrCreateArtist(mbid, name, sortName string) (*Artist, error) 
 		return nil, fmt.Errorf("last insert id: %w", err)
 	}
 	return &Artist{ID: id, MBID: mbid, Name: name, SortName: sortName, Kind: "artist", Genres: []string{}, Tags: []string{}, CreatedAt: now, UpdatedAt: now}, nil
-}
-
-// GetOrCreateSeriesArtist is GetOrCreateArtist's counterpart for a
-// MusicBrainz Series tracked as a synthetic "artist" — see Artist.Kind's
-// own doc comment. mbid UNIQUE makes this idempotent for a repeated paste
-// of the same series link, the same way GetOrCreateArtist already is for a
-// real artist.
-func (s *Store) GetOrCreateSeriesArtist(mbid, name string) (*Artist, error) {
-	existing, err := s.getArtistByMBID(mbid)
-	if err == nil {
-		return existing, nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return nil, err
-	}
-
-	now := time.Now().UTC()
-	res, err := s.db.Exec(
-		`INSERT INTO artists (mbid, name, sort_name, kind, created_at, updated_at) VALUES (?, ?, ?, 'series', ?, ?)`,
-		mbid, name, name, now, now)
-	if err != nil {
-		return nil, fmt.Errorf("insert series artist: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("last insert id: %w", err)
-	}
-	return &Artist{ID: id, MBID: mbid, Name: name, SortName: name, Kind: "series", Genres: []string{}, Tags: []string{}, CreatedAt: now, UpdatedAt: now}, nil
-}
-
-// GetSeriesArtistForReleaseGroup returns the series artist (see
-// Artist.Kind) that has releaseGroupMBID cached in its own discography
-// (artist_release_groups), if any — the local, no-network check
-// applyMatch (internal/musicscanner/matcher.go) uses to file a matched
-// file under a tracked series instead of the recording/release's own real
-// MusicBrainz artist-credit. A release group claimed by two different
-// tracked series (rare, but MusicBrainz allows it) resolves deterministically
-// to the lower artist ID.
-func (s *Store) GetSeriesArtistForReleaseGroup(releaseGroupMBID string) (*Artist, bool, error) {
-	a, err := scanArtist(s.db.QueryRow(`
-		SELECT a.id, a.mbid, a.name, a.sort_name, a.is_monitored, a.last_synced_at, a.bio, a.image_url, a.metadata_fetched_at, a.genres, a.tags, a.rating_value, a.rating_votes, a.created_at, a.updated_at, a.kind
-		FROM artists a
-		JOIN artist_release_groups arg ON arg.artist_id = a.id
-		WHERE a.kind = 'series' AND arg.release_group_mbid = ?
-		ORDER BY a.id LIMIT 1`, releaseGroupMBID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("get series artist for release group: %w", err)
-	}
-	return a, true, nil
 }
 
 func (s *Store) getArtistByMBID(mbid string) (*Artist, error) {

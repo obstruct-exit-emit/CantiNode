@@ -203,8 +203,8 @@ type TimingSettings struct {
 	WantedSearchTimeOfDay string `yaml:"wanted_search_time_of_day,omitempty" json:"wantedSearchTimeOfDay"`
 
 	// DiscographyRefreshIntervalMinutes: how often every monitored artist's
-	// (and tracked series') own discography is re-cached from MusicBrainz,
-	// so a new release lands in Missing without a manual "Refresh
+	// own discography is re-cached from MusicBrainz, so a new release
+	// lands in Missing without a manual "Refresh
 	// metadata" click (default 1440 = 24h, matching Lidarr's own default
 	// "Refresh Artist" task interval). A plain interval, not the fancier
 	// daily-at-time-of-day mode WantedSearchMode has — no evidence yet

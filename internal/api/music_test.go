@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/cantinode/cantinode/internal/musiclibrary"
@@ -37,59 +36,6 @@ func TestQuickAddMusicArtistRequiresMbid(t *testing.T) {
 	a := newTestAPI(t)
 	a.want(a.call("POST", "/api/v1/music/artist/quick", map[string]any{}, nil), http.StatusBadRequest)
 	a.want(a.call("POST", "/api/v1/music/artist/quick", map[string]any{"mbid": ""}, nil), http.StatusBadRequest)
-}
-
-// TestAddMusicSeriesRequiresInput covers request validation only — same
-// boundary as TestQuickAddMusicArtistRequiresMbid above, for the same
-// reason (a real, network-reaching MusicBrainz client with no local mock
-// injection point at this layer; extractSeriesMBID's own parsing and
-// LookupSeries's own decoding are covered directly by
-// TestExtractSeriesMBID below and internal/musicbrainz's TestLookupSeries).
-func TestAddMusicSeriesRequiresInput(t *testing.T) {
-	a := newTestAPI(t)
-	a.want(a.call("POST", "/api/v1/music/series", map[string]any{}, nil), http.StatusBadRequest)
-	a.want(a.call("POST", "/api/v1/music/series", map[string]any{"input": ""}, nil), http.StatusBadRequest)
-	a.want(a.call("POST", "/api/v1/music/series", map[string]any{"input": "   "}, nil), http.StatusBadRequest)
-	a.want(a.call("POST", "/api/v1/music/series", map[string]any{"input": "not a series link at all"}, nil), http.StatusBadRequest)
-}
-
-// TestExtractSeriesMBID covers extractSeriesMBID's own parsing directly —
-// a full MusicBrainz URL (any host, matching a self-hosted mirror the same
-// way internal/musicbrainz.NewClientWithBaseURL does), a bare MBID pasted
-// on its own, and input that's neither.
-func TestExtractSeriesMBID(t *testing.T) {
-	const mbid = "d223e2e2-e90b-4d88-b637-4215b7ebaac2"
-	cases := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
-	}{
-		{"full URL", "https://musicbrainz.org/series/" + mbid, mbid, false},
-		{"URL with whitespace", "  https://musicbrainz.org/series/" + mbid + "  ", mbid, false},
-		{"self-hosted mirror host", "https://mb.example.internal/series/" + mbid, mbid, false},
-		{"bare mbid", mbid, mbid, false},
-		{"bare mbid uppercase", strings.ToUpper(mbid), mbid, false},
-		{"artist link, not a series", "https://musicbrainz.org/artist/" + mbid, "", true},
-		{"not a link or id at all", "Now That's What I Call Music", "", true},
-		{"empty", "", "", true},
-	}
-	for _, c := range cases {
-		got, err := extractSeriesMBID(c.input)
-		if c.wantErr {
-			if err == nil {
-				t.Errorf("%s: extractSeriesMBID(%q) = %q, nil, want an error", c.name, c.input, got)
-			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("%s: extractSeriesMBID(%q) error = %v", c.name, c.input, err)
-			continue
-		}
-		if got != c.want {
-			t.Errorf("%s: extractSeriesMBID(%q) = %q, want %q", c.name, c.input, got, c.want)
-		}
-	}
 }
 
 // TestHasRealVersionMetadata is the regression test for a real bug: a

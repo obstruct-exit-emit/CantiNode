@@ -195,9 +195,8 @@ var ErrSeriesHasNoReleaseGroups = errors.New("musicbrainz: series has no release
 // LookupSeries fetches mbid's full release-group membership in one
 // unpaginated call (verified live against a real 87-entry series — a
 // Series lookup's relations aren't paged the way a Browse response is).
-// See musiclibrary.Artist.Kind's own doc comment for why CantiNode tracks
-// a Series as a synthetic library "artist." Understands both series kinds
-// that link release groups (see Series.Type's own doc comment): a
+// Understands both series kinds that link release groups (see Series.Type's
+// own doc comment): a
 // "release_group" relation is used as-is; a "release" relation (a
 // "Release series") needs one further lookup per entry to resolve its own
 // release group, since MusicBrainz doesn't nest that inside a series

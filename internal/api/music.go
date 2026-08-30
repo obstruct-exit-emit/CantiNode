@@ -10,11 +10,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -114,9 +112,8 @@ func (s *server) handleGetMusicArtist(w http.ResponseWriter, r *http.Request) {
 // artist-scoped counterpart to handleAudioDBAlbumLink (see its own doc
 // comment for why this is a live, on-click lookup rather than something
 // stored: TheAudioDB's own site URLs use its internal numeric artist id,
-// not the MBID). 404s for a tracked series (artist.Kind == "series") —
-// TheAudioDB has no concept of a series at all, only real artists — or
-// when TheAudioDB simply has no entry (or no idArtist) for this artist.
+// not the MBID). 404s when TheAudioDB simply has no entry (or no
+// idArtist) for this artist.
 func (s *server) handleAudioDBArtistLink(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -126,10 +123,6 @@ func (s *server) handleAudioDBArtistLink(w http.ResponseWriter, r *http.Request)
 	artist, err := s.musicStore.GetArtist(id)
 	if err != nil {
 		writeMusicStoreError(w, err)
-		return
-	}
-	if artist.Kind == "series" {
-		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	meta, err := s.audiodb.LookupArtistByMBID(r.Context(), artist.MBID)
@@ -261,118 +254,6 @@ func (s *server) handleQuickAddMusicArtist(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, a)
 }
 
-// seriesURLPattern extracts a series MBID from a pasted MusicBrainz series
-// URL (any host/scheme/www-prefix — a self-hosted MusicBrainz mirror is
-// exactly why this doesn't hardcode musicbrainz.org, matching
-// internal/musicbrainz.NewClientWithBaseURL's own reasoning). bareMBIDPattern
-// covers pasting the raw MBID directly.
-var (
-	seriesURLPattern = regexp.MustCompile(`(?i)/series/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`)
-	bareMBIDPattern  = regexp.MustCompile(`(?i)^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$`)
-)
-
-// extractSeriesMBID parses a series MBID out of raw pasted input — a full
-// MusicBrainz series URL or a bare MBID. Done server-side only: the
-// backend is the only place that can authoritatively accept or reject this
-// anyway (a real LookupSeries call is still needed either way), so there's
-// no reason to duplicate the parsing on the client too.
-func extractSeriesMBID(input string) (string, error) {
-	input = strings.TrimSpace(input)
-	if m := seriesURLPattern.FindStringSubmatch(input); m != nil {
-		return strings.ToLower(m[1]), nil
-	}
-	if m := bareMBIDPattern.FindStringSubmatch(input); m != nil {
-		return strings.ToLower(m[1]), nil
-	}
-	return "", fmt.Errorf("doesn't look like a MusicBrainz series link or ID")
-}
-
-// handleAddMusicSeries adds a MusicBrainz Series as a synthetic library
-// "artist" (see musiclibrary.Artist.Kind's own doc comment) — CantiNode's
-// second way to add music beyond one real artist at a time. Behaves like
-// monitoring a real artist from here on: SetArtistMonitored, discography
-// cached straight into Missing, a manual "Refresh metadata" re-syncs it
-// later (handleRefreshMusicArtist's own kind branch) — no background timer
-// of its own, same as a real artist has none today.
-func (s *server) handleAddMusicSeries(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Input string `json:"input"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Input) == "" {
-		writeError(w, http.StatusBadRequest, "a MusicBrainz series link or ID is required")
-		return
-	}
-	mbid, err := extractSeriesMBID(req.Input)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	ctx, cancel := s.artistRefreshCtx()
-	defer cancel()
-
-	series, err := s.mb.LookupSeries(ctx, mbid)
-	if err != nil {
-		if errors.Is(err, musicbrainz.ErrSeriesHasNoReleaseGroups) {
-			writeError(w, http.StatusBadRequest,
-				"this MusicBrainz series has no albums CantiNode can track (it may link recordings, works, or events instead of release groups/releases)")
-			return
-		}
-		writeError(w, http.StatusBadGateway, "look up series: "+err.Error())
-		return
-	}
-
-	a, err := s.musicStore.GetOrCreateSeriesArtist(mbid, series.Name)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := s.musicStore.SetArtistMonitored(a.ID, true); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := s.cacheSeriesDiscography(ctx, a.ID, series); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	a, err = s.musicStore.GetArtist(a.ID)
-	if err != nil {
-		writeMusicStoreError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, a)
-}
-
-// cacheSeriesDiscography stores series' release-group membership as
-// artistID's own discography — the series-add counterpart to
-// cacheArtistDiscography. Delegates to internal/discography (shared with
-// the periodic discoveryrefresh sweep), then hands off to
-// metadataBackfill.CacheDiscographyVersions for per-release-group version/
-// tracklist pre-warming — that part is genuinely kind-agnostic and lives in
-// internal/metadatabackfill precisely because discography.Service
-// deliberately never does it (see Refresh's own doc comment on why the
-// scheduled sweep must stay cheap).
-func (s *server) cacheSeriesDiscography(ctx context.Context, artistID int64, series *musicbrainz.Series) error {
-	groups, err := s.discography.RefreshSeries(ctx, artistID, series)
-	if err != nil {
-		return err
-	}
-	go s.metadataBackfill.CacheDiscographyVersions(context.Background(), groups)
-	return nil
-}
-
-// refreshMusicSeriesMetadata re-syncs artistID's discography from its
-// series — the series-add counterpart to metadataBackfill.RefreshArtist,
-// used by handleRefreshMusicArtist's own kind branch. Never touches
-// bio/photo, unlike the real-artist refresh path: a series has neither.
-func (s *server) refreshMusicSeriesMetadata(ctx context.Context, artistID int64, mbid string) error {
-	series, err := s.mb.LookupSeries(ctx, mbid)
-	if err != nil {
-		return err
-	}
-	return s.cacheSeriesDiscography(ctx, artistID, series)
-}
-
 func (s *server) handleUnmonitorMusicArtist(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -402,11 +283,7 @@ func (s *server) handleRefreshMusicArtist(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := s.artistRefreshCtx()
 	defer cancel()
-	refresh := s.metadataBackfill.RefreshArtist
-	if a.Kind == "series" {
-		refresh = s.refreshMusicSeriesMetadata
-	}
-	if err := refresh(ctx, id, a.MBID); err != nil {
+	if err := s.metadataBackfill.RefreshArtist(ctx, id, a.MBID); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

@@ -134,103 +134,32 @@ func TestRefreshArtistSkipsVariousArtistsDiscography(t *testing.T) {
 	}
 }
 
-func TestRefreshSeriesCachesDiscography(t *testing.T) {
-	s, store := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("RefreshSeries should never call MusicBrainz itself -- it's given an already-looked-up series")
-	})
-
-	artist, err := store.GetOrCreateSeriesArtist("series-mbid", "Now That's What I Call Music!")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	series := &musicbrainz.Series{
-		ID:   "series-mbid",
-		Name: "Now That's What I Call Music!",
-		Relations: []musicbrainz.SeriesReleaseGroupRelation{
-			{OrderingKey: 1, ReleaseGroupMBID: "rg-now-1", Title: "NOW 1", PrimaryType: "Album"},
-			{OrderingKey: 2, ReleaseGroupMBID: "rg-now-2", Title: "NOW 2", PrimaryType: "Album"},
-		},
-	}
-	groups, err := s.RefreshSeries(context.Background(), artist.ID, series)
-	if err != nil {
-		t.Fatalf("RefreshSeries: %v", err)
-	}
-	if len(groups) != 2 {
-		t.Fatalf("groups = %+v, want 2", groups)
-	}
-
-	cached, err := store.ListArtistReleaseGroups(artist.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cached) != 2 {
-		t.Fatalf("cached release groups = %+v, want 2", cached)
-	}
-}
-
-// TestRefreshDispatchesByKind proves the kind-branching entry point --
+// TestRefreshLooksUpAndCachesArtist proves the entry point --
 // what internal/discoveryrefresh's periodic sweep actually calls -- looks
-// the artist up via the right MusicBrainz endpoint for its own kind.
-func TestRefreshDispatchesByKind(t *testing.T) {
-	t.Run("artist", func(t *testing.T) {
-		var hitArtist, hitReleaseGroups bool
-		s, store := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			switch r.URL.Path {
-			case "/artist/artist-mbid":
-				hitArtist = true
-				_ = json.NewEncoder(w).Encode(map[string]any{"id": "artist-mbid", "name": "Boards of Canada"})
-			case "/release-group/":
-				hitReleaseGroups = true
-				_ = json.NewEncoder(w).Encode(map[string]any{"release-group-count": 0, "release-groups": []any{}})
-			default:
-				t.Errorf("unexpected path %q", r.URL.Path)
-			}
-		})
-		artist, err := store.GetOrCreateArtist("artist-mbid", "Boards of Canada", "Boards of Canada")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := s.Refresh(context.Background(), artist); err != nil {
-			t.Fatalf("Refresh: %v", err)
-		}
-		if !hitArtist || !hitReleaseGroups {
-			t.Errorf("hitArtist=%v hitReleaseGroups=%v, want both true", hitArtist, hitReleaseGroups)
+// the artist up via MusicBrainz and caches its discography.
+func TestRefreshLooksUpAndCachesArtist(t *testing.T) {
+	var hitArtist, hitReleaseGroups bool
+	s, store := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/artist/artist-mbid":
+			hitArtist = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "artist-mbid", "name": "Boards of Canada"})
+		case "/release-group/":
+			hitReleaseGroups = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"release-group-count": 0, "release-groups": []any{}})
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 	})
-
-	t.Run("series", func(t *testing.T) {
-		var hitSeries bool
-		s, store := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			if r.URL.Path != "/series/series-mbid" {
-				t.Errorf("unexpected path %q, want the series lookup", r.URL.Path)
-				return
-			}
-			hitSeries = true
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id": "series-mbid", "name": "NOW",
-				"relations": []map[string]any{
-					{
-						"target-type":  "release_group",
-						"ordering-key": 1,
-						"release_group": map[string]any{
-							"id": "rg-now-1", "title": "NOW 1", "primary-type": "Album",
-						},
-					},
-				},
-			})
-		})
-		artist, err := store.GetOrCreateSeriesArtist("series-mbid", "Now That's What I Call Music!")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := s.Refresh(context.Background(), artist); err != nil {
-			t.Fatalf("Refresh: %v", err)
-		}
-		if !hitSeries {
-			t.Error("Refresh should have looked the series up via LookupSeries")
-		}
-	})
+	artist, err := store.GetOrCreateArtist("artist-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Refresh(context.Background(), artist); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if !hitArtist || !hitReleaseGroups {
+		t.Errorf("hitArtist=%v hitReleaseGroups=%v, want both true", hitArtist, hitReleaseGroups)
+	}
 }
