@@ -83,6 +83,22 @@ release group's or artist's own MusicBrainz page) and **TheAudioDB ↗**
 (when TheAudioDB has an entry for it; hidden otherwise) — for anyone who
 wants to check or correct the underlying metadata at the source.
 
+## Import lists
+
+A second way into the library beyond adding one artist at a time:
+**Settings → Import Lists** points CantiNode at an external source —
+a MusicBrainz **Series** (e.g. a numbered compilation series like "Now
+That's What I Call Music!"), a plain artist list (pasted text or a
+fetched URL, one name per line), or a Last.fm user's or tag's top
+artists (needs a Last.fm API key under Settings → Music) — and every
+artist it names is added and monitored automatically on a periodic sync,
+the same "+Add artist" outcome a manual search produces. **Add-only**:
+an artist that later falls off a list stays in the library, matching how
+monitoring works everywhere else. The sync cadence is tunable under
+Settings → General → Background timings; each list's own "test" button
+resolves it on demand without saving, to confirm it names what you
+expect before waiting for the next scheduled sync.
+
 ## Existing-file import (unmatched files)
 
 Scanning matches files in layers. First by **tag**: a file's own embedded

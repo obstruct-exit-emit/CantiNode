@@ -25,7 +25,9 @@ import (
 	"github.com/cantinode/cantinode/internal/health"
 	"github.com/cantinode/cantinode/internal/imagecache"
 	"github.com/cantinode/cantinode/internal/importer"
+	"github.com/cantinode/cantinode/internal/importlist"
 	"github.com/cantinode/cantinode/internal/indexer"
+	"github.com/cantinode/cantinode/internal/lastfm"
 	"github.com/cantinode/cantinode/internal/library"
 	"github.com/cantinode/cantinode/internal/metadatabackfill"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
@@ -65,6 +67,8 @@ type server struct {
 	importer    *importer.Service
 	importMu    sync.Mutex
 	importState importState
+
+	importLists *importlist.Service
 }
 
 // Background bundles the services main runs on periodic loops.
@@ -74,6 +78,7 @@ type Background struct {
 	Autosearch       *autosearch.Service
 	DiscoveryRefresh *discoveryrefresh.Service
 	MetadataBackfill *metadatabackfill.Service
+	ImportLists      *importlist.Service
 }
 
 // NewRouter builds the API handler and returns the background services the
@@ -108,6 +113,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	discographySvc := discography.New(mb, musicStore)
 	metadataBackfillSvc := metadatabackfill.New(musicStore, mb, audiodbClient, discographySvc)
 	imp := importer.New(downloads, musicScanner, musicStore, cfg)
+	lastfmClient := lastfm.NewClient(musicSettings.LastFMAPIKey)
+	importListsSvc := importlist.New(importlist.NewStore(db), mb, musicStore, discographySvc, lastfmClient)
 
 	s := &server{
 		cfg:              cfg,
@@ -127,6 +134,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		discography:      discographySvc,
 		metadataBackfill: metadataBackfillSvc,
 		importer:         imp,
+		importLists:      importListsSvc,
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist
@@ -279,6 +287,12 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("DELETE /api/v1/indexer/{id}", s.requireAdmin(s.handleDeleteIndexer))
 	mux.HandleFunc("POST /api/v1/indexer/test", s.requireAdmin(s.handleTestIndexer))
 
+	mux.HandleFunc("GET /api/v1/importlist", s.requireAdmin(s.handleListImportLists))
+	mux.HandleFunc("POST /api/v1/importlist", s.requireAdmin(s.handleAddImportList))
+	mux.HandleFunc("PUT /api/v1/importlist/{id}", s.requireAdmin(s.handleUpdateImportList))
+	mux.HandleFunc("DELETE /api/v1/importlist/{id}", s.requireAdmin(s.handleDeleteImportList))
+	mux.HandleFunc("POST /api/v1/importlist/test", s.requireAdmin(s.handleTestImportList))
+
 	mux.HandleFunc("GET /api/v1/downloadclient", s.requireAdmin(s.handleListDownloadClients))
 	mux.HandleFunc("POST /api/v1/downloadclient", s.requireAdmin(s.handleAddDownloadClient))
 	mux.HandleFunc("PUT /api/v1/downloadclient/{id}", s.requireAdmin(s.handleUpdateDownloadClient))
@@ -299,7 +313,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	auto := autosearch.New(musicStore, indexers, downloads, store)
 	discoveryRefresh := discoveryrefresh.New(musicStore, discographySvc)
 
-	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto, DiscoveryRefresh: discoveryRefresh, MetadataBackfill: metadataBackfillSvc}
+	return logRequests(mux), &Background{Health: s.health, Importer: imp, Autosearch: auto, DiscoveryRefresh: discoveryRefresh, MetadataBackfill: metadataBackfillSvc, ImportLists: importListsSvc}
 }
 
 // handleHealth returns the cached result of the last background health run

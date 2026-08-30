@@ -7,6 +7,7 @@ import {
   setApiKey,
   type AuthStatus,
   type DownloadClient,
+  type ImportList,
   type Indexer,
   type MusicSettings,
   type NamingSettings,
@@ -30,6 +31,7 @@ const settingsGroups = [
   { name: "Quality Profiles", icon: "⭐", blurb: "Which release formats are acceptable and preferred." },
   { name: "Indexers", icon: "🔎", blurb: "Newznab and Torznab search sources — added by hand or synced from Prowlarr." },
   { name: "Download Clients", icon: "⬇️", blurb: "Where grabbed releases are sent, and how finished downloads are handled." },
+  { name: "Import Lists", icon: "📥", blurb: "External sources that automatically add and monitor new artists." },
   { name: "General", icon: "⚙️", blurb: "Login accounts, the API key, and this instance's details." },
 ] as const;
 type SettingsGroup = (typeof settingsGroups)[number]["name"];
@@ -162,6 +164,7 @@ export default function SettingsView({
           <PathMappingsPanel onError={onError} />
         </>
       )}
+      {group === "Import Lists" && <ImportListsCard onError={onError} />}
       {group === "General" && <GeneralCard onError={onError} />}
     </>
   );
@@ -295,7 +298,11 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
 
   const field = (
     label: string,
-    key: "healthIntervalMinutes" | "wantedSearchIntervalMinutes" | "discographyRefreshIntervalMinutes",
+    key:
+      | "healthIntervalMinutes"
+      | "wantedSearchIntervalMinutes"
+      | "discographyRefreshIntervalMinutes"
+      | "importListSyncIntervalMinutes",
     hint: string,
     range: string,
   ) => (
@@ -335,16 +342,19 @@ function TimingsPanel({ onError }: { onError: (message: string) => void }) {
       <p className="muted">
         How often the background health check runs, how the wanted list is
         swept for monitored artists (search + grab the best release, same
-        as a manual "Search releases" click), and how often every monitored
-        artist's/series' own discography is re-checked against MusicBrainz
-        for new releases (landing in Missing — never auto-wanted). Scan and
-        organize stay triggered by you (from the artist/album page or
-        Activity), not on a timer. Blank uses the default; out-of-range
-        values are clamped. Changes apply on the next server start.
+        as a manual "Search releases" click), how often every monitored
+        artist's own discography is re-checked against MusicBrainz for new
+        releases (landing in Missing — never auto-wanted), and how often
+        every enabled import list is resolved to add and monitor any
+        newly-appearing artist. Scan and organize stay triggered by you
+        (from the artist/album page or Activity), not on a timer. Blank
+        uses the default; out-of-range values are clamped. Changes apply on
+        the next server start.
       </p>
       <div className="settings-form">
         {field("Health checks (minutes)", "healthIntervalMinutes", "default 15", "5–1440")}
         {field("Discography refresh (minutes)", "discographyRefreshIntervalMinutes", "default 1440 (24h)", "15–1440")}
+        {field("Import list sync (minutes)", "importListSyncIntervalMinutes", "default 1440 (24h)", "15–1440")}
         <label>
           Wanted-list sweep
           <span className="view-toggle">
@@ -487,6 +497,21 @@ function MusicCard({ onError }: { onError: (message: string) => void }) {
               placeholder="(using the shared public test key)"
               value={settings.audioDbApiKey}
               onChange={(e) => setSettings({ ...settings, audioDbApiKey: e.target.value })}
+            />
+          </label>
+        </Section>
+
+        <Section
+          title="Last.fm"
+          help="Powers a Last.fm import list (Settings → Import Lists): a user's or a tag's top artists. Unlike TheAudioDB, Last.fm has no shared public key to fall back to — a Last.fm import list simply fails to sync until this is set."
+        >
+          <label>
+            API key
+            <input
+              type="text"
+              placeholder="required for a Last.fm import list"
+              value={settings.lastFmApiKey}
+              onChange={(e) => setSettings({ ...settings, lastFmApiKey: e.target.value })}
             />
           </label>
         </Section>
@@ -2162,6 +2187,318 @@ function IndexersCard({
             onChange={(e) => set({ priority: Number(e.target.value) || 25 })}
           />
         </label>
+        <div className="settings-actions">
+          <button disabled={busy || !draftValid} onClick={testDraft}>
+            Test
+          </button>
+          <button disabled={busy || !draftValid} onClick={add}>
+            {editing ? "Save changes" : "Add"}
+          </button>
+          {editing && (
+            <button className="toggle" disabled={busy} onClick={cancelEdit}>
+              Cancel
+            </button>
+          )}
+          {notice && (
+            <span className={notice.startsWith("✗") ? "notice bad" : "notice ok"}>
+              {notice}
+            </span>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const emptyImportList: Omit<ImportList, "id" | "addedAt" | "lastSyncedAt" | "lastSyncError"> = {
+  name: "",
+  type: "musicbrainz_series",
+  seriesMbid: "",
+  listText: "",
+  sourceUrl: "",
+  lastfmKind: "user",
+  lastfmTarget: "",
+  enabled: true,
+};
+
+// ImportListsCard manages external sources that periodically resolve to
+// MusicBrainz artist MBIDs, adding and monitoring any newly-appearing one
+// automatically — the same "+Add artist" primitive a manual search uses,
+// just triggered on a timer instead of by hand. Mirrors IndexersCard's own
+// shape (saved list + one add/edit form below, edit-in-place, a Test
+// button that validates without saving).
+function ImportListsCard({
+  onError,
+}: {
+  onError: (message: string) => void;
+}) {
+  const { confirmDlg } = useUi();
+  const [lists, setLists] = useState<ImportList[]>([]);
+  const [draft, setDraft] = useState(emptyImportList);
+  const [editing, setEditing] = useState<ImportList | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  const reload = useCallback(() => {
+    api
+      .listImportLists()
+      .then(setLists)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  }, [onError]);
+
+  useEffect(reload, [reload]);
+
+  const set = (patch: Partial<typeof emptyImportList>) =>
+    setDraft((d) => ({ ...d, ...patch }));
+
+  const run = (action: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    setNotice("");
+    action()
+      .then(() => {
+        if (done) setNotice(done);
+        reload();
+      })
+      .catch((err: unknown) =>
+        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  const testDraft = () => {
+    setBusy(true);
+    setNotice("");
+    api
+      .testImportList(draft)
+      .then((res) =>
+        setNotice(
+          res.resolvedCount > 0
+            ? `✓ Resolved ${res.resolvedCount} artist${res.resolvedCount === 1 ? "" : "s"}`
+            : "✓ Reachable, but resolved 0 artists",
+        ),
+      )
+      .catch((err: unknown) =>
+        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  const add = () => {
+    setBusy(true);
+    setNotice("");
+    const action = editing
+      ? api.updateImportList({ ...editing, ...draft }).then(() => {
+          setNotice(`✓ ${draft.name} saved`);
+          setEditing(null);
+        })
+      : api.addImportList(draft).then(() => setNotice("✓ Import list added"));
+    action
+      .then(() => {
+        setDraft(emptyImportList);
+        reload();
+      })
+      .catch((err: unknown) =>
+        setNotice(`✗ ${err instanceof Error ? err.message : String(err)}`),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  const startEdit = (l: ImportList) => {
+    setEditing(l);
+    setDraft({ ...l });
+    setNotice("");
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setDraft(emptyImportList);
+    setNotice("");
+  };
+
+  const toggle = (l: ImportList) =>
+    run(() => api.updateImportList({ ...l, enabled: !l.enabled }));
+
+  const remove = async (l: ImportList) => {
+    const ok = await confirmDlg({
+      message: `Remove import list ${l.name}?`,
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (ok) run(() => api.deleteImportList(l.id));
+  };
+
+  const typeLabel = (t: ImportList["type"]) =>
+    t === "musicbrainz_series" ? "MusicBrainz Series" : t === "lastfm" ? "Last.fm" : "List";
+
+  const draftValid =
+    draft.name.trim() !== "" &&
+    (draft.type === "musicbrainz_series"
+      ? draft.seriesMbid.trim() !== ""
+      : draft.type === "list"
+        ? draft.listText.trim() !== "" || draft.sourceUrl.trim() !== ""
+        : draft.lastfmTarget.trim() !== "");
+
+  return (
+    <section className="card">
+      <h2>Import Lists</h2>
+      <p className="muted">
+        Point CantiNode at an external source — a MusicBrainz Series, a
+        pasted or fetched plain artist list, or a Last.fm user's/tag's top
+        artists — and every artist it names is added and monitored
+        automatically on a periodic sync (tune the cadence under Settings →
+        General → Background timings). Add-only: an artist that later falls
+        off a list stays in your library.
+      </p>
+
+      {lists.length > 0 && (
+        <ul className="rows">
+          {lists.map((l) => (
+            <li key={l.id}>
+              <div className="row">
+                <span className="saved-main">
+                  <span className="saved-head">
+                    <strong>{l.name}</strong>
+                    <span className="pill" title={l.type}>
+                      {typeLabel(l.type)}
+                    </span>
+                    {!l.enabled && <span className="pill off">disabled</span>}
+                    {l.lastSyncError && (
+                      <span className="pill bad" title={l.lastSyncError}>
+                        sync failed
+                      </span>
+                    )}
+                  </span>
+                  <span className="muted file-path saved-sub">
+                    {l.type === "musicbrainz_series"
+                      ? l.seriesMbid
+                      : l.type === "lastfm"
+                        ? `${l.lastfmKind === "tag" ? "tag" : "user"}: ${l.lastfmTarget}`
+                        : l.sourceUrl || "pasted list"}
+                    {l.lastSyncedAt ? ` — last synced ${new Date(l.lastSyncedAt).toLocaleString()}` : " — never synced"}
+                  </span>
+                </span>
+                <span className="row-actions">
+                  <button
+                    className="toggle"
+                    disabled={busy}
+                    title="Resolve this list right now without saving changes"
+                    onClick={() => run(async () => {
+                      const res = await api.testImportList(l);
+                      setNotice(`✓ ${l.name}: resolved ${res.resolvedCount} artist${res.resolvedCount === 1 ? "" : "s"}`);
+                    })}
+                  >
+                    test
+                  </button>
+                  <button
+                    className={l.enabled ? "toggle on" : "toggle"}
+                    disabled={busy}
+                    onClick={() => toggle(l)}
+                  >
+                    {l.enabled ? "enabled" : "disabled"}
+                  </button>
+                  <button
+                    className={editing?.id === l.id ? "toggle on" : "toggle"}
+                    disabled={busy}
+                    title="Load this list into the form below to change it"
+                    onClick={() => (editing?.id === l.id ? cancelEdit() : startEdit(l))}
+                  >
+                    edit
+                  </button>
+                  <button className="danger" disabled={busy} onClick={() => remove(l)}>
+                    remove
+                  </button>
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h3 className="settings-subhead">
+        {editing ? `Edit ${editing.name}` : lists.length > 0 ? "Add another import list" : "Add an import list"}
+      </h3>
+      <div className="settings-form">
+        <label>
+          Name
+          <input value={draft.name} onChange={(e) => set({ name: e.target.value })} />
+        </label>
+        <label>
+          Type
+          <select
+            value={draft.type}
+            onChange={(e) => set({ type: e.target.value as ImportList["type"] })}
+          >
+            <option value="musicbrainz_series">MusicBrainz Series</option>
+            <option value="list">Plain list</option>
+            <option value="lastfm">Last.fm</option>
+          </select>
+        </label>
+        {draft.type === "musicbrainz_series" && (
+          <label>
+            Series MBID
+            <input
+              placeholder="e.g. from musicbrainz.org/series/<mbid>"
+              value={draft.seriesMbid}
+              onChange={(e) => set({ seriesMbid: e.target.value })}
+            />
+          </label>
+        )}
+        {draft.type === "list" && (
+          <>
+            <label>
+              Source URL
+              <input
+                placeholder="fetched fresh on every sync (optional)"
+                value={draft.sourceUrl}
+                onChange={(e) => set({ sourceUrl: e.target.value })}
+              />
+            </label>
+            <label>
+              Pasted list (one artist per line)
+              <textarea
+                rows={4}
+                placeholder="Boards of Canada&#10;Aphex Twin&#10;..."
+                value={draft.listText}
+                onChange={(e) => set({ listText: e.target.value })}
+                disabled={draft.sourceUrl.trim() !== ""}
+              />
+            </label>
+            {draft.sourceUrl.trim() !== "" && (
+              <p className="muted field-note">Source URL is set, so the pasted text above is ignored.</p>
+            )}
+          </>
+        )}
+        {draft.type === "lastfm" && (
+          <>
+            <label>
+              Source
+              <span className="view-toggle">
+                <button
+                  type="button"
+                  className={draft.lastfmKind === "user" ? "toggle on" : "toggle"}
+                  onClick={() => set({ lastfmKind: "user" })}
+                >
+                  User's top artists
+                </button>
+                <button
+                  type="button"
+                  className={draft.lastfmKind === "tag" ? "toggle on" : "toggle"}
+                  onClick={() => set({ lastfmKind: "tag" })}
+                >
+                  Tag's top artists
+                </button>
+              </span>
+            </label>
+            <label>
+              {draft.lastfmKind === "tag" ? "Tag/genre" : "Username"}
+              <input
+                value={draft.lastfmTarget}
+                onChange={(e) => set({ lastfmTarget: e.target.value })}
+              />
+            </label>
+            <p className="muted field-note">Needs a Last.fm API key under Settings → Music.</p>
+          </>
+        )}
         <div className="settings-actions">
           <button disabled={busy || !draftValid} onClick={testDraft}>
             Test

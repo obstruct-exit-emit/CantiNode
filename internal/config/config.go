@@ -210,6 +210,13 @@ type TimingSettings struct {
 	// daily-at-time-of-day mode WantedSearchMode has — no evidence yet
 	// this needs that extra complexity.
 	DiscographyRefreshIntervalMinutes int `yaml:"discography_refresh_interval_minutes,omitempty" json:"discographyRefreshIntervalMinutes"`
+
+	// ImportListSyncIntervalMinutes: how often every enabled import list
+	// (Settings → Import Lists) is resolved and any newly-appearing artist
+	// added and monitored (default 1440 = 24h, matching Lidarr's own
+	// default list-sync interval). A plain interval, same reasoning as
+	// DiscographyRefreshIntervalMinutes.
+	ImportListSyncIntervalMinutes int `yaml:"import_list_sync_interval_minutes,omitempty" json:"importListSyncIntervalMinutes"`
 }
 
 func (t TimingSettings) HealthInterval() time.Duration {
@@ -235,6 +242,15 @@ func (t TimingSettings) WantedSearchInterval() time.Duration {
 func (t TimingSettings) DiscographyRefreshInterval() time.Duration {
 	if t.DiscographyRefreshIntervalMinutes > 0 {
 		return time.Duration(t.DiscographyRefreshIntervalMinutes) * time.Minute
+	}
+	return 24 * time.Hour
+}
+
+// ImportListSyncInterval is internal/importlist's own sync cadence — see
+// ImportListSyncIntervalMinutes's own doc comment.
+func (t TimingSettings) ImportListSyncInterval() time.Duration {
+	if t.ImportListSyncIntervalMinutes > 0 {
+		return time.Duration(t.ImportListSyncIntervalMinutes) * time.Minute
 	}
 	return 24 * time.Hour
 }
@@ -324,6 +340,11 @@ type MusicSettings struct {
 	// missing bio/photo is a minor cosmetic gap, not a broken feature the
 	// way an unconfigured indexer/download client would be.
 	AudioDBAPIKey string `yaml:"audiodb_api_key" json:"audioDbApiKey"`
+	// LastFMAPIKey configures internal/lastfm for a "lastfm"-type import
+	// list (a user's or a tag's top artists). Unlike AudioDBAPIKey, Last.fm
+	// has no shared public test key to fall back to — a "lastfm" import
+	// list simply fails its sync with a clear error until this is set.
+	LastFMAPIKey string `yaml:"lastfm_api_key" json:"lastFmApiKey"`
 	// MusicBrainzBaseURL points CantiNode at a MusicBrainz-API-compatible
 	// server other than the real musicbrainz.org — a self-hosted mirror
 	// the operator runs and controls themselves (see
@@ -652,6 +673,7 @@ func (c *Config) SetTimings(t TimingSettings) error {
 	t.HealthIntervalMinutes = clamp(t.HealthIntervalMinutes, 5, 1440)
 	t.WantedSearchIntervalMinutes = clamp(t.WantedSearchIntervalMinutes, 15, 1440)
 	t.DiscographyRefreshIntervalMinutes = clamp(t.DiscographyRefreshIntervalMinutes, 15, 1440)
+	t.ImportListSyncIntervalMinutes = clamp(t.ImportListSyncIntervalMinutes, 15, 1440)
 	if t.WantedSearchMode != WantedSearchModeInterval {
 		t.WantedSearchMode = "" // anything but "interval" normalizes to the default ("daily")
 	}

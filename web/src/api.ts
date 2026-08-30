@@ -239,6 +239,26 @@ export interface TimingSettings {
   wantedSearchIntervalMinutes: number;
   wantedSearchTimeOfDay: string; // "HH:MM", 24-hour, server-local time
   discographyRefreshIntervalMinutes: number;
+  importListSyncIntervalMinutes: number;
+}
+
+// ImportList is one configured external source (Settings → Import Lists)
+// that's periodically resolved to MusicBrainz artist MBIDs, adding and
+// monitoring any newly-appearing one automatically. Add-only — an artist
+// that later falls off a list stays in the library.
+export interface ImportList {
+  id: number;
+  name: string;
+  type: "musicbrainz_series" | "list" | "lastfm";
+  seriesMbid: string;
+  listText: string;
+  sourceUrl: string;
+  lastfmKind: "user" | "tag";
+  lastfmTarget: string;
+  enabled: boolean;
+  addedAt?: string;
+  lastSyncedAt?: string;
+  lastSyncError?: string;
 }
 
 // UserAccount is one login; the default user is protected from removal.
@@ -554,6 +574,10 @@ export interface MusicSettings {
   autoMatchConfidence: number;
   musicbrainzContactEmail: string;
   audioDbApiKey: string;
+  // Configures a "lastfm"-type import list (Settings → Import Lists) — a
+  // user's or a tag's top artists. Unlike audioDbApiKey, Last.fm has no
+  // shared public test key to fall back to.
+  lastFmApiKey: string;
   // Points at a MusicBrainz-API-compatible server other than the real
   // musicbrainz.org — a self-hosted mirror the operator runs themselves,
   // not a shortcut to someone else's infrastructure. Empty (the default)
@@ -806,6 +830,16 @@ export const api = {
     request<void>(`/api/v1/indexer/${id}`, { method: "DELETE" }),
   testIndexer: (ind: Omit<Indexer, "id" | "addedAt">) =>
     request<{ ok: boolean }>("/api/v1/indexer/test", json(ind)),
+
+  listImportLists: () => request<ImportList[]>("/api/v1/importlist"),
+  addImportList: (l: Omit<ImportList, "id" | "addedAt" | "lastSyncedAt" | "lastSyncError">) =>
+    request<ImportList>("/api/v1/importlist", json(l)),
+  updateImportList: (l: ImportList) =>
+    request<ImportList>(`/api/v1/importlist/${l.id}`, { ...json(l), method: "PUT" }),
+  deleteImportList: (id: number) =>
+    request<void>(`/api/v1/importlist/${id}`, { method: "DELETE" }),
+  testImportList: (l: Omit<ImportList, "id" | "addedAt" | "lastSyncedAt" | "lastSyncError">) =>
+    request<{ ok: boolean; resolvedCount: number }>("/api/v1/importlist/test", json(l)),
 
   getNamingSettings: () => request<NamingSettings>("/api/v1/settings/naming"),
   saveNamingSettings: (templates: Partial<NamingSettings>) =>

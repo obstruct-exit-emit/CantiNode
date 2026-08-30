@@ -21,8 +21,9 @@ curl -H "X-Api-Key: <key>" http://localhost:7847/api/v1/system/status
 | Search & grab | `GET /music/musicbrainz/search?term=` (raw recording search), `GET /music/releasegroup/{mbid}/tracks` (tracklist preview via the cached representative release), `GET /music/releasegroup/{mbid}/versions` (every cached edition/pressing, for the matching UI's version picker — track count, format, country, etc.; live-fetches and caches on a miss), `GET /music/releasegroup/{mbid}/cover` (cover art for a wanted/missing album, via its cached representative release), `DELETE /music/wanted/{id}` (stop wanting — falls back to Missing), `GET /music/wanted/{id}/search` (scored release candidates), `POST /music/wanted/{id}/grab` |
 | Quality | `GET/POST /qualityprofile`, `PUT/DELETE /qualityprofile/{id}`, `PUT /qualityprofile/{id}/default` |
 | Indexers | `GET/POST /indexer` (type `newznab`\|`torznab`\|a native source name — `prowlarr` ships built in: search a self-hosted Prowlarr instance directly instead of duplicating each of its indexers here), `GET/PUT/DELETE /indexer/{id}`, `POST /indexer/test`, `GET /indexer/native` (native source catalog: name, protocol, media types, URL/key requirements) |
+| Import Lists | `GET/POST /importlist` (type `musicbrainz_series`\|`list`\|`lastfm` — periodically resolved to MusicBrainz artist MBIDs, add-only), `PUT/DELETE /importlist/{id}`, `POST /importlist/test` (resolves without saving — `{"ok": true, "resolvedCount": N}`) |
 | Downloads | `GET/POST /downloadclient` (types: `qbittorrent`, `sabnzbd`, `direct` — the built-in HTTP fetcher, whose `host` is a local download folder), `PUT/DELETE /downloadclient/{id}`, `POST /downloadclient/test`, `GET /queue` (each item enriched with its grab and live progress), `DELETE /queue/{clientId}/{itemId}` (remove one download + its data, no blocklist), `POST /grab/{id}/cancel` (manually resolve a stuck "pending" grab, without touching any client), `GET /history?search=&limit=&offset=` (paged: `{"records": […], "total": N}`), `GET /blocklist`, `DELETE /blocklist/{id}` |
-| Settings | `GET/PUT /settings/naming` (the music path template), `GET/PUT /settings/music` (organize-on-match, match confidence, auto-match dropdown confidence, MusicBrainz/TheAudioDB keys, an optional MusicBrainz server URL for a self-hosted mirror — blank uses the real musicbrainz.org, applied at startup only), `GET/PUT /settings/timings` (health check cadence; wanted-list sweep — `wantedSearchMode` `"daily"`\|`"interval"`, a `wantedSearchTimeOfDay` `"HH:MM"` or `wantedSearchIntervalMinutes` depending which; a discography-refresh interval; 0/empty = default, clamped, applied at startup), `GET/PUT /settings/pathmappings` (remote→local download-path prefixes), `GET/PUT /settings/tagwrite` (which of "Write tags"'s ~24 fields actually get embedded, all on by default — see Configuration doc for the full field list and why the JSON/YAML is phrased as `disable*` rather than `enable*`) |
+| Settings | `GET/PUT /settings/naming` (the music path template), `GET/PUT /settings/music` (organize-on-match, match confidence, auto-match dropdown confidence, MusicBrainz/TheAudioDB/Last.fm keys, an optional MusicBrainz server URL for a self-hosted mirror — blank uses the real musicbrainz.org, applied at startup only), `GET/PUT /settings/timings` (health check cadence; wanted-list sweep — `wantedSearchMode` `"daily"`\|`"interval"`, a `wantedSearchTimeOfDay` `"HH:MM"` or `wantedSearchIntervalMinutes` depending which; a discography-refresh interval; an import-list sync interval; 0/empty = default, clamped, applied at startup), `GET/PUT /settings/pathmappings` (remote→local download-path prefixes), `GET/PUT /settings/tagwrite` (which of "Write tags"'s ~24 fields actually get embedded, all on by default — see Configuration doc for the full field list and why the JSON/YAML is phrased as `disable*` rather than `enable*`) |
 
 Notes:
 
@@ -39,15 +40,18 @@ Notes:
   admin-equivalent, so scripts are unaffected. `PUT
   /auth/users/{username}/password` is the one exception — a member may
   change their own password.
-- Three loops run on their own schedule, no endpoint call needed, alongside
-  the health check: a Completed-Download-Handling poll (copies a finished
-  grab's audio files into the library and scans them in), a wanted-list
-  sweep for monitored artists (`internal/autosearch` — searches and grabs,
-  tunable via `/settings/timings`), and a discography-refresh sweep
+- Several loops run on their own schedule, no endpoint call needed,
+  alongside the health check: a Completed-Download-Handling poll (copies a
+  finished grab's audio files into the library and scans them in), a
+  wanted-list sweep for monitored artists (`internal/autosearch` — searches
+  and grabs, tunable via `/settings/timings`), a discography-refresh sweep
   (`internal/discoveryrefresh` — re-checks every monitored artist's own
   discography so a new release lands in Missing on its own, also tunable
-  via `/settings/timings`). A fourth, `internal/metadatabackfill`,
-  is a restart-safe backstop for artist bio/photo/discography caching that
+  via `/settings/timings`), and an import-list sync
+  (`internal/importlist` — resolves every enabled import list to
+  MusicBrainz artist MBIDs and adds+monitors any new one, also tunable via
+  `/settings/timings`). Another, `internal/metadatabackfill`, is a
+  restart-safe backstop for artist bio/photo/discography caching that
   normally finishes inline during `POST /music/artist` or a scan — it only
   ever does anything when one of those was interrupted partway through.
   Manual search, grab, scan, and organize are still available as ordinary

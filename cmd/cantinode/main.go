@@ -150,11 +150,14 @@ func run(dataDir string) error {
 	// wanted albums to search and grab automatically (see
 	// internal/autosearch), discoveryrefresh re-caching every monitored
 	// artist's own discography so a new release lands in Missing on its own
-	// (see internal/discoveryrefresh), and metadatabackfill catching
+	// (see internal/discoveryrefresh), metadatabackfill catching
 	// up any artist still missing discography/bio/photo metadata — normally
 	// finished inline right after a scan, but restart-safe against an
 	// interruption mid-sweep since it also runs independently on its own
-	// timer (see internal/metadatabackfill).
+	// timer (see internal/metadatabackfill) — and importlist resolving every
+	// enabled import list (a MusicBrainz Series, a plain artist list, or a
+	// Last.fm user/tag) to add and monitor any newly-appearing artist (see
+	// internal/importlist).
 	bgCtx, cancelBg := context.WithCancel(context.Background())
 	defer cancelBg()
 	// Cadences: built-in defaults unless tuned under Settings → General →
@@ -169,6 +172,9 @@ func run(dataDir string) error {
 		return now.Add(timings.DiscographyRefreshInterval())
 	})
 	go bg.MetadataBackfill.RunPeriodic(bgCtx, metadatabackfill.PollInterval)
+	go bg.ImportLists.RunPeriodic(bgCtx, func(now time.Time) time.Time {
+		return now.Add(timings.ImportListSyncInterval())
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr(),
