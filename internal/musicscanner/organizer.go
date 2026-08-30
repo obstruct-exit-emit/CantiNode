@@ -56,6 +56,18 @@ var formatPlaceholders = []string{
 // the file hidden on Unix on top of just looking broken.
 const discNumberConnectors = ".-_ "
 
+// discNumberLabelWords are literal words commonly written immediately
+// before {DiscNumber} to label it — "CD.{DiscNumber}-{TrackNumber}" for
+// a "CD1-05" style filename, say. Matched case-insensitively. Unlike
+// discNumberConnectors these are real characters, not structural
+// punctuation, so they're only recognized as a fixed, deliberately short
+// list rather than stripped by inference — this package can't tell "CD"
+// meant as a disc label apart from arbitrary literal template text that
+// happens to precede {DiscNumber} for an unrelated reason, so it only
+// acts on the specific words a naming convention is actually likely to
+// use. Longest first so "Disc"/"Disk" match before a bare "D" could.
+var discNumberLabelWords = []string{"Disc", "Disk", "CD", "D"}
+
 // stripDiscNumberSegment removes {DiscNumber} from format for a
 // single-disc release when the "use disc number on single-disc
 // releases" setting (config.NamingSettings.DisableDiscNumberForSingleDisc)
@@ -69,12 +81,13 @@ const discNumberConnectors = ".-_ "
 // single-disc release doesn't end up with a bare "CD" folder holding
 // nothing. {DiscNumber} sharing a segment with any other placeholder
 // (most commonly the filename itself, e.g.
-// "{DiscNumber}-{TrackNumber} - {Title}") only has the placeholder
-// itself removed, along with its own adjacent connector punctuation —
-// see the leading/trailing run-scanning below — dropping the whole
-// segment there would delete the filename along with it, which is
-// never the intent. A format with no {DiscNumber} at all is returned
-// unchanged.
+// "CD.{DiscNumber}-{TrackNumber} - {Title}") only has the placeholder
+// itself removed, along with its own adjacent connector punctuation and
+// a recognized disc-label word (discNumberLabelWords) immediately
+// before it — see the leading/trailing run-scanning below — dropping
+// the whole segment there would delete the filename along with it,
+// which is never the intent. A format with no {DiscNumber} at all is
+// returned unchanged.
 func stripDiscNumberSegment(format string) string {
 	segments := strings.Split(format, "/")
 	kept := make([]string, 0, len(segments))
@@ -96,12 +109,6 @@ func stripDiscNumberSegment(format string) string {
 		}
 		end := idx + len(discNumberPlaceholder)
 
-		// leadStart walks back over a run of pure connector punctuation
-		// immediately before {DiscNumber} (there may be none at all).
-		leadStart := idx
-		for leadStart > 0 && strings.ContainsRune(discNumberConnectors, rune(seg[leadStart-1])) {
-			leadStart--
-		}
 		// trailEnd walks forward over a run of pure connector punctuation
 		// immediately after {DiscNumber}.
 		trailEnd := end
@@ -109,26 +116,40 @@ func stripDiscNumberSegment(format string) string {
 			trailEnd++
 		}
 
-		if leadStart == 0 {
-			// Nothing but connector punctuation (possibly none at all)
-			// precedes {DiscNumber} in this segment — it's effectively
-			// the first real thing here, so none of that punctuation is
-			// separating it from anything and all of it goes: both the
-			// leading run and the trailing run (found live: a connector
-			// on *both* sides, e.g. "-{DiscNumber}-{TrackNumber}" or
-			// ".{DiscNumber}.{TrackNumber}", left the leading one behind
-			// as a new dangling separator when only the trailing side
-			// was stripped).
-			seg = seg[trailEnd:]
-		} else {
-			// Real content precedes the leading connector run (most
-			// commonly another placeholder's own rendered text, e.g.
-			// "{TrackArtist} - {DiscNumber}.{TrackNumber}") — that
-			// connector is separating THAT content from whatever follows
-			// once {DiscNumber} is gone, so it stays; only {DiscNumber}
-			// and its trailing run go.
-			seg = seg[:idx] + seg[trailEnd:]
+		// punctStart walks back over a run of pure connector punctuation
+		// immediately before {DiscNumber} (there may be none at all).
+		punctStart := idx
+		for punctStart > 0 && strings.ContainsRune(discNumberConnectors, rune(seg[punctStart-1])) {
+			punctStart--
 		}
+		// labelStart additionally consumes one recognized disc-label word
+		// (discNumberLabelWords) ending exactly where the punctuation run
+		// starts, if there is one — e.g. the "CD" in "CD.{DiscNumber}".
+		labelStart := punctStart
+		for _, word := range discNumberLabelWords {
+			if labelStart >= len(word) && strings.EqualFold(seg[labelStart-len(word):labelStart], word) {
+				labelStart -= len(word)
+				break
+			}
+		}
+
+		// removeFrom is where the whole "disc indicator" run to delete
+		// actually starts. A recognized label word always goes in full,
+		// regardless of what precedes it — "CD" unambiguously belongs to
+		// {DiscNumber}, never to whatever came before it. Otherwise, only
+		// when nothing real precedes the plain punctuation run either
+		// (punctStart == 0) does that punctuation go too; with real
+		// content before it, that punctuation is separating that content
+		// from whatever follows once {DiscNumber} is gone, so it stays
+		// and only {DiscNumber} itself (from idx) is removed.
+		removeFrom := idx
+		switch {
+		case labelStart != punctStart:
+			removeFrom = labelStart
+		case punctStart == 0:
+			removeFrom = 0
+		}
+		seg = seg[:removeFrom] + seg[trailEnd:]
 		kept = append(kept, seg)
 	}
 	return strings.Join(kept, "/")

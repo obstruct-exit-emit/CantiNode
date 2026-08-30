@@ -184,6 +184,57 @@ func TestFormatPathDropDiscSegmentConnectorOnBothSides(t *testing.T) {
 	}
 }
 
+// TestFormatPathDropDiscSegmentStripsLabelWord covers a literal disc-label
+// word ("CD", "D", "Disc", "Disk") immediately before {DiscNumber} in a
+// mixed segment (the filename, sharing with {TrackNumber}) — the label
+// itself must go too, not just its punctuation, or a single-disc release
+// ends up with a leftover "CD05 - Title.flac" instead of "05 - Title.flac".
+// Matching is case-insensitive, and works whether or not there's any
+// punctuation between the label and {DiscNumber}.
+func TestFormatPathDropDiscSegmentStripsLabelWord(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Avantasia"}
+	album := musiclibrary.Album{Title: "The Wicked Symphony", ReleaseDate: "2010-04-03"}
+	track := musiclibrary.Track{Title: "The Wicked Symphony", TrackNumber: 5, DiscNumber: 1}
+	want := filepath.FromSlash("Avantasia/The Wicked Symphony (2010)/05 - The Wicked Symphony.flac")
+
+	for _, format := range []string{
+		"{Artist}/{Album} ({Year})/D{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/D.{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/D-{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/D {DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/CD{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/CD.{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/CD-{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/CD {DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/cd.{DiscNumber}-{TrackNumber} - {Title}.{Ext}", // lowercase
+		"{Artist}/{Album} ({Year})/Disc.{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/Disk-{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+	} {
+		got := FormatPath(format, artist, album, track, ".flac", true)
+		if got != want {
+			t.Errorf("FormatPath(%q) = %q, want %q — the disc-label word should be gone too", format, got, want)
+		}
+	}
+}
+
+// TestFormatPathDropDiscSegmentLabelWordPreservesEarlierSeparator covers
+// a disc label preceded by *other* real content in the same segment
+// (e.g. a track artist credit) — only the label and {DiscNumber} go; the
+// separator into whatever came before the label must survive as the
+// (now sole) separator into whatever follows.
+func TestFormatPathDropDiscSegmentLabelWordPreservesEarlierSeparator(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Avantasia"}
+	album := musiclibrary.Album{Title: "The Wicked Symphony", ReleaseDate: "2010-04-03"}
+	track := musiclibrary.Track{Title: "The Wicked Symphony", TrackNumber: 5, DiscNumber: 1}
+
+	format := "{Artist}/{Album} ({Year})/{TrackArtist} - CD.{DiscNumber}-{TrackNumber} - {Title}.{Ext}"
+	got := FormatPath(format, artist, album, track, ".flac", true)
+	want := filepath.FromSlash("Avantasia/The Wicked Symphony (2010)/Avantasia - 05 - The Wicked Symphony.flac")
+	if got != want {
+		t.Errorf("FormatPath(%q) = %q, want %q — separator before the label should survive", format, got, want)
+	}
+}
+
 // TestFormatPathDropDiscSegmentNoDiscNumberIsNoop covers a template with
 // no {DiscNumber} at all — dropDiscSegment must never touch it.
 func TestFormatPathDropDiscSegmentNoDiscNumberIsNoop(t *testing.T) {
