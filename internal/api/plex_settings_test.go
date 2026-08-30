@@ -47,3 +47,32 @@ func TestListPlexSectionsRequiresServerURLAndToken(t *testing.T) {
 	a.want(a.call("POST", "/api/v1/settings/plex/sections", map[string]any{"serverUrl": "http://x"}, nil), http.StatusBadRequest)
 	a.want(a.call("POST", "/api/v1/settings/plex/sections", map[string]any{"token": "t"}, nil), http.StatusBadRequest)
 }
+
+// TestSyncPlaylistsRequiresConfiguredSync covers the "sync now" endpoint's
+// own readiness gate — a real successful sync needs a live Plex server,
+// the same boundary TestListPlexSectionsRequiresServerURLAndToken's own
+// doc comment describes, so this only checks the pre-flight rejection.
+func TestSyncPlaylistsRequiresConfiguredSync(t *testing.T) {
+	a := newTestAPI(t)
+	a.want(a.call("POST", "/api/v1/music/playlist/sync", nil, nil), http.StatusBadRequest)
+
+	a.want(a.call("PUT", "/api/v1/settings/plex", config.PlexSettings{
+		PlaylistSyncEnabled: true,
+		// Port 1 refuses the connection immediately (no real server can
+		// bind it) rather than hanging out to a real timeout, so this
+		// stays a fast unit test.
+		ServerURL:  "http://127.0.0.1:1",
+		Token:      "t",
+		SectionKey: "7",
+	}, nil), http.StatusOK)
+
+	// Now fully configured — the endpoint proceeds to PollOnce, which will
+	// itself fail to reach the fake address above; that's a live-Plex-
+	// server boundary this test doesn't cross (see the doc comment
+	// above), so just confirm it's no longer rejected as unconfigured
+	// (i.e. not 400).
+	resp := a.call("POST", "/api/v1/music/playlist/sync", nil, nil)
+	if resp.StatusCode == http.StatusBadRequest {
+		t.Errorf("status = %d, want anything but 400 once sync is configured", resp.StatusCode)
+	}
+}

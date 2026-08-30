@@ -375,6 +375,9 @@ func TestPollOncePullsNewPlexPlaylistIntoCantiNode(t *testing.T) {
 	if got.Name != "From Plex" || got.PlexRatingKey != "existing-1" {
 		t.Errorf("pulled playlist = %+v, want name=From Plex ratingKey=existing-1", got)
 	}
+	if got.Origin != musiclibrary.PlaylistOriginPlex {
+		t.Errorf("Origin = %q, want %q for a playlist pulled in from Plex", got.Origin, musiclibrary.PlaylistOriginPlex)
+	}
 	tracks, err := store.ListPlaylistTracks(got.ID)
 	if err != nil {
 		t.Fatal(err)

@@ -2545,7 +2545,17 @@ function PlexCard({ onError }: { onError: (message: string) => void }) {
   useEffect(() => {
     api
       .getPlexSettings()
-      .then(setSettings)
+      .then((fetched) => {
+        // Opt-out, not opt-in: a genuinely never-configured connection
+        // (no server URL or token saved yet) shows the checkbox already
+        // checked, so filling in a server and saving turns notifications
+        // on without a separate step. Once real values exist, whatever's
+        // actually saved wins — including a deliberate uncheck (see
+        // PlaylistSyncEnabled's own doc comment: scan-notify and
+        // playlist sync are independent, so this must never force
+        // Enabled back on for someone who owns one without the other).
+        setSettings(fetched.serverUrl || fetched.token ? fetched : { ...fetched, enabled: true });
+      })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   }, [onError]);
 
@@ -2607,7 +2617,8 @@ function PlexCard({ onError }: { onError: (message: string) => void }) {
         whenever CantiNode adds, moves, or removes files on disk — a
         partial scan scoped to just the folder that changed, not a full
         library scan — so Plex's own library stays current without a
-        manual rescan. Off by default.
+        manual rescan. On by default once you save a server URL and
+        token below; uncheck to turn it off without losing them.
       </p>
       <label>
         <span>
@@ -2759,6 +2770,20 @@ function PlexCard({ onError }: { onError: (message: string) => void }) {
           Enable two-way playlist sync
         </span>
       </label>
+      {settings.playlistSyncEnabled && (
+        <label>
+          <span>
+            <input
+              type="checkbox"
+              checked={!settings.playlistSyncOnChangeDisabled}
+              onChange={(e) => set({ playlistSyncOnChangeDisabled: !e.target.checked })}
+            />{" "}
+            Sync right away when a playlist changes in CantiNode (on by
+            default — otherwise it waits for the next periodic sync, every
+            10 minutes)
+          </span>
+        </label>
+      )}
       <div className="settings-form">
         <label>
           When a linked playlist is deleted on one side

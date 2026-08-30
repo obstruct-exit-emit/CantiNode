@@ -429,6 +429,18 @@ button.link {
   white-space: nowrap;
 }
 
+/* Playlist origin flag: unmarked/muted for the common case (created in
+   CantiNode itself), a distinct accent color only when it's worth calling
+   out — pulled in from Plex. */
+.playlist-origin {
+  white-space: nowrap;
+}
+
+.playlist-origin-plex {
+  background: var(--info-soft);
+  color: var(--accent);
+}
+
 /* Fixed-width columns for a track row's credits/in-playlist/format/size/
    owned/menu cluster (AlbumDetailView's own track list) — a plain flex row
    hugs its own content width, so the whole cluster shifts left/right row to

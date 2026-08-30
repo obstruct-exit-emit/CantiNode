@@ -47,7 +47,41 @@ func (s *server) handleCreatePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.syncPlaylistsInBackground()
 	writeJSON(w, http.StatusCreated, p)
+}
+
+// syncPlaylistsInBackground kicks off a Plex playlist sync pass right
+// after a playlist changes, instead of leaving it to the next periodic
+// poll (up to PollInterval away) — same "don't make the user wait for the
+// next scheduled pass to see their own edit" reasoning as refreshHealth's
+// own post-change re-check. Non-blocking: a sync pass costs at least one
+// full-library track listing plus a request per playlist that actually
+// changed, too slow to hold the HTTP response open for. Safe to call
+// unconditionally from every mutating handler — skips outright (no
+// goroutine spun up at all) when playlist sync isn't configured or the
+// operator has opted out of the immediate pass via
+// PlaylistSyncOnChangeDisabled, in which case the change still reaches
+// Plex on the next periodic pass regardless.
+func (s *server) syncPlaylistsInBackground() {
+	settings := s.cfg.PlexSettings()
+	if !settings.PlaylistSyncReady() || settings.PlaylistSyncOnChangeDisabled {
+		return
+	}
+	go s.plexPlaylistSync.PollOnce(context.Background())
+}
+
+// handleSyncPlaylists runs a playlist sync pass right now instead of
+// waiting for the next periodic one — Playlists' own "Sync now" button.
+// Unlike syncPlaylistsInBackground's fire-and-forget use elsewhere, this
+// is the one place a human is actually waiting on the result, so it runs
+// synchronously and reports back what happened.
+func (s *server) handleSyncPlaylists(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.PlexSettings().PlaylistSyncReady() {
+		writeError(w, http.StatusBadRequest, "playlist sync isn't configured — enable it under Settings → Integrations first")
+		return
+	}
+	writeJSON(w, http.StatusOK, s.plexPlaylistSync.PollOnce(r.Context()))
 }
 
 // playlistDetail is a playlist plus its ordered tracks — the single round
@@ -104,6 +138,7 @@ func (s *server) handleUpdatePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeMusicStoreError(w, err)
 		return
 	}
+	s.syncPlaylistsInBackground()
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -189,6 +224,7 @@ func (s *server) handleAppendPlaylistItem(w http.ResponseWriter, r *http.Request
 		writeAppendPlaylistError(w, err)
 		return
 	}
+	s.syncPlaylistsInBackground()
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -214,6 +250,7 @@ func (s *server) handleAppendPlaylistItemsBulk(w http.ResponseWriter, r *http.Re
 		writeAppendPlaylistError(w, err)
 		return
 	}
+	s.syncPlaylistsInBackground()
 	writeJSON(w, http.StatusCreated, items)
 }
 
@@ -266,6 +303,7 @@ func (s *server) handleRemovePlaylistItem(w http.ResponseWriter, r *http.Request
 		writeMusicStoreError(w, err)
 		return
 	}
+	s.syncPlaylistsInBackground()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -291,6 +329,7 @@ func (s *server) handleReorderPlaylistItems(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.syncPlaylistsInBackground()
 	writeJSON(w, http.StatusOK, tracks)
 }
 

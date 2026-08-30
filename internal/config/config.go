@@ -172,8 +172,12 @@ func TranslatePath(mappings []PathMapping, p string) string {
 // Plex Media Server whenever CantiNode adds, moves, or removes files on
 // disk, so Plex's own library stays current without a manual rescan — the
 // same pattern Sonarr/Radarr/Lidarr call a "Plex Media Server" connection.
-// Off by default (Enabled false), since it depends on a real Plex server,
-// token, and library section the operator configures.
+// Enabled's own Go zero value is false (an install that's never touched
+// this at all has no server/token/section either, so it does nothing
+// regardless), but the Settings UI presents it opt-out: the checkbox
+// shows checked before a server/token has ever been saved, so filling
+// those in and saving turns notifications on without a separate step —
+// unchecking it is what persists an explicit false from then on.
 type PlexSettings struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// ServerURL is Plex's own base URL, e.g. "http://192.168.1.10:32400".
@@ -216,6 +220,15 @@ type PlexSettings struct {
 	// explicit opt-in, since it's real data loss if the delete that
 	// triggered it was a mistake).
 	PlaylistDeleteMode string `yaml:"playlist_delete_mode,omitempty" json:"playlistDeleteMode"`
+	// PlaylistSyncOnChangeDisabled opts out of running a sync pass
+	// immediately after a playlist changes in CantiNode (create, rename,
+	// add/remove/reorder items) — stored as a "disabled" flag rather than
+	// an "enabled" one specifically so its own Go zero value keeps the
+	// opt-out default: a config that's never touched this at all gets
+	// instant sync automatically, same as PlaylistSyncEnabled turning on
+	// two-way sync in the first place. Explicitly opting out just falls
+	// back to the periodic pass every internal/plexplaylistsync.PollInterval.
+	PlaylistSyncOnChangeDisabled bool `yaml:"playlist_sync_on_change_disabled,omitempty" json:"playlistSyncOnChangeDisabled"`
 }
 
 // Playlist-delete propagation modes — see PlexSettings.PlaylistDeleteMode.
@@ -230,6 +243,16 @@ const (
 // is treated as the safe default, PlaylistDeleteUnlink.
 func (p PlexSettings) PlaylistDeletePropagates() bool {
 	return p.PlaylistDeleteMode == PlaylistDeletePropagate
+}
+
+// PlaylistSyncReady reports whether the connection is fully configured for
+// two-way playlist sync — PlaylistSyncEnabled plus a real server URL,
+// token, and section, all of which internal/plexplaylistsync's own
+// PollOnce requires to do anything. Shared by PollOnce's own no-op guard
+// and the manual "sync now" endpoint's readiness check, so the two can
+// never drift apart on what "ready" means.
+func (p PlexSettings) PlaylistSyncReady() bool {
+	return p.PlaylistSyncEnabled && p.ServerURL != "" && p.Token != "" && p.SectionKey != ""
 }
 
 // Wanted-search schedule modes — see TimingSettings.WantedSearchMode.

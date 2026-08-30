@@ -28,7 +28,18 @@ type Playlist struct {
 	PlexRatingKey string     `json:"plexRatingKey,omitempty"`
 	PlexSyncedAt  *time.Time `json:"plexSyncedAt,omitempty"`
 	PlexUpdatedAt int64      `json:"-"`
+	// Origin is PlaylistOriginCantiNode or PlaylistOriginPlex — which side
+	// this playlist's row was first created on, permanently (see those
+	// constants' own doc comment). Purely informational, e.g. a UI badge;
+	// nothing in this package or internal/plexplaylistsync reads it back.
+	Origin string `json:"origin"`
 }
+
+// Playlist origins — see Playlist.Origin's own doc comment.
+const (
+	PlaylistOriginCantiNode = "cantinode"
+	PlaylistOriginPlex      = "plex"
+)
 
 // PlaylistTrack is one playlist_items row, joined out to what a UI (or the
 // M3U exporter) actually needs to show/use it: the track's own display
@@ -81,11 +92,23 @@ func scanPlaylistTrack(row interface{ Scan(...any) error }) (PlaylistTrack, erro
 	return pt, err
 }
 
-// CreatePlaylist makes a new, empty playlist.
+// CreatePlaylist makes a new, empty playlist, originating in CantiNode.
 func (s *Store) CreatePlaylist(name, description string) (*Playlist, error) {
+	return s.createPlaylist(name, description, PlaylistOriginCantiNode)
+}
+
+// CreatePlaylistFromPlex is CreatePlaylist for internal/plexplaylistsync's
+// own use, when pulling in a playlist Plex has that CantiNode has never
+// seen before — the only other place a playlist row is ever created,
+// tagged with its true origin.
+func (s *Store) CreatePlaylistFromPlex(name, description string) (*Playlist, error) {
+	return s.createPlaylist(name, description, PlaylistOriginPlex)
+}
+
+func (s *Store) createPlaylist(name, description, origin string) (*Playlist, error) {
 	now := time.Now().UTC()
-	res, err := s.db.Exec(`INSERT INTO playlists (name, description, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-		name, description, now, now)
+	res, err := s.db.Exec(`INSERT INTO playlists (name, description, created_at, updated_at, origin) VALUES (?, ?, ?, ?, ?)`,
+		name, description, now, now, origin)
 	if err != nil {
 		return nil, fmt.Errorf("insert playlist: %w", err)
 	}
@@ -93,13 +116,13 @@ func (s *Store) CreatePlaylist(name, description string) (*Playlist, error) {
 	if err != nil {
 		return nil, fmt.Errorf("last insert id: %w", err)
 	}
-	return &Playlist{ID: id, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}, nil
+	return &Playlist{ID: id, Name: name, Description: description, CreatedAt: now, UpdatedAt: now, Origin: origin}, nil
 }
 
 const playlistSummarySelectBase = `
 	SELECT p.id, p.name, p.description, p.created_at, p.updated_at,
 	       COUNT(pi.id), COALESCE(SUM(t.duration_ms), 0),
-	       COALESCE(p.plex_rating_key, ''), p.plex_synced_at, p.plex_updated_at
+	       COALESCE(p.plex_rating_key, ''), p.plex_synced_at, p.plex_updated_at, p.origin
 	FROM playlists p
 	LEFT JOIN playlist_items pi ON pi.playlist_id = p.id
 	LEFT JOIN tracks t ON t.id = pi.track_id`
@@ -109,7 +132,7 @@ func scanPlaylist(row interface{ Scan(...any) error }) (Playlist, error) {
 	var p Playlist
 	var plexSyncedAt sql.NullTime
 	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.TrackCount, &p.TotalDurationMs,
-		&p.PlexRatingKey, &plexSyncedAt, &p.PlexUpdatedAt)
+		&p.PlexRatingKey, &plexSyncedAt, &p.PlexUpdatedAt, &p.Origin)
 	if err != nil {
 		return p, err
 	}

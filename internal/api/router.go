@@ -59,6 +59,7 @@ type server struct {
 	coverart         *coverart.Client
 	discography      *discography.Service
 	metadataBackfill *metadatabackfill.Service
+	plexPlaylistSync *plexplaylistsync.Service
 
 	musicScanMu    sync.Mutex
 	musicScanState musicScanState
@@ -140,6 +141,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		metadataBackfill: metadataBackfillSvc,
 		importer:         imp,
 		importLists:      importListsSvc,
+		plexPlaylistSync: plexPlaylistSyncSvc,
 	}
 	if dist, ok := web.FS(); ok {
 		s.webFS = dist
@@ -216,6 +218,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("POST /api/v1/music/playlist/{id}/items/bulk", s.auth(s.handleAppendPlaylistItemsBulk))
 	mux.HandleFunc("DELETE /api/v1/music/playlist/{id}/items/{itemId}", s.auth(s.handleRemovePlaylistItem))
 	mux.HandleFunc("PUT /api/v1/music/playlist/{id}/items/order", s.auth(s.handleReorderPlaylistItems))
+	mux.HandleFunc("POST /api/v1/music/playlist/sync", s.auth(s.handleSyncPlaylists))
 	mux.HandleFunc("GET /api/v1/music/track/search", s.auth(s.handleSearchOwnedTracks))
 	mux.HandleFunc("GET /api/v1/music/track/{id}/playlists", s.auth(s.handleListPlaylistsForTrack))
 	mux.HandleFunc("GET /api/v1/music/artist/{id}/albums", s.auth(s.handleListMusicAlbumsByArtist))

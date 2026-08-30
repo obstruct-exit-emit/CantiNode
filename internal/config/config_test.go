@@ -284,6 +284,34 @@ func TestSetMusicPersistsAcrossReload(t *testing.T) {
 	}
 }
 
+// TestPlaylistSyncReady covers every way readiness can fail — missing any
+// one of the four required pieces means "not ready," matching PollOnce's
+// own no-op guard and the manual "sync now" endpoint's readiness check
+// (both call this rather than repeating the condition).
+func TestPlaylistSyncReady(t *testing.T) {
+	complete := PlexSettings{PlaylistSyncEnabled: true, ServerURL: "http://plex:32400", Token: "t", SectionKey: "7"}
+	if !complete.PlaylistSyncReady() {
+		t.Error("fully configured settings should be ready")
+	}
+
+	cases := []struct {
+		name string
+		mod  func(p PlexSettings) PlexSettings
+	}{
+		{"sync not enabled", func(p PlexSettings) PlexSettings { p.PlaylistSyncEnabled = false; return p }},
+		{"no server URL", func(p PlexSettings) PlexSettings { p.ServerURL = ""; return p }},
+		{"no token", func(p PlexSettings) PlexSettings { p.Token = ""; return p }},
+		{"no section", func(p PlexSettings) PlexSettings { p.SectionKey = ""; return p }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if c.mod(complete).PlaylistSyncReady() {
+				t.Errorf("expected not ready when %s", c.name)
+			}
+		})
+	}
+}
+
 func TestSetPlexPersistsAcrossReload(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := Load(dir)

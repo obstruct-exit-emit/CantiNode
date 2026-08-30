@@ -23,6 +23,40 @@ func seedTrack(t *testing.T, db *Store, artistName, albumTitle, trackTitle strin
 	return track
 }
 
+// TestCreatePlaylistOrigin covers both ways a playlist row is ever
+// created: CreatePlaylist (the API's own "+ New" and everything else)
+// tags PlaylistOriginCantiNode, CreatePlaylistFromPlex (only
+// internal/plexplaylistsync's own pullNew) tags PlaylistOriginPlex — and
+// that the tag round-trips through ListPlaylists/GetPlaylist, not just
+// the freshly-created return value.
+func TestCreatePlaylistOrigin(t *testing.T) {
+	db := newTestStore(t)
+
+	native, err := db.CreatePlaylist("Made Here", "")
+	if err != nil {
+		t.Fatalf("CreatePlaylist: %v", err)
+	}
+	if native.Origin != PlaylistOriginCantiNode {
+		t.Errorf("CreatePlaylist Origin = %q, want %q", native.Origin, PlaylistOriginCantiNode)
+	}
+
+	fromPlex, err := db.CreatePlaylistFromPlex("Pulled In", "")
+	if err != nil {
+		t.Fatalf("CreatePlaylistFromPlex: %v", err)
+	}
+	if fromPlex.Origin != PlaylistOriginPlex {
+		t.Errorf("CreatePlaylistFromPlex Origin = %q, want %q", fromPlex.Origin, PlaylistOriginPlex)
+	}
+
+	got, err := db.GetPlaylist(fromPlex.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Origin != PlaylistOriginPlex {
+		t.Errorf("GetPlaylist Origin = %q, want %q (should round-trip)", got.Origin, PlaylistOriginPlex)
+	}
+}
+
 func TestPlaylistCreateAppendReorderRemove(t *testing.T) {
 	db := newTestStore(t)
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Playlist } from "../api";
+import { api, PLAYLIST_ORIGIN_PLEX, type Playlist } from "../api";
 import { formatDuration } from "../format";
 import { RowsSkeleton } from "../components/Skeleton";
 import { RowMenu, useUi } from "../ui";
@@ -18,6 +18,8 @@ export default function PlaylistsView({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState("");
 
   const reload = useCallback(() => {
     api
@@ -46,6 +48,31 @@ export default function PlaylistsView({
       .finally(() => setBusy(false));
   };
 
+  const syncNow = () => {
+    setSyncing(true);
+    setSyncNotice("");
+    api
+      .syncPlaylistsNow()
+      .then((result) => {
+        const parts: string[] = [];
+        if (result.pushedToPlex) parts.push(`${result.pushedToPlex} pushed`);
+        if (result.pulledFromPlex) parts.push(`${result.pulledFromPlex} pulled`);
+        if (result.deleted) parts.push(`${result.deleted} deleted`);
+        if (result.unlinked) parts.push(`${result.unlinked} unlinked`);
+        if (result.errors) parts.push(`${result.errors} error${result.errors === 1 ? "" : "s"}`);
+        setSyncNotice(
+          result.errors > 0
+            ? `✗ ${parts.join(", ")}`
+            : parts.length > 0
+              ? `✓ Synced: ${parts.join(", ")}`
+              : "✓ Already up to date",
+        );
+        reload();
+      })
+      .catch((err: unknown) => setSyncNotice(`✗ ${err instanceof Error ? err.message : String(err)}`))
+      .finally(() => setSyncing(false));
+  };
+
   const remove = async (p: Playlist) => {
     const ok = await confirmDlg({
       title: "Delete playlist",
@@ -66,6 +93,12 @@ export default function PlaylistsView({
         <div className="card-head">
           <h2>Playlists ({playlists.length})</h2>
           <span className="row-actions">
+            {syncNotice && (
+              <span className={syncNotice.startsWith("✗") ? "notice bad" : "notice ok"}>{syncNotice}</span>
+            )}
+            <button disabled={syncing} onClick={syncNow} title="Sync with Plex right now, instead of waiting for the next periodic sync">
+              {syncing ? "Syncing…" : "Sync playlists"}
+            </button>
             <button onClick={() => setShowNew(!showNew)}>{showNew ? "Close" : "+ New"}</button>
           </span>
         </div>
@@ -111,6 +144,16 @@ export default function PlaylistsView({
                     </span>
                   </button>
                   <span className="row-actions">
+                    <span
+                      className={`pill playlist-origin${p.origin === PLAYLIST_ORIGIN_PLEX ? " playlist-origin-plex" : ""}`}
+                      title={
+                        p.origin === PLAYLIST_ORIGIN_PLEX
+                          ? "First created on Plex, pulled into CantiNode"
+                          : "Created in CantiNode"
+                      }
+                    >
+                      {p.origin === PLAYLIST_ORIGIN_PLEX ? "Plex" : "CantiNode"}
+                    </span>
                     <span className="pill playlist-meta">
                       {p.trackCount} track{p.trackCount === 1 ? "" : "s"}
                       {p.totalDurationMs > 0 ? ` · ${formatDuration(p.totalDurationMs)}` : ""}

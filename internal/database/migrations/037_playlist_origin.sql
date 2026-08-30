@@ -1,0 +1,12 @@
+-- Where a playlist first came from: "cantinode" (created directly — the
+-- default, and what every playlist before this column existed was) or
+-- "plex" (pulled in by internal/plexplaylistsync because it existed on
+-- Plex first and CantiNode had never seen it). Permanent and set once at
+-- creation time — never changes afterward even if the playlist later
+-- syncs in the other direction, since it answers "where did this row
+-- come from," not "which side changed most recently." Note: an
+-- already-linked playlist that existed before this column was added has
+-- no reliable way to backfill which it actually was (both a push and a
+-- pull leave the same plex_rating_key state), so every existing row
+-- simply defaults to "cantinode".
+ALTER TABLE playlists ADD COLUMN origin TEXT NOT NULL DEFAULT 'cantinode';

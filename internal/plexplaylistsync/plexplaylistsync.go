@@ -72,14 +72,15 @@ func (s *Service) RunPeriodic(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// PollResult summarizes one PollOnce pass, for logging/testing.
+// PollResult summarizes one PollOnce pass, for logging/testing and — via
+// internal/api's "sync now" endpoint — the Playlists page's own feedback.
 type PollResult struct {
-	PushedToPlex   int
-	PulledFromPlex int
-	Created        int
-	Deleted        int
-	Unlinked       int
-	Errors         int
+	PushedToPlex   int `json:"pushedToPlex"`
+	PulledFromPlex int `json:"pulledFromPlex"`
+	Created        int `json:"created"`
+	Deleted        int `json:"deleted"`
+	Unlinked       int `json:"unlinked"`
+	Errors         int `json:"errors"`
 }
 
 // PollOnce reconciles every playlist, both directions, in one pass. A
@@ -90,7 +91,7 @@ type PollResult struct {
 func (s *Service) PollOnce(ctx context.Context) PollResult {
 	var result PollResult
 	settings := s.cfg.PlexSettings()
-	if !settings.PlaylistSyncEnabled || settings.ServerURL == "" || settings.Token == "" || settings.SectionKey == "" {
+	if !settings.PlaylistSyncReady() {
 		return result
 	}
 
@@ -371,7 +372,7 @@ func (s *Service) pullNew(ctx context.Context, client *plex.Client, plexPl plex.
 	if len(trackIDs) == 0 {
 		return
 	}
-	cn, err := s.music.CreatePlaylist(plexPl.Title, "")
+	cn, err := s.music.CreatePlaylistFromPlex(plexPl.Title, "")
 	if err != nil {
 		s.logger.Warn("plexplaylistsync: creating playlist", "playlist", plexPl.Title, "error", err)
 		result.Errors++

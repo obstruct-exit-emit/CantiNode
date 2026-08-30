@@ -215,7 +215,9 @@ what you expect before waiting for the next scheduled sync.
 **Settings → Integrations** (Plex today, more to come) pushes a "refresh
 this path" notification to a Plex Media Server whenever CantiNode adds,
 moves, or removes files on disk — the same pattern Sonarr/Radarr/Lidarr
-call a "Plex Media Server" connection. Off by default; needs a
+call a "Plex Media Server" connection. On by default once you save a
+server URL and token (opt-out, not opt-in — uncheck **Enable Plex
+notifications** to turn it off without losing them); needs a
 **server URL** (e.g. `http://192.168.1.10:32400`), a **token**
 ([finding yours](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/)),
 and a **library section** — click **Fetch library sections** once the
@@ -281,6 +283,16 @@ sync checkbox controls what happens to its counterpart:
 
 A CantiNode-side delete propagates immediately (not on the next periodic
 pass); a Plex-side delete is caught the next time the sync runs.
+
+Besides the periodic pass (every ten minutes), creating a playlist or
+changing one's name/tracks/order in CantiNode also kicks off a sync pass
+right away, so the edit reaches Plex without waiting out the interval —
+on by default (opt-out) once two-way sync itself is on, via a second
+checkbox that appears once you enable it. Turning that off just falls
+back to the periodic pass alone. Either way, the Playlists page's own
+**Sync playlists** button runs a pass on demand and reports what it did;
+each playlist there also shows a small flag noting whether it originated
+in CantiNode or was pulled in from Plex.
 
 ## Tags to write
 

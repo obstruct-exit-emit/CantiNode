@@ -263,6 +263,10 @@ export interface PlexSettings {
   playlistSyncEnabled: boolean;
   // "" (the default, safe) or "propagate" — see PLAYLIST_DELETE_PROPAGATE.
   playlistDeleteMode: string;
+  // Opts out of syncing a playlist to Plex right away when it changes in
+  // CantiNode — false (the default) means it does. Stored inverted so a
+  // config that's never touched this keeps the opt-out default.
+  playlistSyncOnChangeDisabled: boolean;
 }
 
 // The one non-default PlaylistDeleteMode value — anything else (including
@@ -451,6 +455,25 @@ export interface Playlist {
   totalDurationMs: number;
   createdAt: string;
   updatedAt: string;
+  // Which side this playlist was first created on, permanently —
+  // "cantinode" or "plex" (see PLAYLIST_ORIGIN_PLEX). Purely informational.
+  origin: string;
+}
+
+// The one non-default Playlist.origin value — anything else (in practice
+// only "cantinode", every playlist before this field existed) means it
+// was created directly in CantiNode.
+export const PLAYLIST_ORIGIN_PLEX = "plex";
+
+// PlaylistSyncResult is internal/plexplaylistsync.PollResult — one sync
+// pass' own tally, for the Playlists page's "Sync now" button.
+export interface PlaylistSyncResult {
+  pushedToPlex: number;
+  pulledFromPlex: number;
+  created: number;
+  deleted: number;
+  unlinked: number;
+  errors: number;
 }
 
 // PlaylistTrack is one playlist_items row joined out to what's needed to
@@ -961,6 +984,11 @@ export const api = {
   listMissingMusicReleaseGroups: (id: number) =>
     request<MusicReleaseGroup[]>(`/api/v1/music/artist/${id}/missing`),
   listPlaylists: () => request<Playlist[]>("/api/v1/music/playlist"),
+  // Runs a Plex playlist sync pass right now instead of waiting for the
+  // next periodic one — 400s with a message if playlist sync isn't
+  // configured under Settings → Integrations yet.
+  syncPlaylistsNow: () =>
+    request<PlaylistSyncResult>("/api/v1/music/playlist/sync", { method: "POST" }),
   createPlaylist: (name: string, description: string) =>
     request<Playlist>("/api/v1/music/playlist", json({ name, description })),
   getPlaylist: (id: number) => request<PlaylistDetail>(`/api/v1/music/playlist/${id}`),
