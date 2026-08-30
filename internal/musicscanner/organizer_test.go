@@ -158,6 +158,32 @@ func TestFormatPathDropDiscSegmentDotConnector(t *testing.T) {
 	}
 }
 
+// TestFormatPathDropDiscSegmentConnectorOnBothSides covers a connector on
+// BOTH sides of {DiscNumber} (e.g. "-{DiscNumber}-{TrackNumber}" or
+// ".{DiscNumber}.{TrackNumber}") with nothing but that connector before
+// it in the segment — both must go, not just the trailing one, or the
+// leading one becomes a new dangling separator at the very front of the
+// filename (the same class of bug as the single-sided dot case, just
+// with punctuation on both sides instead of one).
+func TestFormatPathDropDiscSegmentConnectorOnBothSides(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Avantasia"}
+	album := musiclibrary.Album{Title: "The Wicked Symphony", ReleaseDate: "2010-04-03"}
+	track := musiclibrary.Track{Title: "The Wicked Symphony", TrackNumber: 1, DiscNumber: 1}
+
+	for _, format := range []string{
+		"{Artist}/{Album} ({Year})/-{DiscNumber}-{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/.{DiscNumber}.{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/- {DiscNumber} -{TrackNumber} - {Title}.{Ext}",
+		"{Artist}/{Album} ({Year})/. {DiscNumber} .{TrackNumber} - {Title}.{Ext}",
+	} {
+		got := FormatPath(format, artist, album, track, ".flac", true)
+		want := filepath.FromSlash("Avantasia/The Wicked Symphony (2010)/01 - The Wicked Symphony.flac")
+		if got != want {
+			t.Errorf("FormatPath(%q) = %q, want %q — connectors on both sides should both be gone", format, got, want)
+		}
+	}
+}
+
 // TestFormatPathDropDiscSegmentNoDiscNumberIsNoop covers a template with
 // no {DiscNumber} at all — dropDiscSegment must never touch it.
 func TestFormatPathDropDiscSegmentNoDiscNumberIsNoop(t *testing.T) {

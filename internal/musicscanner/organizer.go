@@ -70,10 +70,11 @@ const discNumberConnectors = ".-_ "
 // nothing. {DiscNumber} sharing a segment with any other placeholder
 // (most commonly the filename itself, e.g.
 // "{DiscNumber}-{TrackNumber} - {Title}") only has the placeholder
-// itself (plus one adjacent connector — see discNumberConnectors)
-// removed — dropping the whole segment there would delete the filename
-// along with it, which is never the intent. A format with no
-// {DiscNumber} at all is returned unchanged.
+// itself removed, along with its own adjacent connector punctuation —
+// see the leading/trailing run-scanning below — dropping the whole
+// segment there would delete the filename along with it, which is
+// never the intent. A format with no {DiscNumber} at all is returned
+// unchanged.
 func stripDiscNumberSegment(format string) string {
 	segments := strings.Split(format, "/")
 	kept := make([]string, 0, len(segments))
@@ -94,16 +95,39 @@ func stripDiscNumberSegment(format string) string {
 			continue // drop the whole segment
 		}
 		end := idx + len(discNumberPlaceholder)
-		switch {
-		case end < len(seg) && strings.ContainsRune(discNumberConnectors, rune(seg[end])):
-			// A connector right after (the common case: "{DiscNumber}."
-			// or "{DiscNumber}-" leading into the next placeholder) goes
-			// with it, not left dangling as a new leading separator.
-			seg = seg[:idx] + seg[end+1:]
-		case idx > 0 && strings.ContainsRune(discNumberConnectors, rune(seg[idx-1])):
-			seg = seg[:idx-1] + seg[end:]
-		default:
-			seg = seg[:idx] + seg[end:]
+
+		// leadStart walks back over a run of pure connector punctuation
+		// immediately before {DiscNumber} (there may be none at all).
+		leadStart := idx
+		for leadStart > 0 && strings.ContainsRune(discNumberConnectors, rune(seg[leadStart-1])) {
+			leadStart--
+		}
+		// trailEnd walks forward over a run of pure connector punctuation
+		// immediately after {DiscNumber}.
+		trailEnd := end
+		for trailEnd < len(seg) && strings.ContainsRune(discNumberConnectors, rune(seg[trailEnd])) {
+			trailEnd++
+		}
+
+		if leadStart == 0 {
+			// Nothing but connector punctuation (possibly none at all)
+			// precedes {DiscNumber} in this segment — it's effectively
+			// the first real thing here, so none of that punctuation is
+			// separating it from anything and all of it goes: both the
+			// leading run and the trailing run (found live: a connector
+			// on *both* sides, e.g. "-{DiscNumber}-{TrackNumber}" or
+			// ".{DiscNumber}.{TrackNumber}", left the leading one behind
+			// as a new dangling separator when only the trailing side
+			// was stripped).
+			seg = seg[trailEnd:]
+		} else {
+			// Real content precedes the leading connector run (most
+			// commonly another placeholder's own rendered text, e.g.
+			// "{TrackArtist} - {DiscNumber}.{TrackNumber}") — that
+			// connector is separating THAT content from whatever follows
+			// once {DiscNumber} is gone, so it stays; only {DiscNumber}
+			// and its trailing run go.
+			seg = seg[:idx] + seg[trailEnd:]
 		}
 		kept = append(kept, seg)
 	}
