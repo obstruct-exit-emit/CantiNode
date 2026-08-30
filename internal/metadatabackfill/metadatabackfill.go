@@ -187,7 +187,31 @@ func (s *Service) CacheFullArtistMetadata(ctx context.Context, artistID int64, m
 // CacheAllVersionTracklists for that). Shared by internal/api's
 // resolveRepresentativeRelease (an on-demand cache-miss fallback) and the
 // eager discography sweep here.
+//
+// Skips the MusicBrainz round trip entirely when this release group
+// already has a real (non-placeholder) cached version list — found live:
+// CacheDiscographyVersions's own doc comment already claimed this
+// function was idempotent (every existing caller in internal/api pre-checks
+// its own cache first, so it reads that way from the outside), but nothing
+// here actually enforced it. CacheFullArtistMetadata's own retry path hit
+// the gap directly: a transient TheAudioDB failure leaves MetadataFetchedAt
+// unset specifically so a later sweep retries (see that function's own
+// doc comment) — but retrying re-ran this for the artist's ENTIRE
+// discography every single pass, re-fetching hundreds of release groups'
+// version lists from MusicBrainz for no reason, at its ~1/sec throttle,
+// forever, until TheAudioDB happened to succeed. A release group's own
+// version list is effectively permanent once fetched (new editions of an
+// old release are rare, and a genuinely new release group is by
+// definition not yet cached, so it's never skipped here) — the same
+// "never changes once cached" treatment CacheAllVersionTracklists already
+// gives a version's own tracklist one layer down.
 func (s *Service) CacheReleaseGroupVersions(ctx context.Context, releaseGroupMBID string) ([]musiclibrary.ReleaseGroupVersion, error) {
+	if has, err := s.music.HasReleaseGroupVersions(releaseGroupMBID); err != nil {
+		return nil, fmt.Errorf("check cached versions: %w", err)
+	} else if has {
+		return s.music.ListReleaseGroupVersions(releaseGroupMBID)
+	}
+
 	releases, err := s.mb.BrowseReleaseGroupReleases(ctx, releaseGroupMBID)
 	if err != nil {
 		return nil, err

@@ -103,6 +103,80 @@ func TestPollOnceCachesArtistMissingMetadata(t *testing.T) {
 	}
 }
 
+// TestCacheReleaseGroupVersionsSkipsAlreadyCached is the regression test
+// for a real hammering bug: CacheReleaseGroupVersions used to call
+// BrowseReleaseGroupReleases unconditionally, even for a release group
+// whose version list was already fully cached. The MusicBrainz fake here
+// fails the test outright if that endpoint is ever hit, proving the skip
+// actually happens — a live consequence: CacheFullArtistMetadata's own
+// retry path (see its own doc comment: a transient TheAudioDB failure
+// leaves MetadataFetchedAt unset specifically so a later sweep retries)
+// used to re-fetch an artist's ENTIRE discography's worth of version lists
+// from MusicBrainz on every single retry, forever, until TheAudioDB
+// happened to succeed once.
+func TestCacheReleaseGroupVersionsSkipsAlreadyCached(t *testing.T) {
+	s, store := newTestDeps(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/release/" {
+			t.Fatal("BrowseReleaseGroupReleases should never be called for an already-cached release group")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "artist-mbid", "name": "Test Artist"})
+	})
+
+	seeded := []musiclibrary.ReleaseGroupVersion{
+		{ReleaseMBID: "release-1", Title: "Geogaddi", ReleaseDate: "2002-02-04", IsRepresentative: true},
+	}
+	if err := store.ReplaceReleaseGroupVersions("rg-mbid", seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.CacheReleaseGroupVersions(context.Background(), "rg-mbid")
+	if err != nil {
+		t.Fatalf("CacheReleaseGroupVersions: %v", err)
+	}
+	if len(got) != 1 || got[0].ReleaseMBID != "release-1" {
+		t.Errorf("got = %+v, want the already-cached version returned untouched", got)
+	}
+}
+
+// TestCacheDiscographyVersionsDoesNotRefetchOnASecondPass reproduces the
+// live scenario end to end: two release groups get cached on a first pass
+// (a fresh artist's initial discography sync), then CacheDiscographyVersions
+// runs again for the exact same groups (standing in for
+// CacheFullArtistMetadata's retry-on-TheAudioDB-failure path) — the second
+// pass must not issue a single additional MusicBrainz request.
+func TestCacheDiscographyVersionsDoesNotRefetchOnASecondPass(t *testing.T) {
+	var browseRequests int
+	s, _ := newTestDeps(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/release/":
+			browseRequests++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"release-count": 1,
+				"releases":      []map[string]any{{"id": "release-" + r.URL.Query().Get("release-group"), "title": "Album", "media": []any{}}},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "artist-mbid", "name": "Test Artist"})
+		}
+	})
+
+	groups := []musiclibrary.ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-1", Title: "Album One"},
+		{ReleaseGroupMBID: "rg-2", Title: "Album Two"},
+	}
+
+	s.CacheDiscographyVersions(context.Background(), groups)
+	if browseRequests != 2 {
+		t.Fatalf("first pass: browseRequests = %d, want 2 (one per release group)", browseRequests)
+	}
+
+	s.CacheDiscographyVersions(context.Background(), groups)
+	if browseRequests != 2 {
+		t.Errorf("second pass: browseRequests = %d, want still 2 — already-cached release groups must not be re-fetched", browseRequests)
+	}
+}
+
 // TestPollOnceOneArtistFailureDoesNotStopSweep: one artist whose
 // MusicBrainz lookup 404s must not prevent the other artist's metadata
 // from being cached — the same non-aborting pattern
