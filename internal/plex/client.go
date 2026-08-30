@@ -117,6 +117,15 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 	return c.do(ctx, http.MethodGet, path, query)
 }
 
+// post issues a POST — creating a playlist (POST /playlists) is the one
+// call in this client that isn't safe as a GET: found live against a real
+// server (Plex Media Server 1.43.3), which answers a GET to that endpoint
+// with a bare 500 and no detail, while the identical query as a POST
+// succeeds normally.
+func (c *Client) post(ctx context.Context, path string, query url.Values) ([]byte, error) {
+	return c.do(ctx, http.MethodPost, path, query)
+}
+
 // put issues a PUT — Plex's own API uses it for both "add these items"
 // (POST-like) and "rename this" (PATCH-like) actions, always via query
 // parameters rather than a request body.

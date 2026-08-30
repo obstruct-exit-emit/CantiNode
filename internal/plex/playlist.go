@@ -36,14 +36,19 @@ type playlistsResponse struct {
 			RatingKey string `json:"ratingKey"`
 			Title     string `json:"title"`
 			UpdatedAt int64  `json:"updatedAt"`
+			Smart     bool   `json:"smart"`
 		} `json:"Metadata"`
 	} `json:"MediaContainer"`
 }
 
-// AudioPlaylists returns every music playlist this server knows about —
-// Plex's own "smart" (rule-based) playlists are excluded, since there's
-// nothing for a two-way sync to reconcile against one (its own membership
-// is computed by Plex itself, not a stored item list).
+// AudioPlaylists returns every *ordinary* music playlist this server knows
+// about — Plex's own "smart" (rule-based) playlists (the built-in "All
+// Music", "Recently Added", "❤️ Tracks", etc, plus any user-defined smart
+// playlist) are excluded, since there's nothing for a two-way sync to
+// reconcile against one: its membership is computed by Plex itself from a
+// rule, not a stored item list, so treating it as "new" would try to mirror
+// Plex's entire library (or whatever the rule matches) into CantiNode as a
+// literal playlist on the very first sync pass.
 func (c *Client) AudioPlaylists(ctx context.Context) ([]PlaylistSummary, error) {
 	body, err := c.get(ctx, "/playlists", url.Values{"playlistType": {"audio"}})
 	if err != nil {
@@ -55,6 +60,9 @@ func (c *Client) AudioPlaylists(ctx context.Context) ([]PlaylistSummary, error) 
 	}
 	out := make([]PlaylistSummary, 0, len(resp.MediaContainer.Metadata))
 	for _, m := range resp.MediaContainer.Metadata {
+		if m.Smart {
+			continue
+		}
 		out = append(out, PlaylistSummary{RatingKey: m.RatingKey, Title: m.Title, UpdatedAt: m.UpdatedAt})
 	}
 	return out, nil
@@ -123,7 +131,7 @@ func (c *Client) CreatePlaylist(ctx context.Context, machineIdentifier, title st
 	if len(trackRatingKeys) == 0 {
 		return "", fmt.Errorf("plex: cannot create a playlist with no tracks")
 	}
-	body, err := c.get(ctx, "/playlists", url.Values{
+	body, err := c.post(ctx, "/playlists", url.Values{
 		"type":  {"audio"},
 		"title": {title},
 		"smart": {"0"},

@@ -7,13 +7,21 @@ import (
 	"testing"
 )
 
+// TestAudioPlaylists is also the regression test for excluding Plex's own
+// "smart" playlists: found live against a real server whose entire
+// /playlists response was nothing but Plex's own built-ins ("All Music",
+// "Recently Added", "❤️ Tracks", ...), each with "smart":true — the
+// server's own JSON shape this fixture mirrors. AudioPlaylists' own doc
+// comment already claimed these were excluded, but nothing actually
+// checked the field.
 func TestAudioPlaylists(t *testing.T) {
 	var gotQuery string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"MediaContainer":{"Metadata":[
-			{"ratingKey":"100","title":"Road Trip","updatedAt":1700000000}
+			{"ratingKey":"100","title":"Road Trip","updatedAt":1700000000},
+			{"ratingKey":"10608","title":"All Music","updatedAt":1700000001,"smart":true}
 		]}}`))
 	})
 
@@ -22,7 +30,7 @@ func TestAudioPlaylists(t *testing.T) {
 		t.Fatalf("AudioPlaylists: %v", err)
 	}
 	if len(got) != 1 || got[0].RatingKey != "100" || got[0].Title != "Road Trip" || got[0].UpdatedAt != 1700000000 {
-		t.Errorf("got = %+v", got)
+		t.Errorf("got = %+v, want just the one non-smart playlist", got)
 	}
 	if gotQuery != "playlistType=audio" {
 		t.Errorf("query = %q", gotQuery)
@@ -66,10 +74,16 @@ func TestMachineIdentifier(t *testing.T) {
 	}
 }
 
+// TestCreatePlaylistBuildsMetadataURI is also the regression test for
+// using POST: found live against a real server (Plex Media Server
+// 1.43.3) that answers a GET to POST /playlists with a bare 500 — the
+// fake server here previously accepted any method, so nothing caught
+// CreatePlaylist sending a GET instead.
 func TestCreatePlaylistBuildsMetadataURI(t *testing.T) {
-	var gotQuery string
+	var gotQuery, gotMethod string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.RawQuery
+		gotMethod = r.Method
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"MediaContainer":{"Metadata":[{"ratingKey":"200","title":"New List"}]}}`))
 	})
@@ -80,6 +94,9 @@ func TestCreatePlaylistBuildsMetadataURI(t *testing.T) {
 	}
 	if ratingKey != "200" {
 		t.Errorf("ratingKey = %q, want 200", ratingKey)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want POST", gotMethod)
 	}
 	wantURI := "uri=server%3A%2F%2Fmachine-id%2Fcom.plexapp.plugins.library%2Flibrary%2Fmetadata%2F1%2C2%2C3"
 	if !strings.Contains(gotQuery, wantURI) {

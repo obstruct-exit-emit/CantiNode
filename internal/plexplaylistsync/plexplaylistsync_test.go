@@ -121,7 +121,7 @@ func (f *fakePlex) handle(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		w.Write([]byte(sb.String()))
 
-	case r.Method == http.MethodGet && r.URL.Path == "/playlists" && r.URL.Query().Get("uri") != "":
+	case r.Method == http.MethodPost && r.URL.Path == "/playlists" && r.URL.Query().Get("uri") != "":
 		title := r.URL.Query().Get("title")
 		keys := parseMetadataURIKeys(r.URL.Query().Get("uri"))
 		f.mu.Lock()
