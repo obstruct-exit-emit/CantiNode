@@ -2194,6 +2194,6 @@ func (s *server) handlePutMusicSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ns := s.cfg.NamingSettings()
-	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(s.cfg.TagWriteSettings()))
+	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(s.cfg.TagWriteSettings()), ns.DisableDiscNumberForSingleDisc)
 	writeJSON(w, http.StatusOK, s.cfg.MusicSettings())
 }

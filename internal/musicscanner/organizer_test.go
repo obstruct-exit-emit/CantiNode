@@ -33,7 +33,7 @@ func TestFormatPath(t *testing.T) {
 	album := musiclibrary.Album{Title: "Geogaddi", ReleaseDate: "2002-02-04"}
 	track := musiclibrary.Track{Title: "Alpha and Omega", TrackNumber: 3, DiscNumber: 1}
 
-	got := FormatPath("{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", artist, album, track, ".flac")
+	got := FormatPath("{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", artist, album, track, ".flac", false)
 	want := filepath.FromSlash("Boards of Canada/Geogaddi (2002)/03 - Alpha and Omega.flac")
 	if got != want {
 		t.Errorf("FormatPath = %q, want %q", got, want)
@@ -45,7 +45,7 @@ func TestFormatPathNewTokens(t *testing.T) {
 	album := musiclibrary.Album{Title: "Help!", ReleaseDate: "1965-08-06", PrimaryType: "Album"}
 	track := musiclibrary.Track{Title: "Yesterday", TrackNumber: 13, DiscNumber: 1}
 
-	got := FormatPath("{ArtistSortName}/{ReleaseType}/{Album} [{Date}]/{TrackNumber} - {Title}.{Ext}", artist, album, track, ".flac")
+	got := FormatPath("{ArtistSortName}/{ReleaseType}/{Album} [{Date}]/{TrackNumber} - {Title}.{Ext}", artist, album, track, ".flac", false)
 	want := filepath.FromSlash("Beatles, The/Album/Help! [1965-08-06]/13 - Yesterday.flac")
 	if got != want {
 		t.Errorf("FormatPath = %q, want %q", got, want)
@@ -57,14 +57,14 @@ func TestFormatPathTrackArtistFallsBackToAlbumArtist(t *testing.T) {
 	album := musiclibrary.Album{Title: "Cities 97 Sampler"}
 	track := musiclibrary.Track{Title: "Roll to Me", TrackNumber: 1, DiscNumber: 1, ArtistCredit: "Del Amitri"}
 
-	got := FormatPath("{Artist}/{TrackArtist} - {Title}.{Ext}", artist, album, track, ".mp3")
+	got := FormatPath("{Artist}/{TrackArtist} - {Title}.{Ext}", artist, album, track, ".mp3", false)
 	want := filepath.FromSlash("Various Artists/Del Amitri - Roll to Me.mp3")
 	if got != want {
 		t.Errorf("FormatPath = %q, want %q", got, want)
 	}
 
 	track.ArtistCredit = ""
-	got = FormatPath("{Artist}/{TrackArtist} - {Title}.{Ext}", artist, album, track, ".mp3")
+	got = FormatPath("{Artist}/{TrackArtist} - {Title}.{Ext}", artist, album, track, ".mp3", false)
 	want = filepath.FromSlash("Various Artists/Various Artists - Roll to Me.mp3")
 	if got != want {
 		t.Errorf("FormatPath (empty ArtistCredit) = %q, want %q", got, want)
@@ -76,7 +76,7 @@ func TestFormatPathMissingSortNameAndReleaseTypeFallBack(t *testing.T) {
 	album := musiclibrary.Album{Title: "Geogaddi"}
 	track := musiclibrary.Track{Title: "Alpha and Omega", TrackNumber: 3, DiscNumber: 1}
 
-	got := FormatPath("{ArtistSortName}/{ReleaseType}/{Title}.{Ext}", artist, album, track, ".flac")
+	got := FormatPath("{ArtistSortName}/{ReleaseType}/{Title}.{Ext}", artist, album, track, ".flac", false)
 	want := filepath.FromSlash("Boards of Canada/Album/Alpha and Omega.flac")
 	if got != want {
 		t.Errorf("FormatPath = %q, want %q", got, want)
@@ -88,9 +88,67 @@ func TestFormatPathSanitizesIllegalCharacters(t *testing.T) {
 	album := musiclibrary.Album{Title: "Greatest Hits", ReleaseDate: "1990"}
 	track := musiclibrary.Track{Title: `Track: "One"`, TrackNumber: 1, DiscNumber: 1}
 
-	got := FormatPath("{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", artist, album, track, ".mp3")
+	got := FormatPath("{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", artist, album, track, ".mp3", false)
 	if containsRune(filepath.Base(got), ':') || containsRune(filepath.Base(got), '"') {
 		t.Errorf("FormatPath result %q still has illegal filename characters", got)
+	}
+}
+
+// TestFormatPathDropDiscSegmentDedicatedFolder covers the common case a
+// dropDiscSegment=true caller (see PlanOrganizePath) is for: {DiscNumber}
+// alone in its own path segment — a dedicated "CD{DiscNumber}" folder —
+// loses the whole segment, not just the placeholder, so a single-disc
+// release doesn't end up with a bare "CD" folder holding nothing.
+func TestFormatPathDropDiscSegmentDedicatedFolder(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Boards of Canada"}
+	album := musiclibrary.Album{Title: "Geogaddi", ReleaseDate: "2002-02-04"}
+	track := musiclibrary.Track{Title: "Alpha and Omega", TrackNumber: 3, DiscNumber: 1}
+
+	format := "{Artist}/{Album}/CD{DiscNumber}/{TrackNumber} - {Title}.{Ext}"
+
+	got := FormatPath(format, artist, album, track, ".flac", false)
+	want := filepath.FromSlash("Boards of Canada/Geogaddi/CD1/03 - Alpha and Omega.flac")
+	if got != want {
+		t.Errorf("FormatPath (dropDiscSegment=false) = %q, want %q", got, want)
+	}
+
+	got = FormatPath(format, artist, album, track, ".flac", true)
+	want = filepath.FromSlash("Boards of Canada/Geogaddi/03 - Alpha and Omega.flac")
+	if got != want {
+		t.Errorf("FormatPath (dropDiscSegment=true) = %q, want %q — the whole CD{DiscNumber} segment should be gone", got, want)
+	}
+}
+
+// TestFormatPathDropDiscSegmentMixedSegmentOnlyStripsToken covers the
+// dangerous case: {DiscNumber} sharing a segment with something essential
+// (most commonly the filename itself). Dropping the whole segment there
+// would delete the filename, so only the placeholder itself is removed.
+func TestFormatPathDropDiscSegmentMixedSegmentOnlyStripsToken(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Boards of Canada"}
+	album := musiclibrary.Album{Title: "Geogaddi", ReleaseDate: "2002-02-04"}
+	track := musiclibrary.Track{Title: "Alpha and Omega", TrackNumber: 3, DiscNumber: 1}
+
+	format := "{Artist}/{Album}/{DiscNumber}-{TrackNumber} - {Title}.{Ext}"
+
+	got := FormatPath(format, artist, album, track, ".flac", true)
+	want := filepath.FromSlash("Boards of Canada/Geogaddi/-03 - Alpha and Omega.flac")
+	if got != want {
+		t.Errorf("FormatPath (dropDiscSegment=true, mixed segment) = %q, want %q — only {DiscNumber} itself should be gone, not the whole filename", got, want)
+	}
+}
+
+// TestFormatPathDropDiscSegmentNoDiscNumberIsNoop covers a template with
+// no {DiscNumber} at all — dropDiscSegment must never touch it.
+func TestFormatPathDropDiscSegmentNoDiscNumberIsNoop(t *testing.T) {
+	artist := musiclibrary.Artist{Name: "Boards of Canada"}
+	album := musiclibrary.Album{Title: "Geogaddi", ReleaseDate: "2002-02-04"}
+	track := musiclibrary.Track{Title: "Alpha and Omega", TrackNumber: 3, DiscNumber: 1}
+
+	format := "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}"
+	got := FormatPath(format, artist, album, track, ".flac", true)
+	want := filepath.FromSlash("Boards of Canada/Geogaddi/03 - Alpha and Omega.flac")
+	if got != want {
+		t.Errorf("FormatPath (dropDiscSegment=true, no {DiscNumber} in template) = %q, want %q", got, want)
 	}
 }
 
@@ -119,7 +177,7 @@ func setupOrganizeScanner(t *testing.T) (*Scanner, musiclibrary.RootFolder) {
 		t.Fatal(err)
 	}
 
-	s := New(db, nil, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
+	s := New(db, nil, nil, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
 	return s, *rf
 }
 
@@ -407,5 +465,74 @@ func TestOrganizeFileRequiresMatch(t *testing.T) {
 
 	if _, err := s.OrganizeFile(tf.ID); err == nil {
 		t.Error("expected an error organizing an unmatched file")
+	}
+}
+
+// TestPlanOrganizePathDiscNumberForSingleDiscSetting is the end-to-end
+// regression test for the "use disc number on single-disc releases"
+// setting: PlanOrganizePath must look at every track in the album (not
+// just the one being planned) to decide single- vs multi-disc, and only
+// drop the disc segment when the setting says to *and* the album
+// genuinely has just the one disc.
+func TestPlanOrganizePathDiscNumberForSingleDiscSetting(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	format := "{Artist}/{Album}/CD{DiscNumber}/{TrackNumber} - {Title}.{Ext}"
+
+	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcPath := filepath.Join(rf.Path, "unsorted.flac")
+	os.WriteFile(srcPath, []byte("x"), 0o644)
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, srcPath, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Setting off (the default) — single-disc release still gets its
+	// disc folder, exactly like before this setting existed.
+	s.UpdateSettings(format, 0.75, false, tagwriter.AllEnabled, false)
+	got, err := s.PlanOrganizePath(tf.ID)
+	if err != nil {
+		t.Fatalf("PlanOrganizePath (setting off): %v", err)
+	}
+	if filepath.Base(filepath.Dir(got)) != "CD1" {
+		t.Errorf("PlanOrganizePath (setting off) = %q, want a CD1 folder", got)
+	}
+
+	// Setting on, single-disc release — the whole CD{DiscNumber} segment
+	// is dropped.
+	s.UpdateSettings(format, 0.75, false, tagwriter.AllEnabled, true)
+	got, err = s.PlanOrganizePath(tf.ID)
+	if err != nil {
+		t.Fatalf("PlanOrganizePath (setting on, single-disc): %v", err)
+	}
+	if filepath.Base(filepath.Dir(got)) == "CD1" {
+		t.Errorf("PlanOrganizePath (setting on, single-disc) = %q, want no CD1 folder", got)
+	}
+
+	// A second track lands on disc 2 — the album is no longer
+	// single-disc, so the *first* track's own plan (still disc 1) must
+	// go back to keeping its disc folder despite the setting being on.
+	if _, err := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 1, 2, 200000, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.PlanOrganizePath(tf.ID)
+	if err != nil {
+		t.Fatalf("PlanOrganizePath (setting on, now multi-disc): %v", err)
+	}
+	if filepath.Base(filepath.Dir(got)) != "CD1" {
+		t.Errorf("PlanOrganizePath (setting on, now multi-disc) = %q, want CD1 folder kept — this album has 2 discs", got)
 	}
 }

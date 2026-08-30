@@ -187,6 +187,7 @@ export interface BlockEntry {
 export interface NamingSettings {
   musicFile: string;
   musicExample: string;
+  disableDiscNumberForSingleDisc: boolean;
 }
 
 export interface RenameMove {

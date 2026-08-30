@@ -29,8 +29,13 @@ type namingSettingsResponse struct {
 func namingResponse(ns config.NamingSettings) namingSettingsResponse {
 	return namingSettingsResponse{
 		NamingSettings: ns,
+		// exampleMusicTrack is single-disc, so the preview reflects
+		// DisableDiscNumberForSingleDisc directly — flipping the setting
+		// visibly changes the example the same way it'll change a real
+		// single-disc release.
 		MusicExample: filepath.ToSlash(musicscanner.FormatPath(
 			ns.MusicFile, exampleMusicArtist, exampleMusicAlbum, exampleMusicTrack, ".mp3",
+			ns.DisableDiscNumberForSingleDisc,
 		)),
 	}
 }
@@ -67,7 +72,7 @@ func (s *server) handlePutNamingSettings(w http.ResponseWriter, r *http.Request)
 	// against its own copy, not this handler's local req.
 	ns := s.cfg.NamingSettings()
 	m := s.cfg.MusicSettings()
-	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(s.cfg.TagWriteSettings()))
+	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(s.cfg.TagWriteSettings()), ns.DisableDiscNumberForSingleDisc)
 	writeJSON(w, http.StatusOK, namingResponse(ns))
 }
 
@@ -124,7 +129,7 @@ func (s *server) handlePutTagWriteSettings(w http.ResponseWriter, r *http.Reques
 	}
 	ns := s.cfg.NamingSettings()
 	m := s.cfg.MusicSettings()
-	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(req))
+	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(req), ns.DisableDiscNumberForSingleDisc)
 	writeJSON(w, http.StatusOK, req)
 }
 

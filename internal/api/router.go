@@ -103,7 +103,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	// throttle state, either way a release's cover is fetched.
 	coverartClient := coverart.NewClient(filepath.Join(cfg.DataDir(), "covers", "music"), "CantiNode/"+version, audiodbClient)
 	musicScanner := musicscanner.New(musicStore, mb, coverartClient, slog.Default(),
-		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch, tagWriteToggles(cfg.TagWriteSettings()))
+		cfg.NamingSettings().MusicFile, musicSettings.MinMatchConfidence, musicSettings.OrganizeOnMatch, tagWriteToggles(cfg.TagWriteSettings()),
+		cfg.NamingSettings().DisableDiscNumberForSingleDisc)
 	discographySvc := discography.New(mb, musicStore)
 	metadataBackfillSvc := metadatabackfill.New(musicStore, mb, audiodbClient, discographySvc)
 	imp := importer.New(downloads, musicScanner, musicStore, cfg)

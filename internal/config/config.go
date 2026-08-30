@@ -33,6 +33,19 @@ type NamingSettings struct {
 	// separators included — from artist/album/track in one placeholder
 	// pass, same as {Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}.
 	MusicFile string `yaml:"music_file" json:"musicFile"`
+	// DisableDiscNumberForSingleDisc, when true, drops {DiscNumber} from
+	// the naming template for a release with only one disc — and, when
+	// {DiscNumber} is the only placeholder in its own path segment (a
+	// dedicated "CD{DiscNumber}" folder, say), drops that whole segment
+	// rather than leaving a bare "CD" behind. A {DiscNumber} sharing a
+	// segment with something else (most commonly the filename itself,
+	// e.g. "{DiscNumber}-{TrackNumber} - {Title}") only loses the
+	// placeholder, never the segment, so nothing essential ever
+	// disappears. false (the default) keeps today's behavior: every
+	// release, single-disc included, gets its real disc number rendered
+	// wherever the template asks for one — an opt-out, not an opt-in, so
+	// nothing changes for an existing library unless asked for.
+	DisableDiscNumberForSingleDisc bool `yaml:"disable_disc_number_for_single_disc" json:"disableDiscNumberForSingleDisc"`
 }
 
 func defaultNaming() NamingSettings {

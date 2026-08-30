@@ -41,7 +41,7 @@ func setupMoveScanner(t *testing.T) (s *Scanner, db *musiclibrary.Store, srcRoot
 	srcRoot = mk("Source", t.TempDir())
 	destRoot = mk("Destination", t.TempDir())
 
-	s = New(db, nil, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
+	s = New(db, nil, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
 	return s, db, srcRoot, destRoot
 }
 

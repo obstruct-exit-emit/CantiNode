@@ -86,7 +86,7 @@ func setup(t *testing.T, sab *httptest.Server) (*Service, *download.Store, *musi
 	}
 
 	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", "http://127.0.0.1:0")
-	scanner := musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
+	scanner := musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
 
 	cfg := &config.Config{}
 

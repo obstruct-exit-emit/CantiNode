@@ -49,7 +49,7 @@ func setupOrganizeScannerWithCoverart(t *testing.T, caaHandler http.HandlerFunc)
 	}
 
 	coverartClient := coverart.NewClientWithBaseURL(t.TempDir(), "cantinode-test/0.1", caa.URL, nil)
-	s := New(db, nil, coverartClient, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled)
+	s := New(db, nil, coverartClient, nil, "{Artist}/{Album} ({Year})/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false)
 	return s, *rf
 }
 
@@ -634,7 +634,7 @@ func TestWriteTagsRespectsDisabledFieldToggle(t *testing.T) {
 
 	disabled := tagwriter.AllEnabled
 	disabled.Mood = false
-	s.UpdateSettings(s.getNamingFormat(), s.getMinMatchConfidence(), s.getOrganizeOnMatch(), disabled)
+	s.UpdateSettings(s.getNamingFormat(), s.getMinMatchConfidence(), s.getOrganizeOnMatch(), disabled, s.getDisableDiscNumberForSingleDisc())
 
 	artist, err := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
 	if err != nil {

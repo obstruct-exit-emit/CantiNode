@@ -31,11 +31,73 @@ func sanitizePathComponent(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// discNumberPlaceholder is {DiscNumber}'s own placeholder token — shared
+// between FormatPath's substitution pass and stripDiscNumberSegment's
+// detection pass so the two can never drift apart.
+const discNumberPlaceholder = "{DiscNumber}"
+
+// formatPlaceholders lists every placeholder FormatPath substitutes,
+// {DiscNumber} included — stripDiscNumberSegment uses this to tell
+// whether a segment containing {DiscNumber} is a dedicated disc folder
+// (drop the whole segment) or shares the segment with something else
+// essential (only drop the placeholder itself — see its own doc comment).
+var formatPlaceholders = []string{
+	"{Artist}", "{ArtistSortName}", "{Album}", "{ReleaseType}", "{Year}", "{Date}",
+	"{TrackNumber}", discNumberPlaceholder, "{Title}", "{TrackArtist}", "{Ext}",
+}
+
+// stripDiscNumberSegment removes {DiscNumber} from format for a
+// single-disc release when the "use disc number on single-disc
+// releases" setting (config.NamingSettings.DisableDiscNumberForSingleDisc)
+// is turned off — called by FormatPath's caller (see PlanOrganizePath)
+// only once it already knows both that this release has just one disc
+// and that the setting says not to use it there.
+//
+// {DiscNumber} alone in its own path segment (bounded by "/" on either
+// side, or the start/end of format) — a dedicated "CD{DiscNumber}"
+// folder, most commonly — has that whole segment dropped, so a
+// single-disc release doesn't end up with a bare "CD" folder holding
+// nothing. {DiscNumber} sharing a segment with any other placeholder
+// (most commonly the filename itself, e.g.
+// "{DiscNumber}-{TrackNumber} - {Title}") only has the placeholder
+// itself removed — dropping the whole segment there would delete the
+// filename along with it, which is never the intent. A format with no
+// {DiscNumber} at all is returned unchanged.
+func stripDiscNumberSegment(format string) string {
+	segments := strings.Split(format, "/")
+	kept := make([]string, 0, len(segments))
+	for _, seg := range segments {
+		if !strings.Contains(seg, discNumberPlaceholder) {
+			kept = append(kept, seg)
+			continue
+		}
+		dedicated := true
+		for _, p := range formatPlaceholders {
+			if p != discNumberPlaceholder && strings.Contains(seg, p) {
+				dedicated = false
+				break
+			}
+		}
+		if dedicated {
+			continue // drop the whole segment
+		}
+		kept = append(kept, strings.ReplaceAll(seg, discNumberPlaceholder, ""))
+	}
+	return strings.Join(kept, "/")
+}
+
 // FormatPath renders format (e.g. Config.NamingFormat) against a matched
 // file's artist/album/track, returning a path relative to its root
 // folder. Every placeholder value is sanitized independently — format's
 // own "/" separators (there to create subfolders) are left alone.
-func FormatPath(format string, artist musiclibrary.Artist, album musiclibrary.Album, track musiclibrary.Track, ext string) string {
+// dropDiscSegment requests stripDiscNumberSegment's own treatment of
+// {DiscNumber} first — the caller's decision, not FormatPath's, since it
+// depends on whether this specific release has more than one disc, which
+// FormatPath has no way to know from a single track alone.
+func FormatPath(format string, artist musiclibrary.Artist, album musiclibrary.Album, track musiclibrary.Track, ext string, dropDiscSegment bool) string {
+	if dropDiscSegment {
+		format = stripDiscNumberSegment(format)
+	}
 	year := "0000"
 	date := "0000-00-00"
 	if len(album.ReleaseDate) >= 4 {
@@ -74,7 +136,7 @@ func FormatPath(format string, artist musiclibrary.Artist, album musiclibrary.Al
 		"{Year}", year,
 		"{Date}", date,
 		"{TrackNumber}", fmt.Sprintf("%02d", track.TrackNumber),
-		"{DiscNumber}", strconv.Itoa(track.DiscNumber),
+		discNumberPlaceholder, strconv.Itoa(track.DiscNumber),
 		"{Title}", sanitizePathComponent(track.Title),
 		"{TrackArtist}", sanitizePathComponent(trackArtist),
 		"{Ext}", strings.TrimPrefix(ext, "."),
@@ -113,7 +175,23 @@ func (s *Scanner) PlanOrganizePath(trackFileID int64) (string, error) {
 		return "", fmt.Errorf("get root folder: %w", err)
 	}
 
-	relPath := FormatPath(s.getNamingFormat(), *artist, *album, *track, filepath.Ext(tf.Path))
+	dropDiscSegment := false
+	if s.getDisableDiscNumberForSingleDisc() {
+		siblings, err := s.db.ListTracksByAlbum(album.ID)
+		if err != nil {
+			return "", fmt.Errorf("list tracks by album: %w", err)
+		}
+		singleDisc := true
+		for _, sib := range siblings {
+			if sib.DiscNumber > 1 {
+				singleDisc = false
+				break
+			}
+		}
+		dropDiscSegment = singleDisc
+	}
+
+	relPath := FormatPath(s.getNamingFormat(), *artist, *album, *track, filepath.Ext(tf.Path), dropDiscSegment)
 	return filepath.Join(rootFolder.Path, relPath), nil
 }
 

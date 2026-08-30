@@ -2270,6 +2270,28 @@ function NamingCard({
           <p className="muted field-note">
             Example: <code>{settings.musicExample}</code>
           </p>
+          <label>
+            <span>
+              <input
+                type="checkbox"
+                checked={!t.disableDiscNumberForSingleDisc}
+                onChange={(e) =>
+                  setT({ ...t, disableDiscNumberForSingleDisc: !e.target.checked })
+                }
+              />{" "}
+              Use <code>{"{DiscNumber}"}</code> on single-disc releases
+            </span>
+          </label>
+          <p className="muted field-note">
+            Off skips <code>{"{DiscNumber}"}</code> for a release with just
+            one disc — a dedicated disc folder (e.g. "CD
+            <code>{"{DiscNumber}"}</code>") disappears entirely rather than
+            leaving a bare "CD"; sharing a segment with something else (e.g.
+            a filename like "<code>{"{DiscNumber}"}</code>-
+            <code>{"{TrackNumber}"}</code>") only drops the token itself. A
+            multi-disc release always keeps its real disc number regardless
+            of this setting.
+          </p>
         </Section>
         <div className="settings-actions">
           <button disabled={busy} onClick={save}>

@@ -44,16 +44,17 @@ type Scanner struct {
 	scanMu sync.Mutex
 
 	// settingsMu guards namingFormat/minMatchConfidence/organizeOnMatch/
-	// tagToggles — internal/api's settings endpoint calls UpdateSettings
-	// from an HTTP handler goroutine while a scan (reading them from
-	// ScanRootFolder's own goroutine) may be in flight, so a plain
-	// unsynchronized field would be a real data race, not just a style
-	// nitpick.
-	settingsMu         sync.RWMutex
-	namingFormat       string
-	minMatchConfidence float64
-	organizeOnMatch    bool
-	tagToggles         tagwriter.Toggles
+	// tagToggles/disableDiscNumberForSingleDisc — internal/api's settings
+	// endpoint calls UpdateSettings from an HTTP handler goroutine while a
+	// scan (reading them from ScanRootFolder's own goroutine) may be in
+	// flight, so a plain unsynchronized field would be a real data race,
+	// not just a style nitpick.
+	settingsMu                     sync.RWMutex
+	namingFormat                   string
+	minMatchConfidence             float64
+	organizeOnMatch                bool
+	tagToggles                     tagwriter.Toggles
+	disableDiscNumberForSingleDisc bool
 }
 
 // New returns a Scanner. namingFormat/minMatchConfidence/organizeOnMatch
@@ -66,32 +67,34 @@ type Scanner struct {
 // at all. tagToggles gates which tagwriter.Tags fields WriteTags actually
 // writes — pass tagwriter.AllEnabled for a caller (most tests) that
 // doesn't care about per-field settings.
-func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverart.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles) *Scanner {
+func New(db *musiclibrary.Store, mb *musicbrainz.Client, coverartClient *coverart.Client, logger *slog.Logger, namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles, disableDiscNumberForSingleDisc bool) *Scanner {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Scanner{
-		db:                 db,
-		mb:                 mb,
-		coverart:           coverartClient,
-		logger:             logger,
-		namingFormat:       namingFormat,
-		minMatchConfidence: minMatchConfidence,
-		organizeOnMatch:    organizeOnMatch,
-		tagToggles:         tagToggles,
+		db:                             db,
+		mb:                             mb,
+		coverart:                       coverartClient,
+		logger:                         logger,
+		namingFormat:                   namingFormat,
+		minMatchConfidence:             minMatchConfidence,
+		organizeOnMatch:                organizeOnMatch,
+		tagToggles:                     tagToggles,
+		disableDiscNumberForSingleDisc: disableDiscNumberForSingleDisc,
 	}
 }
 
 // UpdateSettings applies a live settings change (from internal/api's
 // PUT /api/v1/settings) to this Scanner — takes effect on the very next
 // file scanned/organized/tag-written, no restart needed.
-func (s *Scanner) UpdateSettings(namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles) {
+func (s *Scanner) UpdateSettings(namingFormat string, minMatchConfidence float64, organizeOnMatch bool, tagToggles tagwriter.Toggles, disableDiscNumberForSingleDisc bool) {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 	s.namingFormat = namingFormat
 	s.minMatchConfidence = minMatchConfidence
 	s.organizeOnMatch = organizeOnMatch
 	s.tagToggles = tagToggles
+	s.disableDiscNumberForSingleDisc = disableDiscNumberForSingleDisc
 }
 
 func (s *Scanner) getNamingFormat() string {
@@ -116,6 +119,12 @@ func (s *Scanner) getTagToggles() tagwriter.Toggles {
 	s.settingsMu.RLock()
 	defer s.settingsMu.RUnlock()
 	return s.tagToggles
+}
+
+func (s *Scanner) getDisableDiscNumberForSingleDisc() bool {
+	s.settingsMu.RLock()
+	defer s.settingsMu.RUnlock()
+	return s.disableDiscNumberForSingleDisc
 }
 
 // ScanResult summarizes one scan pass (either a single root folder or
