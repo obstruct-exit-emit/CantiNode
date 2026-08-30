@@ -267,6 +267,12 @@ export interface PlexSection {
   key: string;
   title: string;
   type: string;
+  // Plex's own library folder(s) for this section, exactly as Plex itself
+  // sees them — shown next to the path-mapping fields so it's obvious
+  // what path a mapping needs to translate to (a refresh call to a path
+  // Plex doesn't recognize returns the same 200 OK a real one does, so
+  // there's no other way to catch a wrong or missing mapping early).
+  paths: string[];
 }
 
 // ImportList is one configured external source (Settings → Import Lists)

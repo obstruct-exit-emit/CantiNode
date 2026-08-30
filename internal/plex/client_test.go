@@ -20,7 +20,7 @@ func TestMusicSectionsFiltersToArtistType(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"MediaContainer":{"size":3,"Directory":[
 			{"key":"1","title":"Movies","type":"movie"},
-			{"key":"2","title":"Music","type":"artist"},
+			{"key":"2","title":"Music","type":"artist","Location":[{"path":"/storage_2/Media_2/Music"}]},
 			{"key":"3","title":"Music 2","type":"artist"}
 		]}}`))
 	})
@@ -31,6 +31,9 @@ func TestMusicSectionsFiltersToArtistType(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Key != "2" || got[1].Key != "3" {
 		t.Errorf("got = %+v, want only the two artist-type sections", got)
+	}
+	if len(got[0].Paths) != 1 || got[0].Paths[0] != "/storage_2/Media_2/Music" {
+		t.Errorf("got[0].Paths = %v, want [/storage_2/Media_2/Music]", got[0].Paths)
 	}
 	if gotToken != "test-token" {
 		t.Errorf("X-Plex-Token = %q, want test-token", gotToken)

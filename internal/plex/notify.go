@@ -17,6 +17,15 @@ import (
 // latency to the caller's own already-succeeded file operation (organize,
 // move, import, delete) — any failure here is logged, never returned or
 // retried.
+//
+// Every attempt is logged, success included (at Info, one line per
+// directory) — not just failures. Found live: Plex's own refresh endpoint
+// returns a plain 200 OK for a path it doesn't recognize at all (a typo,
+// or a path mapping that's missing or wrong), the exact same response a
+// real, effective refresh gets — so a silent success/no-op is
+// indistinguishable from the outside without seeing the literal path this
+// sent, which only a log line (not just an error, which never fires) can
+// show.
 func NotifyPaths(settings config.PlexSettings, logger *slog.Logger, paths []string) {
 	if !settings.Enabled || settings.ServerURL == "" || settings.Token == "" || settings.SectionKey == "" {
 		return
@@ -34,7 +43,9 @@ func NotifyPaths(settings config.PlexSettings, logger *slog.Logger, paths []stri
 			translated := config.TranslatePath(settings.PathMappings, dir)
 			if err := client.RefreshPath(context.Background(), settings.SectionKey, translated); err != nil {
 				logger.Warn("plex: refresh path", "path", translated, "error", err)
+				continue
 			}
+			logger.Info("plex: refreshed path", "path", translated, "section", settings.SectionKey)
 		}
 	}()
 }

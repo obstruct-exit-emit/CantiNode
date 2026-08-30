@@ -2644,6 +2644,7 @@ function PlexCard({ onError }: { onError: (message: string) => void }) {
               {sections.map((sec) => (
                 <option key={sec.key} value={sec.key}>
                   {sec.title}
+                  {sec.paths.length > 0 ? ` — ${sec.paths.join(", ")}` : ""}
                 </option>
               ))}
             </select>
@@ -2656,6 +2657,22 @@ function PlexCard({ onError }: { onError: (message: string) => void }) {
           )}
         </label>
       </div>
+      {(() => {
+        const chosen = sections.find((sec) => sec.key === settings.sectionKey);
+        return chosen && chosen.paths.length > 0 ? (
+          <p className="muted field-note">
+            Plex sees this section's own files at{" "}
+            {chosen.paths.map((p, i) => (
+              <span key={p}>
+                {i > 0 ? ", " : ""}
+                <code>{p}</code>
+              </span>
+            ))}{" "}
+            — if CantiNode's own root folder path doesn't match, add a path
+            mapping below.
+          </p>
+        ) : null;
+      })()}
       <div className="settings-actions">
         <button
           disabled={busy || !settings.serverUrl.trim() || !settings.token.trim()}

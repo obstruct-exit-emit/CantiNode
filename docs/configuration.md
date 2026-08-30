@@ -221,7 +221,13 @@ connection. Off by default; needs a **server URL** (e.g.
 and a **library section** — click **Fetch library sections** once the
 server URL and token are filled in to pick from a dropdown instead of
 looking up the section id by hand (the same click also doubles as a
-connection test).
+connection test). The dropdown shows each section's own folder path(s)
+exactly as Plex sees them — worth checking against your root folder's own
+path before saving: a refresh call to a path Plex doesn't recognize
+returns the same success response a real one does, so a wrong or missing
+path mapping otherwise fails silently. Every notification is logged
+(success and failure both, at Info/Warn) with the exact path sent, for
+the same reason.
 
 The notification is a **partial scan scoped to just the folder that
 changed** (an album, or the specific file's own directory for a

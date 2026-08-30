@@ -45,14 +45,26 @@ type Section struct {
 	Key   string `json:"key"`
 	Title string `json:"title"`
 	Type  string `json:"type"`
+	// Paths are this section's own library folder(s), exactly as Plex
+	// itself sees them (a section can span more than one folder) —
+	// surfaced so Settings can show the operator what path Plex actually
+	// expects, right next to the path mapping field that needs to match
+	// it. Found live: a refresh call against a path Plex doesn't
+	// recognize at all returns the exact same 200 OK a real, effective
+	// one does, so there's no other way to catch a wrong or missing
+	// mapping before it silently does nothing.
+	Paths []string `json:"paths"`
 }
 
 type sectionsResponse struct {
 	MediaContainer struct {
 		Directory []struct {
-			Key   string `json:"key"`
-			Title string `json:"title"`
-			Type  string `json:"type"`
+			Key      string `json:"key"`
+			Title    string `json:"title"`
+			Type     string `json:"type"`
+			Location []struct {
+				Path string `json:"path"`
+			} `json:"Location"`
 		} `json:"Directory"`
 	} `json:"MediaContainer"`
 }
@@ -75,7 +87,11 @@ func (c *Client) MusicSections(ctx context.Context) ([]Section, error) {
 		if d.Type != "artist" {
 			continue
 		}
-		out = append(out, Section{Key: d.Key, Title: d.Title, Type: d.Type})
+		paths := make([]string, 0, len(d.Location))
+		for _, loc := range d.Location {
+			paths = append(paths, loc.Path)
+		}
+		out = append(out, Section{Key: d.Key, Title: d.Title, Type: d.Type, Paths: paths})
 	}
 	return out, nil
 }
