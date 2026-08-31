@@ -226,6 +226,43 @@ func TestPollOnceOneArtistFailureDoesNotStopSweep(t *testing.T) {
 	}
 }
 
+// TestPollOnceSerializesConcurrentCalls is the regression test for a real
+// gap: nothing stopped RunPeriodic's own ticker-driven sweep from
+// overlapping with internal/api's post-scan call (handleTriggerMusicScan
+// calls PollOnce right after ScanAll) on the same Service — two sweeps
+// racing to list the same not-yet-fetched artists and both start
+// refreshing them at once, doubling MusicBrainz/TheAudioDB request load
+// (plus two independent detached CacheDiscographyVersions goroutines per
+// artist) at exactly the moment the backlog is largest. Mirrors
+// musicscanner's own TestScanAllSerializesConcurrentCalls: held externally
+// rather than actually racing two real sweeps, since a real one finishes
+// too fast against a tiny test fixture for a timing-based race to be
+// reliable.
+func TestPollOnceSerializesConcurrentCalls(t *testing.T) {
+	s, _ := newTestDeps(t, nil)
+
+	s.pollMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.PollOnce(context.Background())
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("PollOnce returned while pollMu was still held externally — concurrent sweeps aren't serialized")
+	case <-time.After(200 * time.Millisecond):
+		// Still blocked, as expected.
+	}
+
+	s.pollMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PollOnce did not proceed after pollMu was released")
+	}
+}
+
 // TestRunPeriodicSweepsImmediatelyThenAgainOnTick proves RunPeriodic
 // actually loops on its own interval rather than sweeping once and
 // blocking forever: an artist added after the immediate first sweep

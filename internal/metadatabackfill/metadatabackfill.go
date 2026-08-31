@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/audiodb"
@@ -60,6 +61,23 @@ type Service struct {
 	audiodb     *audiodb.Client
 	discography *discography.Service
 	logger      *slog.Logger
+
+	// pollMu serializes PollOnce against itself. Two independent call
+	// sites can each trigger a full backfill sweep on this same Service —
+	// the periodic RunPeriodic ticker and internal/api's own post-scan
+	// call (handleTriggerMusicScan, right after ScanAll) — with no
+	// coordination between them. Found live: a scan long enough to cross
+	// the 15-minute periodic boundary (a first/large scan, or a big
+	// import-list sync landing right before a tick) let both sweeps list
+	// the same not-yet-fetched artists and both start refreshing them at
+	// once, doubling MusicBrainz/TheAudioDB request load — including two
+	// independent detached CacheDiscographyVersions goroutines per
+	// artist — at exactly the moment the backlog is largest. A second
+	// caller waiting its turn (rather than running concurrently) means
+	// it sees those artists' MetadataFetchedAt already stamped by the
+	// first pass and simply skips them, the same self-healing effect
+	// scanMu already gets Scanner.ScanAll/ScanAlbumFolder.
+	pollMu sync.Mutex
 }
 
 func New(music *musiclibrary.Store, mb *musicbrainz.Client, audiodbClient *audiodb.Client, disc *discography.Service) *Service {
@@ -99,7 +117,14 @@ type PollResult struct {
 // subsequent pass. Best-effort: one artist's failure (a dead network,
 // MusicBrainz/TheAudioDB down) is logged and skipped rather than aborting
 // the rest.
+//
+// Serialized via pollMu against a concurrent PollOnce call from the other
+// trigger (RunPeriodic's own ticker vs. internal/api's post-scan call) —
+// see pollMu's own doc comment.
 func (s *Service) PollOnce(ctx context.Context) PollResult {
+	s.pollMu.Lock()
+	defer s.pollMu.Unlock()
+
 	var result PollResult
 
 	artists, err := s.music.ListArtists()
