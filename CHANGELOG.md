@@ -56,7 +56,15 @@ in progress. Highlights from the hardening period, newest first:
   either side either just unlinks the pair (the default — never deletes
   real data) or, with an explicit opt-in, deletes the counterpart too.
   The Playlists page shows each playlist's origin (CantiNode or Plex)
-  and has its own "Sync playlists" button to run a pass on demand.
+  and has its own "Sync playlists" button to run a pass on demand. Origin
+  and current link status (a Plex-origin playlist can lose its link
+  later without its origin changing) both now show on the playlist
+  detail page too, not just the list.
+- **Sort options**: the Albums grid can now also sort by date added,
+  owned/wanted status, or type (Album/EP/Single/Live/Compilation/…, the
+  same categories Missing already groups by) — previously just release
+  date or title. The artist library's own "Recently added" sort is now
+  labeled "Date added" to match.
 - **Import Lists**: point CantiNode at an external source and it
   periodically resolves it to MusicBrainz artist MBIDs, adding and
   monitoring any new one automatically — joining the existing autosearch

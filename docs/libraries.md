@@ -15,8 +15,10 @@ artist-scoped actions (**Refresh metadata**, **Scan files** — see the note
 on scan scope below, **Organize…**, **Write tags…** — see
 [Write tags](#write-tags) below, **Remove artist**) — each touches only
 this artist. Below that: one **Albums** grid (Grid/Compact/List views,
-sortable by release date or title) holding both owned and wanted albums
-together, badged **owned**/**wanted**/**downloading**, and a **Missing**
+sortable by release date, title, date added, owned/wanted status, or type
+— Album/EP/Single/Live/Compilation/…, the same categories Missing groups
+by, further below) holding both owned and wanted albums together, badged
+**owned**/**wanted**/**downloading**, and a **Missing**
 section for the rest of the discography. Cover art shows for wanted and
 missing albums too, not just owned ones — resolved via each release
 group's cached representative release (see
@@ -341,6 +343,31 @@ and disk disagreeing about where a file lives; a destination collision
 than overwritten, the same "never silently clobber" rule Organize follows,
 and doesn't stop the rest
 of the move.
+
+## Playlists
+
+Plain, ordered lists of tracks, independent of any one album or artist.
+**+ playlist** appears next to a track wherever you can already see one
+(an album's own track list, a search result) to add just that track; an
+album page's own **+ Album to playlist** adds every one of its tracks in
+one call. A track already in at least one playlist shows an **in
+playlist** badge linking straight to it.
+
+The playlist detail page supports renaming/re-describing, drag-and-drop
+reordering (or the up/down buttons on a track row), removing a track
+(the track itself is untouched — only the playlist entry goes away), and
+**Export M3U** — a standard extended M3U any real player (Navidrome,
+Plex, Kodi, VLC, …) pointed at the same library can load directly. A
+track with nothing currently backing it (deleted, never matched) is
+skipped on export rather than writing a path that doesn't exist.
+
+Each playlist shows a small flag noting where it came from — **CantiNode**
+or **Plex** — and, in a distinct accent color, whether it's currently
+linked and actively syncing to Plex (a Plex-origin playlist can lose that
+link later without its origin changing — see
+[Two-way playlist sync](configuration.md#two-way-playlist-sync) for the
+full sync behavior, delete handling, and the Playlists page's own **Sync
+playlists** button).
 
 ## Activity
 

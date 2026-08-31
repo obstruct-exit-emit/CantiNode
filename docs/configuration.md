@@ -291,8 +291,11 @@ on by default (opt-out) once two-way sync itself is on, via a second
 checkbox that appears once you enable it. Turning that off just falls
 back to the periodic pass alone. Either way, the Playlists page's own
 **Sync playlists** button runs a pass on demand and reports what it did;
-each playlist there also shows a small flag noting whether it originated
-in CantiNode or was pulled in from Plex.
+each playlist (there, and on its own detail page) also shows a small flag
+noting whether it originated in CantiNode or was pulled in from Plex, and
+— in a distinct color — whether it's currently linked and actually
+syncing (a Plex-origin playlist can lose that link later, e.g. under
+"unlink" mode, without its origin changing).
 
 ## Tags to write
 

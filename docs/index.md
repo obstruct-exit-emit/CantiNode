@@ -45,11 +45,17 @@ add a root folder for it.
   configurable layout and have their tags rewritten. Anything left unmatched
   gets a dedicated review page: manual per-file search, or a confidence-gated
   auto-match against your own library.
-- Poster-grid browsing with artist detail pages — one **Albums** grid holding
-  both owned and wanted albums (badged accordingly, with an inline release
-  browser to search/grab a wanted one) and a **Missing** section grouped by
-  release type for the rest of the discography — health checks, backups,
-  and a log viewer.
+- Poster-grid browsing with artist detail pages — one **Albums** grid
+  (sortable by release date, title, date added, owned/wanted status, or
+  type) holding both owned and wanted albums together, badged accordingly;
+  clicking a wanted one opens its own full page — search/grab releases,
+  its tracklist previewed from a US CD edition when one exists — and a
+  **Missing** section grouped by release type for the rest of the
+  discography — health checks, backups, and a log viewer.
+- **Playlists**: plain ordered lists of tracks, reorderable, exportable as
+  a standard M3U any real player can load, addable-to from anywhere you
+  see a track. Each shows where it came from (CantiNode or Plex) and
+  whether it's actively linked and syncing.
 - Optional login with **admin/member roles**: members get everyday use,
   admins get the server's configuration and accounts.
 - Artist bio/photo, genres/tags/rating, and album art (including for
@@ -58,11 +64,14 @@ add a root folder for it.
   fetched again just from browsing.
 - Local image cache: provider art is downloaded on add/refresh and served
   from CantiNode, surviving provider link rot.
-- **Plex notifications**: push a partial "refresh this path" scan to a
+- **Plex integration**: push a partial "refresh this path" scan to a
   Plex Media Server whenever a file is added, moved, or removed — organize,
   a cross-root-folder move, an import, and a delete all trigger one,
   scoped to just the folder that changed, so Plex's own library stays
-  current without a manual rescan.
+  current without a manual rescan. On by default (opt-out) once a server
+  and token are saved. Also keeps CantiNode's own playlists and Plex's in
+  sync both ways — an edit on either side reaches the other within
+  minutes, immediately for a CantiNode-side one.
 
 ## Documentation
 

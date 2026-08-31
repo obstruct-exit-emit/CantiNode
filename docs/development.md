@@ -29,7 +29,8 @@ npm run build    # production build into web/dist
 cmd/cantinode/         entrypoint; wires up and runs the background loops
                        (health check, Completed Download Handling, the
                        wanted-list sweep, discography refresh, metadata
-                       backfill, import-list sync); restore staging
+                       backfill, import-list sync, Plex playlist sync);
+                       restore staging
 internal/api/          REST handlers, router, auth, backups
 internal/musiclibrary/ domain model + SQLite store (artists/albums/tracks)
 internal/musicscanner/ file scanning, MusicBrainz matching, organize/rename
@@ -58,6 +59,9 @@ internal/lastfm/       Last.fm client (a user's/tag's top artists, for
                        import lists)
 internal/plex/         Plex Media Server client + best-effort "refresh
                        this path" notification on file changes
+internal/plexplaylistsync/ two-way playlist sync with a linked Plex
+                       server, on its own periodic timer (plus an
+                       immediate pass right after a CantiNode-side edit)
 internal/coverart/     Cover Art Archive client + local album-art cache
 internal/tagreader/    reads embedded audio tags (MBIDs, title, track#)
 internal/tagwriter/    rewrites embedded audio tags (the standalone
