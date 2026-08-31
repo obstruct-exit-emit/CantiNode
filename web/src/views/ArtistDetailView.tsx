@@ -24,6 +24,7 @@ import {
   releaseCategory,
   groupByReleaseCategory,
   defaultDirFor,
+  RELEASE_CATEGORY_ORDER,
   type SortDir,
 } from "../components/SortControl";
 import WriteTagsDialog from "../components/WriteTagsDialog";
@@ -37,7 +38,17 @@ type AlbumsView = "grid" | "compact" | "list";
 // Albums grid — mirroring how a library-member book shows up whether or not
 // it's downloaded yet, rather than owned/wanted living in separate sections.
 type GridAlbum =
-  | { kind: "owned"; key: string; id: number; title: string; releaseDate: string; primaryType: string; mbid: string }
+  | {
+      kind: "owned";
+      key: string;
+      id: number;
+      title: string;
+      releaseDate: string;
+      primaryType: string;
+      secondaryTypes: string[];
+      addedAt: string;
+      mbid: string;
+    }
   | {
       kind: "wanted";
       key: string;
@@ -45,6 +56,8 @@ type GridAlbum =
       title: string;
       releaseDate: string;
       primaryType: string;
+      secondaryTypes: string[];
+      addedAt: string;
       status: WantedAlbum["status"];
       releaseGroupMbid: string;
     };
@@ -57,6 +70,19 @@ function sortGridAlbums(items: GridAlbum[], key: string, dir: SortDir): GridAlbu
       break;
     case "date": // ascending = oldest first
       by.sort((a, b) => (a.releaseDate || "").localeCompare(b.releaseDate || ""));
+      break;
+    case "added": // ascending = oldest first
+      by.sort((a, b) => (a.addedAt || "").localeCompare(b.addedAt || ""));
+      break;
+    case "type":
+      by.sort(
+        (a, b) =>
+          RELEASE_CATEGORY_ORDER.indexOf(releaseCategory(a.primaryType, a.secondaryTypes)) -
+          RELEASE_CATEGORY_ORDER.indexOf(releaseCategory(b.primaryType, b.secondaryTypes)),
+      );
+      break;
+    case "owned": // ascending = owned first
+      by.sort((a, b) => (a.kind === "owned" ? 0 : 1) - (b.kind === "owned" ? 0 : 1));
       break;
     default:
       break;
@@ -363,6 +389,8 @@ export default function ArtistDetailView({
       title: a.title,
       releaseDate: a.releaseDate,
       primaryType: a.primaryType,
+      secondaryTypes: a.secondaryTypes ?? [],
+      addedAt: a.createdAt,
       mbid: a.mbid,
     })),
     ...wanted.map((w) => ({
@@ -372,6 +400,8 @@ export default function ArtistDetailView({
       title: w.title,
       releaseDate: w.releaseDate,
       primaryType: w.primaryType,
+      secondaryTypes: w.secondaryTypes ?? [],
+      addedAt: w.addedAt,
       status: w.status,
       releaseGroupMbid: w.releaseGroupMbid,
     })),
@@ -570,6 +600,9 @@ export default function ArtistDetailView({
                   options={[
                     ["date", "Release date"],
                     ["title", "Title"],
+                    ["added", "Date added"],
+                    ["owned", "Owned/Wanted"],
+                    ["type", "Type (Album/EP/Single/Live/Compilation)"],
                   ]}
                 />
                 <DirectionButtons value={albumsDir} onChange={setAlbumsDir} />

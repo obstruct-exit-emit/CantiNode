@@ -108,6 +108,64 @@ func TestWantMusicAlbumRefusesAlreadyOwned(t *testing.T) {
 	}
 }
 
+// TestListAlbumsAndWantedEnrichWithSecondaryTypes covers
+// secondaryTypesByReleaseGroup's own use in both handlers: an owned or
+// wanted album row only ever stores its own primary type, so both list
+// endpoints must fill in each item's secondaryTypes from the artist's
+// cached discography (matched by release group mbid) — the finer
+// category (Live/Compilation/...) the Albums grid's own "Type" sort
+// needs, since neither "Live" nor "Compilation" is ever a real
+// MusicBrainz primary type.
+func TestListAlbumsAndWantedEnrichWithSecondaryTypes(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	if err := musicStore.ReplaceArtistReleaseGroups(artist.ID, []musiclibrary.ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-owned", Title: "Live at the Arena", PrimaryType: "Album", SecondaryTypes: []string{"Live"}, FirstReleaseDate: "2020"},
+		{ReleaseGroupMBID: "rg-wanted", Title: "Greatest Hits", PrimaryType: "Album", SecondaryTypes: []string{"Compilation"}, FirstReleaseDate: "2021"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups: %v", err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "rel-owned", "rg-owned", "Live at the Arena", "2020", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+	track, err := musicStore.GetOrCreateTrack(album.ID, "track-owned-mbid", "Track One", 1, 1, 200_000, "", "", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack: %v", err)
+	}
+	// ListAlbumsByArtist (what handleListMusicAlbumsByArtist calls) only
+	// returns an album with at least one real track_file — see its own
+	// doc comment — so the album needs a matched file to show up at all.
+	rf := addRootFolder(t, a, t.TempDir(), "music")
+	tf, err := musicStore.UpsertTrackFileByPath(rf.ID, rf.Path+"/track-one.flac", 100, "flac", 0, 200_000, "{}")
+	if err != nil {
+		t.Fatalf("UpsertTrackFileByPath: %v", err)
+	}
+	if err := musicStore.SetTrackFileMatch(tf.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatalf("SetTrackFileMatch: %v", err)
+	}
+	if _, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-wanted", "Greatest Hits", "Album", "2021"); err != nil {
+		t.Fatalf("GetOrCreateWantedAlbum: %v", err)
+	}
+
+	var albums []musiclibrary.Album
+	a.want(a.call("GET", fmt.Sprintf("/api/v1/music/artist/%d/albums", artist.ID), nil, &albums), http.StatusOK)
+	if len(albums) != 1 || len(albums[0].SecondaryTypes) != 1 || albums[0].SecondaryTypes[0] != "Live" {
+		t.Errorf("albums = %+v, want one album tagged secondaryTypes=[Live]", albums)
+	}
+
+	var wanted []musiclibrary.WantedAlbum
+	a.want(a.call("GET", fmt.Sprintf("/api/v1/music/artist/%d/wanted", artist.ID), nil, &wanted), http.StatusOK)
+	if len(wanted) != 1 || len(wanted[0].SecondaryTypes) != 1 || wanted[0].SecondaryTypes[0] != "Compilation" {
+		t.Errorf("wanted = %+v, want one album tagged secondaryTypes=[Compilation]", wanted)
+	}
+}
+
 // TestRemoveMusicArtistPurgesReleaseGroupCache is the regression test for
 // "if an artist is removed, its cached metadata should be deleted since
 // the artist is no longer in the library" — release_group_versions and

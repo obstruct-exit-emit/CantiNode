@@ -31,6 +31,10 @@ type WantedAlbum struct {
 	ReleaseDate      string       `json:"releaseDate"`
 	Status           WantedStatus `json:"status"`
 	AddedAt          time.Time    `json:"addedAt"`
+	// SecondaryTypes mirrors Album.SecondaryTypes' own doc comment — never
+	// populated by this package's own scan, filled in by internal/api's
+	// list-by-artist handler from the artist's cached discography.
+	SecondaryTypes []string `json:"secondaryTypes,omitempty"`
 }
 
 const wantedAlbumSelect = `SELECT id, artist_id, release_group_mbid, title, primary_type, release_date, status, added_at FROM wanted_albums`

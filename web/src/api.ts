@@ -358,6 +358,11 @@ export interface MusicAlbum {
   descriptionFetchedAt?: string;
   createdAt: string;
   updatedAt: string;
+  // "Live"/"Compilation"/... — only present from the artist's own
+  // albums-list endpoint (enriched from its cached discography, since
+  // this album row only ever stores primaryType); absent everywhere
+  // else. See releaseCategory in components/SortControl.tsx.
+  secondaryTypes?: string[];
 }
 
 export interface MusicTrack {
@@ -585,6 +590,9 @@ export interface WantedAlbum {
   releaseDate: string;
   status: "wanted" | "downloading";
   addedAt: string;
+  // See MusicAlbum.secondaryTypes' own comment — same enrichment, same
+  // list-by-artist-only availability.
+  secondaryTypes?: string[];
 }
 
 export interface MusicBrainzArtistResult {

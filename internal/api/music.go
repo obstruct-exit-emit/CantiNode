@@ -873,7 +873,34 @@ func (s *server) handleListMusicAlbumsByArtist(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	types := s.secondaryTypesByReleaseGroup(id)
+	for i := range albums {
+		albums[i].SecondaryTypes = types[albums[i].ReleaseGroupMBID]
+	}
 	writeJSON(w, http.StatusOK, albums)
+}
+
+// secondaryTypesByReleaseGroup looks up artistID's own cached discography
+// (see musiclibrary.ReleaseGroupCache) purely to map each of its release
+// groups to its own secondary types ("Live", "Compilation", ...) — an
+// owned or wanted album row only ever stores its primary type, so this is
+// how handleListMusicAlbumsByArtist/handleListWantedMusicAlbums enrich
+// their own response with the finer category the Albums grid's own "Type"
+// sort needs (see web/src/components/SortControl.tsx's releaseCategory).
+// Best-effort: a lookup failure just returns nil, leaving every album's
+// own SecondaryTypes unset (falls back to primary-type-only
+// categorization) rather than failing the whole list over a cosmetic
+// grouping detail.
+func (s *server) secondaryTypesByReleaseGroup(artistID int64) map[string][]string {
+	groups, err := s.musicStore.ListArtistReleaseGroups(artistID)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		out[g.ReleaseGroupMBID] = g.SecondaryTypes
+	}
+	return out
 }
 
 func (s *server) handleGetMusicAlbum(w http.ResponseWriter, r *http.Request) {
@@ -1764,6 +1791,10 @@ func (s *server) handleListWantedMusicAlbums(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	types := s.secondaryTypesByReleaseGroup(id)
+	for i := range wanted {
+		wanted[i].SecondaryTypes = types[wanted[i].ReleaseGroupMBID]
 	}
 	writeJSON(w, http.StatusOK, wanted)
 }

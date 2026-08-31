@@ -33,6 +33,15 @@ type Album struct {
 	DescriptionFetchedAt *time.Time `json:"descriptionFetchedAt,omitempty"`
 	CreatedAt            time.Time  `json:"createdAt"`
 	UpdatedAt            time.Time  `json:"updatedAt"`
+	// SecondaryTypes ("Live", "Compilation", ...) is never populated by
+	// this package's own scan — an owned album row only ever stores its
+	// primary type. internal/api's list-by-artist handler fills this in
+	// from the artist's cached discography (ArtistReleaseGroup.SecondaryTypes,
+	// matched by ReleaseGroupMBID) for callers that need the finer
+	// category (the Albums grid's own "Type" sort — see
+	// web/src/components/SortControl.tsx's releaseCategory). nil for any
+	// other caller.
+	SecondaryTypes []string `json:"secondaryTypes,omitempty"`
 }
 
 // GetOrCreateAlbum returns the existing album for artistID+releaseGroupMBID,
