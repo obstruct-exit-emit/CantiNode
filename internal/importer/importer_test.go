@@ -849,6 +849,45 @@ func TestPollOnceNoGrabsIsANoop(t *testing.T) {
 	}
 }
 
+// TestPollOnceSerializesConcurrentCalls is the regression test for a real
+// corruption risk: nothing stopped RunPeriodic's own ticker from
+// overlapping with internal/api's "Import now" button (handleTriggerImport
+// calls PollOnce directly) — that handler's own importMu/importState guard
+// only stops two manual triggers from overlapping each other, and shares
+// nothing with the periodic loop. Two concurrent PollOnce calls could both
+// see the same "grabbed" row and both enter importGrab for it — copyFile's
+// own os.Create+io.Copy for the identical destination path, run from two
+// goroutines at once, can interleave writes to the very same file on disk.
+// Mirrors musicscanner/metadatabackfill/plexplaylistsync's own identical
+// regression tests: held externally rather than actually racing two real
+// polls, since a real one finishes too fast against a tiny test fixture
+// for a timing-based race to be reliable.
+func TestPollOnceSerializesConcurrentCalls(t *testing.T) {
+	sab, _ := mockSab(t, "/does/not/matter", "Completed")
+	svc, _, _, _, _ := setup(t, sab)
+
+	svc.pollMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		svc.PollOnce(t.Context())
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("PollOnce returned while pollMu was still held externally — concurrent polls aren't serialized")
+	case <-time.After(200 * time.Millisecond):
+		// Still blocked, as expected.
+	}
+
+	svc.pollMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PollOnce did not proceed after pollMu was released")
+	}
+}
+
 func TestDeleteDownloadDataRefusesEmptyAndRelativePaths(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "marker")

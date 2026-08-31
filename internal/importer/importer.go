@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/config"
@@ -39,6 +40,27 @@ type Service struct {
 	music     *musiclibrary.Store
 	cfg       *config.Config
 	logger    *slog.Logger
+
+	// pollMu serializes PollOnce against itself. RunPeriodic's own ticker
+	// and internal/api's "Import now" button (handleTriggerImport) each
+	// call PollOnce independently — handleTriggerImport's own importMu/
+	// importState.Running guard only stops two manual triggers from
+	// overlapping each other, and shares nothing with the periodic loop.
+	// Found live as a real corruption risk, not just wasted work: if a
+	// user clicks "Import now" for an already-completed download right as
+	// the periodic tick is also due for it (exactly the situation the
+	// button exists for), both PollOnce calls can see the same "grabbed"
+	// row and both enter importGrab for it. stillGrabbed is only checked
+	// before and after copyTree, not during it — two goroutines'
+	// os.Create+io.Copy (copyFile) for the identical destination path can
+	// interleave writes to the very same file on disk, landing a
+	// corrupted/truncated audio file in the library. A second caller
+	// waiting its turn instead of running concurrently closes this the
+	// same way scanMu already does for Scanner.ScanAll/ScanAlbumFolder: by
+	// the time it proceeds, the first pass's own ResolveGrab has already
+	// moved the grab out of GrabStatusGrabbed, so its own listing no
+	// longer includes it.
+	pollMu sync.Mutex
 }
 
 func New(downloads *download.Service, scanner *musicscanner.Scanner, music *musiclibrary.Store, cfg *config.Config) *Service {
@@ -98,7 +120,14 @@ const grabVanishedGrace = 10 * time.Minute
 // and without the grab being fresh enough that the client just hasn't
 // caught up yet (see grabVanishedGrace) — is treated the same way (removed
 // directly in the client, or lost to a client restart).
+//
+// Serialized via pollMu against a concurrent PollOnce call from its other
+// trigger (internal/api's "Import now" button) — see pollMu's own doc
+// comment.
 func (s *Service) PollOnce(ctx context.Context) PollResult {
+	s.pollMu.Lock()
+	defer s.pollMu.Unlock()
+
 	var result PollResult
 
 	grabs, err := s.downloads.Store().ListGrabs(download.GrabStatusGrabbed)
