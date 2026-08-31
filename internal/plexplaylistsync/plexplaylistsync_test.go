@@ -35,12 +35,23 @@ type fakePlexPlaylist struct {
 // AddPlaylistItems/RenamePlaylist aren't exercised by this package's own
 // delete-and-recreate push strategy, so they're not implemented here.
 type fakePlex struct {
-	mu        sync.Mutex
-	machineID string
-	tracks    map[string]string // ratingKey -> file path, as Plex itself sees it
-	playlists map[string]*fakePlexPlaylist
-	nextKey   int
-	requests  int
+	mu         sync.Mutex
+	machineID  string
+	tracks     map[string]string // ratingKey -> file path, as Plex itself sees it
+	playlists  map[string]*fakePlexPlaylist
+	nextKey    int
+	requests   int
+	failCreate bool // when true, CreatePlaylist fails — see setFailCreate
+}
+
+// setFailCreate makes every subsequent CreatePlaylist call fail with a
+// server error, for exercising pushExisting's own delete-succeeded/
+// create-failed window — the one Plex gives no atomic "replace" call to
+// avoid.
+func (f *fakePlex) setFailCreate(fail bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failCreate = fail
 }
 
 func newFakePlex(t *testing.T) (*fakePlex, *httptest.Server) {
@@ -122,6 +133,13 @@ func (f *fakePlex) handle(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sb.String()))
 
 	case r.Method == http.MethodPost && r.URL.Path == "/playlists" && r.URL.Query().Get("uri") != "":
+		f.mu.Lock()
+		fail := f.failCreate
+		f.mu.Unlock()
+		if fail {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		title := r.URL.Query().Get("title")
 		keys := parseMetadataURIKeys(r.URL.Query().Get("uri"))
 		f.mu.Lock()
@@ -576,6 +594,157 @@ func TestPollOnceConflictLastWriteWins(t *testing.T) {
 			t.Errorf("tracks after pull = %+v, want both plex-a and plex-b resolved", tracks)
 		}
 	})
+}
+
+// TestPullSkipsWhenNoTracksResolve is the regression test for a real data
+// loss gap: pull() had no guard for the case where none of the Plex
+// playlist's current items resolve back to a local track (a path-mapping
+// miss, or CantiNode's own scanner mid-rescan and momentarily missing the
+// track_files row resolveLocalTrackIDs needs) — unlike pushExisting/
+// pullNew, which both already skip rather than act when nothing resolves.
+// Left unguarded, this called ReplacePlaylistItems(cn.ID, nil) and recorded
+// the resulting empty state as freshly synced, permanently wiping the
+// playlist's real content with nothing left to retry it.
+func TestPullSkipsWhenNoTracksResolve(t *testing.T) {
+	f, srv := newFakePlex(t)
+	s, store, sqlDB, _ := newTestService(t, srv.URL)
+
+	trackID := seedTrackFile(t, store, sqlDB, "Song A", "/music/song-a.flac")
+	f.addTrack("plex-a", "/music/song-a.flac")
+
+	p, err := store.CreatePlaylist("Linked", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendPlaylistItem(p.ID, trackID); err != nil {
+		t.Fatal(err)
+	}
+	// Link as already-synced (so cnChanged is false and PollOnce takes the
+	// pull path below, not push or conflict).
+	syncedAt := time.Now()
+	if err := store.SetPlaylistPlexLink(p.ID, "linked-1", syncedAt.Unix(), syncedAt); err != nil {
+		t.Fatal(err)
+	}
+	// Plex's own copy changed (newer updatedAt) but its one item's
+	// ratingKey was never registered with the fake server at all — Plex
+	// hasn't scanned that file in yet, or a path-mapping miss — so it can
+	// never resolve back to a local track.
+	f.addPlaylist("linked-1", "Linked", time.Now().Add(time.Hour).Unix(), "unresolvable-track")
+
+	result := s.PollOnce(context.Background())
+	if result.PulledFromPlex != 0 {
+		t.Errorf("result = %+v, want nothing pulled when no Plex item resolves", result)
+	}
+	tracks, err := store.ListPlaylistTracks(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 1 || tracks[0].TrackID != trackID {
+		t.Errorf("tracks after pull attempt = %+v, want the original track still there, not wiped", tracks)
+	}
+}
+
+// TestPushExistingClearsLinkAfterFailedRecreate is the regression test for
+// a real cascading-deletion risk: pushExisting has no atomic "replace this
+// playlist" call available from Plex, so it deletes the old Plex playlist
+// before recreating it. A transient failure in that window (delete
+// succeeds, create then fails) used to leave cn.PlexRatingKey still
+// pointing at the now-deleted old ratingKey. The next PollOnce pass would
+// find that ratingKey missing from Plex's own list and treat it exactly
+// like a genuine Plex-side delete — under the opt-in
+// PlaylistDeletePropagate mode, deleting the CantiNode playlist itself over
+// what was really just a network hiccup here, not any actual user action
+// on either side.
+func TestPushExistingClearsLinkAfterFailedRecreate(t *testing.T) {
+	f, srv := newFakePlex(t)
+	s, store, sqlDB, cfg := newTestService(t, srv.URL)
+	if err := cfg.SetPlex(config.PlexSettings{
+		Enabled: true, ServerURL: srv.URL, Token: "t", SectionKey: "7",
+		PlaylistSyncEnabled: true, PlaylistDeleteMode: config.PlaylistDeletePropagate,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	trackID := seedTrackFile(t, store, sqlDB, "Song A", "/music/song-a.flac")
+	f.addTrack("plex-a", "/music/song-a.flac")
+	f.addPlaylist("old-key", "Linked", time.Now().Add(-time.Hour).Unix(), "plex-a")
+
+	p, err := store.CreatePlaylist("Linked", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendPlaylistItem(p.ID, trackID); err != nil {
+		t.Fatal(err)
+	}
+	staleSync := time.Now().Add(-2 * time.Hour)
+	if err := store.SetPlaylistPlexLink(p.ID, "old-key", staleSync.Unix(), staleSync); err != nil {
+		t.Fatal(err)
+	}
+
+	f.setFailCreate(true)
+	result := s.PollOnce(context.Background())
+	if result.Errors == 0 {
+		t.Fatalf("result = %+v, want at least 1 error from the failed recreate", result)
+	}
+	if _, ok := f.playlist("old-key"); ok {
+		t.Fatal("test setup invalid: pushExisting's delete step should have removed old-key from Plex")
+	}
+	afterFirstPass, err := store.GetPlaylist(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterFirstPass.PlexRatingKey != "" {
+		t.Fatalf("PlexRatingKey after failed recreate = %q, want cleared rather than pointing at a ratingKey Plex no longer has", afterFirstPass.PlexRatingKey)
+	}
+
+	// Left uncleared, the next pass would find that stale ratingKey
+	// missing from Plex's own list and treat it exactly like a genuine
+	// Plex-side delete — deleting the CantiNode playlist under the
+	// propagate mode configured above. With the link cleared, this pass
+	// instead sees an unlinked playlist and recreates it on Plex.
+	f.setFailCreate(false)
+	s.PollOnce(context.Background())
+	if _, err := store.GetPlaylist(p.ID); err != nil {
+		t.Errorf("playlist should have survived and been recreated on Plex, got err = %v", err)
+	}
+}
+
+// TestPollOnceSerializesConcurrentCalls is the regression test for a real
+// duplication risk: nothing stopped internal/api's post-mutation background
+// sync (fired after every create/rename/append/remove/reorder) from
+// overlapping with RunPeriodic's own ticker or a synchronous "Sync now" —
+// two concurrent PollOnce passes each taking their own independent
+// playlist snapshot, both seeing the same still-unlinked playlist and both
+// calling pushNew, producing two Plex playlists for one CantiNode playlist.
+// Mirrors musicscanner's own TestScanAllSerializesConcurrentCalls and
+// metadatabackfill's TestPollOnceSerializesConcurrentCalls: held externally
+// rather than actually racing two real passes, since a real one finishes
+// too fast against a tiny test fixture for a timing-based race to be
+// reliable.
+func TestPollOnceSerializesConcurrentCalls(t *testing.T) {
+	_, srv := newFakePlex(t)
+	s, _, _, _ := newTestService(t, srv.URL)
+
+	s.pollMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.PollOnce(context.Background())
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("PollOnce returned while pollMu was still held externally — concurrent syncs aren't serialized")
+	case <-time.After(200 * time.Millisecond):
+		// Still blocked, as expected.
+	}
+
+	s.pollMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PollOnce did not proceed after pollMu was released")
+	}
 }
 
 func isNotFound(err error) bool {
