@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type BlockEntry, type GrabRecord, type ImportResult, type QueueItem } from "../api";
 import { relativeTime } from "../format";
 import { RowsSkeleton } from "../components/Skeleton";
@@ -29,6 +29,25 @@ export default function ActivityView({
   const [importing, setImporting] = useState(false);
   const [importNotice, setImportNotice] = useState("");
 
+  // historyToken guards against an out-of-order response: reload() (fired
+  // by the 10s poll and by every action handler) and the debounced filter
+  // effect just below both independently call api.history and both write
+  // straight to history/histTotal with no ordering guard between them.
+  // Typing into the filter box re-runs the poll effect too (reload's own
+  // identity depends on histFilter/histLimit), so a just-typed keystroke's
+  // debounced call and the poll's own immediate call can both be in flight
+  // together — whichever resolves last wins the state update regardless of
+  // which one actually reflects the current filter, occasionally leaving
+  // the table showing results for a filter string the user has since
+  // changed or cleared. Only the most recently issued call's response is
+  // ever applied now.
+  const historyToken = useRef(0);
+  const applyHistory = (h: { records: GrabRecord[]; total: number }, token: number) => {
+    if (historyToken.current !== token) return;
+    setHistory(h.records);
+    setHistTotal(h.total);
+  };
+
   const reload = useCallback(() => {
     api
       .queue()
@@ -38,12 +57,10 @@ export default function ActivityView({
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setItemsLoading(false));
+    const token = ++historyToken.current;
     api
       .history(histFilter, histLimit)
-      .then((h) => {
-        setHistory(h.records);
-        setHistTotal(h.total);
-      })
+      .then((h) => applyHistory(h, token))
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
     api
       .blocklist()
@@ -54,13 +71,11 @@ export default function ActivityView({
   // The filter re-queries as you type — debounced so each keystroke doesn't
   // hit the API.
   useEffect(() => {
+    const token = ++historyToken.current;
     const t = window.setTimeout(() => {
       api
         .history(histFilter, histLimit)
-        .then((h) => {
-          setHistory(h.records);
-          setHistTotal(h.total);
-        })
+        .then((h) => applyHistory(h, token))
         .catch(() => {});
     }, 250);
     return () => window.clearTimeout(t);

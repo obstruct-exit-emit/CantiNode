@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type FolderListing } from "../api";
 
 // FolderBrowser is the visual picker behind "Browse…" on root-folder forms:
@@ -18,17 +18,38 @@ export default function FolderBrowser({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // requestToken guards against an out-of-order response: every button that
+  // triggers a new load() is already disabled while busy, but the input's
+  // own Enter-key handler below isn't (typing a new path must stay live
+  // while a previous lookup is still in flight) — pressing Enter twice in
+  // quick succession, or pressing Enter and then immediately clicking a
+  // folder before the next render disables it, can start a second load()
+  // before the first's response arrives. Only the most recently started
+  // call's response is ever applied, the same pattern already used for
+  // UnmatchedFilesView's AutoMatchPanel — otherwise a slower, older
+  // response arriving after a newer one can silently overwrite the path
+  // the user actually navigated to, which "Choose this folder" would then
+  // submit as a root folder's location.
+  const requestToken = useRef(0);
+
   const load = (p?: string) => {
+    const token = ++requestToken.current;
     setBusy(true);
     setError("");
     api
       .browseFolders(p)
       .then((l) => {
+        if (requestToken.current !== token) return;
         setListing(l);
         setInput(l.path);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setBusy(false));
+      .catch((err: unknown) => {
+        if (requestToken.current !== token) return;
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (requestToken.current === token) setBusy(false);
+      });
   };
 
   // Start at the given path; fall back to the filesystem root when it's
@@ -39,15 +60,19 @@ export default function FolderBrowser({
       load(undefined);
       return;
     }
+    const token = ++requestToken.current;
     setBusy(true);
     api
       .browseFolders(start)
       .then((l) => {
+        if (requestToken.current !== token) return;
         setListing(l);
         setInput(l.path);
       })
       .catch(() => load(undefined))
-      .finally(() => setBusy(false));
+      .finally(() => {
+        if (requestToken.current === token) setBusy(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

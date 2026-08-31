@@ -322,6 +322,7 @@ function AppInner() {
         )}
         {connected && page.name === "artist" && (
           <ArtistDetailView
+            key={page.id}
             id={page.id}
             isAdmin={isAdmin}
             onError={onError}
