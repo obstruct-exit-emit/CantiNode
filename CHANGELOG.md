@@ -11,6 +11,12 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Deleting files from disk (removing an artist or album with "also delete
+  its files from disk" checked) went straight to deletion the moment you
+  clicked through the panel, with no separate warning for the irreversible
+  part.** A final danger-styled confirmation now stands between the click
+  and the actual delete whenever that checkbox is on, the same modal
+  pattern Activity's own "Remove download" already uses.
 - **A release group's cached version list was re-fetched from MusicBrainz on
   every metadata-backfill retry, even when it was already fully cached.**
   `CacheReleaseGroupVersions` called `BrowseReleaseGroupReleases`
