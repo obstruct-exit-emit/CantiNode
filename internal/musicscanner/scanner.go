@@ -34,13 +34,22 @@ type Scanner struct {
 	coverart *coverart.Client
 	logger   *slog.Logger
 
-	// scanMu serializes ScanAll — see its own doc comment. Three
-	// independent call sites can each trigger a full scan on this same
-	// Scanner (a manual "Scan library" trigger, the periodic importer
-	// sweep, and a manual "Import now" trigger's own post-copy scan) with
-	// no coordination between them; without this, two of them running at
-	// once raced on the same DB and could leave a completed grab's files
-	// copied to disk but unmatched to anything.
+	// scanMu serializes ScanAll and ScanAlbumFolder against each other —
+	// see ScanAll's own doc comment. Four independent call sites can each
+	// trigger a scan on this same Scanner (a manual "Scan library"
+	// trigger, the periodic importer sweep, a manual "Import now"
+	// trigger's own post-copy scan, and an album page's own "Scan files"
+	// action) with no coordination between them; without this, two of
+	// them running at once raced on the same DB and could leave a
+	// completed grab's files copied to disk but unmatched to anything.
+	// ScanAlbumFolder only walks one album's own directory rather than
+	// every root folder, but it upserts/matches/organizes through the
+	// exact same DB rows and on-disk moves ScanAll does, so the same race
+	// applies to it too — found live as the same "downloaded albums
+	// sometimes vanish from Activity" symptom e2097f8 first fixed for
+	// ScanAll's own three call sites, this time triggered by an album
+	// "Scan files" click landing mid-way through a periodic importer
+	// sweep.
 	scanMu sync.Mutex
 
 	// settingsMu guards namingFormat/minMatchConfidence/organizeOnMatch/
@@ -255,8 +264,18 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 	var seenPaths []string
 	groups := map[string][]folderEntry{}
 
+	// walkErrors counts WalkDir's own traversal failures (an Lstat that
+	// failed on a path, or a directory whose entries couldn't be read at
+	// all) — never a per-file processing error from upsertFile below,
+	// which still adds its path to seenPaths since the walk genuinely did
+	// see it. A directory WalkDir can't read is never descended into at
+	// all, so every file underneath it is silently missing from seenPaths
+	// too, not just the directory itself.
+	var walkErrors int
+
 	err := filepath.WalkDir(rf.Path, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			walkErrors++
 			result.Errors = append(result.Errors, fmt.Sprintf("walk %s: %v", path, err))
 			return nil
 		}
@@ -302,6 +321,24 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 		s.matchFolder(ctx, groups[dir], result)
 	}
 
+	if walkErrors > 0 {
+		// The walk didn't see everything under this root folder — treating
+		// "not in seenPaths" as "gone from disk" here would prune the
+		// track_files rows (match status, organized path, any manual
+		// review) for every file that happens to sit under whatever path(s)
+		// WalkDir couldn't read, even though they're still genuinely
+		// present and this was just a transient hiccup (an AV lock, a
+		// brief network mount blip on a subfolder — the same class of
+		// problem the root-level accessibility check above already guards
+		// against, just one level down the tree instead of at the root).
+		// Skipping the prune this pass is the same trade the root check
+		// already makes: a real deletion just waits for a scan that
+		// completes cleanly, rather than risking discarding real data over
+		// a hiccup this one couldn't confirm was permanent.
+		result.Errors = append(result.Errors, fmt.Sprintf("skipped removing missing files this pass: %d path(s) under %s could not be read", walkErrors, rf.Path))
+		return result, nil
+	}
+
 	removed, err := s.db.DeleteTrackFilesMissing(rf.ID, seenPaths)
 	if err != nil {
 		return result, fmt.Errorf("prune missing files: %w", err)
@@ -332,7 +369,13 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 // entirely, which the walk below can't discover an absence of on its own
 // (WalkDir on a missing directory reports one error for the root path and
 // stops, silently leaving stale rows behind otherwise).
+//
+// Serialized via scanMu against ScanAll and against itself — see scanMu's
+// own doc comment.
 func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResult, error) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+
 	existing, err := s.db.ListTrackFilesByAlbum(albumID)
 	if err != nil {
 		return nil, fmt.Errorf("list track files by album: %w", err)

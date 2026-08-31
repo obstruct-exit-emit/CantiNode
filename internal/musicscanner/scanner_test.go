@@ -1,8 +1,10 @@
 package musicscanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +144,99 @@ func TestScanAllSerializesConcurrentCalls(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("ScanAll did not proceed after scanMu was released")
+	}
+}
+
+// TestScanRootFolderSkipsPruneWhenWalkHitsUnreadableSubfolder is the
+// regression test for a real data-loss gap: ScanRootFolder's own doc
+// comment already explains why a root folder that's entirely inaccessible
+// (a network mount briefly down) must never reach DeleteTrackFilesMissing
+// with an empty seenPaths — but that same reasoning was never extended to
+// a transient failure on just *one subfolder* partway through an otherwise
+// healthy walk (an AV lock, a brief reconnect on one nested share). A
+// directory WalkDir can't read is never descended into, so every file
+// underneath it silently never makes it into seenPaths either — and
+// DeleteTrackFilesMissing treats "not in seenPaths" as "gone from disk,"
+// permanently deleting the track_files row (match status, organized path,
+// any manual review) for a file that's still genuinely sitting right
+// there, the moment any subfolder has a one-off read hiccup during a scan.
+func TestScanRootFolderSkipsPruneWhenWalkHitsUnreadableSubfolder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission bits aren't enforced the same way on Windows")
+	}
+	s, rf := setupOrganizeScanner(t)
+	_, path := seedAlbumWithFile(t, s, rf, "Boards of Canada", "Geogaddi", "Boards of Canada/Geogaddi")
+
+	blockedDir := filepath.Join(rf.Path, "Boards of Canada")
+	if err := os.Chmod(blockedDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blockedDir, 0o755) })
+
+	result, err := s.ScanRootFolder(context.Background(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesRemoved != 0 {
+		t.Errorf("FilesRemoved = %d, want 0 — the file is still really there, the scan just couldn't confirm it this pass", result.FilesRemoved)
+	}
+	foundSkipNotice := false
+	for _, e := range result.Errors {
+		if strings.Contains(e, "skipped removing missing files") {
+			foundSkipNotice = true
+		}
+	}
+	if !foundSkipNotice {
+		t.Errorf("Errors = %v, want a notice that pruning was skipped this pass", result.Errors)
+	}
+
+	tf, err := s.db.GetTrackFileByPath(path)
+	if err != nil {
+		t.Fatalf("track file row for %s should still exist after a transient walk error, got: %v", path, err)
+	}
+	if tf.MatchStatus != musiclibrary.StatusMatched {
+		t.Errorf("MatchStatus = %v, want the pre-existing match to have survived untouched", tf.MatchStatus)
+	}
+}
+
+// TestScanAlbumFolderSerializesAgainstScanAll is the regression test for a
+// gap left behind by e2097f8 (which serialized ScanAll's own three call
+// sites against each other via scanMu, but never touched ScanAlbumFolder):
+// the album page's own "Scan files" action upserts/matches/organizes
+// through the exact same track_files rows and on-disk moves ScanAll does,
+// so it can race with a concurrent ScanAll (e.g. the periodic importer
+// sweep) exactly the way two concurrent ScanAlls used to — the same
+// "downloaded albums sometimes vanish from Activity" symptom, just
+// triggered by an album scan instead of a second full-library scan.
+//
+// Held externally here for the same reason TestScanAllSerializesConcurrentCalls
+// does: a real race against a tiny test fixture finishes too fast to
+// reliably reproduce the timing-dependent original bug.
+func TestScanAlbumFolderSerializesAgainstScanAll(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	album, _ := seedAlbumWithFile(t, s, rf, "Boards of Canada", "Geogaddi", "Boards of Canada/Geogaddi")
+
+	s.scanMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := s.ScanAlbumFolder(t.Context(), album.ID); err != nil {
+			t.Errorf("ScanAlbumFolder: %v", err)
+		}
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("ScanAlbumFolder returned while scanMu was still held externally — it isn't serialized against ScanAll")
+	case <-time.After(200 * time.Millisecond):
+		// Still blocked, as expected.
+	}
+
+	s.scanMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ScanAlbumFolder did not proceed after scanMu was released")
 	}
 }
 
