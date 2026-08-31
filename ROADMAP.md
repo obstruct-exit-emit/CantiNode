@@ -180,6 +180,14 @@ Turning "works on the dev box" into "trustable release". Done so far:
 - ✅ Release hygiene: version-stamped builds, a CHANGELOG, and a release CI
   (tag `v*` → GitHub release) proven out on the codebase this was forked
   from — not yet exercised with a tag on this repo, which has none yet
+- ✅ Concurrency/race-condition audit (2026-08-30): `go test -race` across
+  the whole suite plus a manual code-review pass over every scanning/
+  import/sync background loop found and fixed six real races and one
+  data-loss bug (none previously reported live), and a 25-minute sustained
+  API soak test came back clean — flat memory, stable goroutine/thread
+  count, zero orphaned data across ~500 create/delete cycles. See
+  [CHANGELOG](CHANGELOG.md) and item 18 below for what was fixed versus
+  deliberately deferred.
 
 Docker and Windows support (both shipped earlier in this phase — a
 Dockerfile + compose file + published GHCR images, and a Windows

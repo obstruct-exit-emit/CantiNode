@@ -84,7 +84,9 @@ cached discography metadata (including that same album's cached versions
 and cover art) alone, since the artist and the rest of its discography are
 still here. Both offer an "Also delete its/their files from disk" checkbox
 — off by default, so removing the library record alone never touches
-anything on disk unless you explicitly ask it to.
+anything on disk unless you explicitly ask it to. Checking it adds one
+more step: a final confirmation naming the irreversible part specifically,
+separate from the panel's own confirm-to-remove step.
 
 Both the album and artist pages also link out — **MusicBrainz ↗** (the
 release group's or artist's own MusicBrainz page) and **TheAudioDB ↗**

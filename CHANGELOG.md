@@ -17,6 +17,40 @@ in progress. Highlights from the hardening period, newest first:
   part.** A final danger-styled confirmation now stands between the click
   and the actual delete whenever that checkbox is on, the same modal
   pattern Activity's own "Remove download" already uses.
+- **An overnight code-review pass found and fixed six correctness bugs**,
+  none reported live but each confirmed via a genuine failure scenario and
+  a negative-control-verified regression test:
+  - A mid-scan read error on just one subfolder (an AV lock, a brief
+    network-mount blip) could permanently delete a real, already-matched
+    file's library record — treated exactly like the file being gone,
+    when it was only briefly unreadable. Now skips pruning for that pass
+    instead, the same protection already in place when a whole root
+    folder is briefly unreachable.
+  - The album page's own "Scan files" action had no protection against
+    running at the same time as a full library scan, risking the same
+    "downloaded album vanishes from Activity" symptom an earlier fix
+    closed for full scans only.
+  - The importer's periodic sweep and the "Import now" button could run
+    at the same time and both start copying the same completed download
+    in, risking two writers landing on the same destination file at once.
+  - The metadata-backfill sweep and Plex two-way playlist sync could each
+    likewise double-run across their own two triggers, wasting requests
+    (backfill) or occasionally creating a duplicate Plex playlist (sync).
+  - Plex sync could, in one specific timing window, wipe a linked
+    playlist's real contents (a transient path-mapping miss read as "sync
+    deleted everything"), and a transient network failure mid-resync
+    could — only under the opt-in "delete on Plex-side removal" setting —
+    delete the CantiNode playlist itself.
+  - Three UI races could show stale data after fast navigation or typing:
+    switching artists quickly could briefly show the wrong artist's page,
+    the root-folder picker could submit a path other than the one shown,
+    and Activity's history filter could show results for a filter you'd
+    already changed.
+- **Organizing (or importing, or a scan matching new files) fired one Plex
+  refresh notification per file instead of once for the whole batch** —
+  a 13-track album import fired 13 near-identical refresh calls for the
+  same one or two directories that actually changed. Batch operations now
+  collect every changed path and notify Plex once at the end.
 - **A release group's cached version list was re-fetched from MusicBrainz on
   every metadata-backfill retry, even when it was already fully cached.**
   `CacheReleaseGroupVersions` called `BrowseReleaseGroupReleases`
