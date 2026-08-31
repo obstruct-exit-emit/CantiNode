@@ -394,6 +394,44 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
     tool that preserves/displays a file's exact original key casing would
     ever notice the difference.
 
+18. [ ] **Two grab-path races found in an overnight code review
+    (2026-08-30), deliberately left unfixed**: `handleGrabAlbumUpgrade`
+    (unlike its sibling `handleGrabWantedMusicAlbum`, which claims the
+    wanted album via a compare-and-swap on its `status` column before
+    grabbing — see that handler's own comment) has no equivalent guard,
+    so two rapid/duplicate requests for the same album's upgrade (a
+    double-click, a retried request) can both proceed to
+    `GrabRelease`, creating two independent `GrabRecord`s with the same
+    `UpgradeAlbumID` — `swapUpgradedFiles` then compares a
+    per-call "before" snapshot that can already include the other
+    call's newly-imported files if the two imports interleave,
+    misidentifying which old files were actually superseded. Fixing
+    this isn't a simple unique-constraint-on-insert, and doing it that
+    way would make things *worse*: `GrabRelease` (internal/download/
+    download.go) submits to the real download client (`s.Grab(...)`)
+    *before* the DB insert (`s.store.AddGrab`), so both concurrent
+    calls would still successfully submit two real downloads — a
+    unique index would only reject the second `AddGrab`, leaving an
+    untracked, invisible-to-the-UI orphan download sitting in the
+    client forever instead of a visible duplicate. A real fix needs an
+    atomic claim *before* the network call, the same shape
+    `ClaimWantedAlbumForDownload` gives wanted albums, which an owned
+    album has no equivalent status field for yet — worth designing
+    deliberately rather than patching around.
+
+    Separately, `handleRemoveQueueItem` (internal/api/downloads.go)
+    calls `s.downloads.Remove` (deleting the download client's data)
+    before it locates and resolves the matching grab, and the
+    resolve step's fallback match (`ClientItemID` equality) can miss
+    entirely for a qBittorrent grab, whose `ClientItemID` is
+    routinely empty at grab time by design. When it misses, the
+    wanted album is left showing "downloading" with its underlying
+    download already gone — self-healing (`internal/importer`'s own
+    `grabVanishedGrace` orphan sweep notices and fails it within 10
+    minutes), but a misleading, unrecoverable-looking UI state until
+    then. Resolving the grab before deleting the client's data would
+    close this.
+
 ## Future 💡
 
 Under consideration, in no particular order:
