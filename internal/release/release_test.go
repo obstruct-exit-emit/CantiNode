@@ -253,10 +253,10 @@ func TestPreferencesForAllowsUnstatedFormat(t *testing.T) {
 func TestRank(t *testing.T) {
 	prefs := DefaultMusicPreferences()
 	candidates := []Candidate{
-		Score(rel("Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""),               // rejected
-		Score(rel("Geogaddi MP3", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""),           // low
-		Score(rel("Geogaddi Retail FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""),   // high
-		Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 5), prefs, ""),          // mid
+		Score(rel("Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""),             // rejected
+		Score(rel("Geogaddi MP3", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""),         // low
+		Score(rel("Geogaddi Retail FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""), // high
+		Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 5), prefs, ""),        // mid
 	}
 	Rank(candidates)
 	if !candidates[0].Approved {

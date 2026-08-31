@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -647,9 +648,16 @@ func TestGetRetriesTransportErrorThenSucceeds(t *testing.T) {
 // surfaces ctx.Err() immediately rather than burning remaining retries
 // against a request that can no longer succeed.
 func TestGetDoesNotRetryWhenContextIsDone(t *testing.T) {
-	var calls int
+	// atomic.Int32, not a plain int: unlike every other test in this file,
+	// this one's whole point is that the client gives up and returns
+	// before the server-side round trip completes — so, unlike the others,
+	// there's no happens-before edge (a fully received HTTP response)
+	// linking the handler goroutine's write to the main goroutine's read
+	// below. A plain int here is a genuine, race-detector-confirmed data
+	// race, found live via go test -race.
+	var calls atomic.Int32
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		time.Sleep(50 * time.Millisecond) // longer than ctx's own deadline below
 		w.Write([]byte(sampleRecordingJSON))
 	})
@@ -661,8 +669,8 @@ func TestGetDoesNotRetryWhenContextIsDone(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when ctx expires mid-request")
 	}
-	if calls != 1 {
-		t.Errorf("calls = %d, want exactly 1 — retrying after ctx is already done wastes attempts on a request that can't succeed", calls)
+	if got := calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want exactly 1 — retrying after ctx is already done wastes attempts on a request that can't succeed", got)
 	}
 }
 
