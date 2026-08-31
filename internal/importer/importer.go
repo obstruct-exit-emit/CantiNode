@@ -401,15 +401,27 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	// skipped rather than failing an import that otherwise succeeded —
 	// the file stays reachable at its as-copied path either way, just
 	// not yet organized.
+	var organizedPaths []string
 	for _, path := range copiedPaths {
 		tf, err := s.music.GetTrackFileByPath(path)
 		if err != nil || tf.TrackID == nil {
 			continue // unmatched (or vanished) — nothing to organize yet
 		}
-		if _, err := s.scanner.OrganizeFile(tf.ID); err != nil {
+		newPath, oldPath, err := s.scanner.OrganizeFileQuiet(tf.ID)
+		if err != nil {
 			s.logger.Warn("importer: organize newly imported file", "grab_id", g.ID, "path", path, "error", err)
+			continue
+		}
+		if oldPath != "" {
+			organizedPaths = append(organizedPaths, oldPath, newPath)
 		}
 	}
+	// One Plex notification for the whole import, not one per file — see
+	// Scanner.OrganizeFileQuiet's own doc comment: every track in an
+	// album import shares the same source/destination directories, so
+	// organizing a 13-track album used to fire 13 near-identical refresh
+	// calls instead of the 1-2 that actually changed.
+	s.scanner.NotifyOrganizedPaths(organizedPaths...)
 
 	if g.WantedAlbumID > 0 {
 		if _, err := s.music.GetWantedAlbum(g.WantedAlbumID); err == nil {

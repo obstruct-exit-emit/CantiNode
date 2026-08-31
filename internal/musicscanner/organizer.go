@@ -277,42 +277,83 @@ func (s *Scanner) PlanOrganizePath(trackFileID int64) (string, error) {
 // left its entire old CD1/CD2 folder tree behind, empty but never
 // cleaned up, once every file had moved out of it.
 func (s *Scanner) OrganizeFile(trackFileID int64) (string, error) {
-	newPath, err := s.PlanOrganizePath(trackFileID)
+	newPath, oldPath, err := s.organizeFile(trackFileID)
 	if err != nil {
 		return "", err
+	}
+	if oldPath != "" {
+		s.notifyPlexPaths(oldPath, newPath)
+	}
+	return newPath, nil
+}
+
+// OrganizeFileQuiet is OrganizeFile without the automatic per-call Plex
+// notification — for a cross-package caller (internal/importer's own
+// post-import organize sweep) about to organize many files in one pass,
+// which should collect the old/new paths itself and notify once via
+// NotifyOrganizedPaths afterward instead of once per file. Within this
+// package, applyOrganizePlan and recordFileResult do the same thing
+// directly against the private organizeFile core.
+func (s *Scanner) OrganizeFileQuiet(trackFileID int64) (newPath, oldPath string, err error) {
+	return s.organizeFile(trackFileID)
+}
+
+// NotifyOrganizedPaths fires one Plex notification covering every
+// directory represented in paths (old+new path pairs collected from one
+// or more OrganizeFileQuiet calls) — the batch counterpart to
+// OrganizeFile's own automatic single-file notify. A no-op if paths is
+// empty (nothing organized, nothing to notify).
+func (s *Scanner) NotifyOrganizedPaths(paths ...string) {
+	s.notifyPlexPaths(paths...)
+}
+
+// organizeFile is OrganizeFile's own move-only core, shared with batch
+// callers within this package (applyOrganizePlan, recordFileResult's own
+// organize-on-match) — and, via the public OrganizeFileQuiet wrapper
+// above, with internal/importer's post-import organize loop too — all of
+// which organize many files in one pass and need to notify Plex once for
+// the whole batch, not once per file. Found live: organizing a 13-track
+// album fired 13 separate (and mostly identical, since every track
+// shares the same two directories) Plex refresh calls instead of the 1-2
+// that actually changed. oldPath is empty (nothing moved, nothing to
+// notify) when the file was already at its planned path.
+func (s *Scanner) organizeFile(trackFileID int64) (newPath, oldPath string, err error) {
+	newPath, err = s.PlanOrganizePath(trackFileID)
+	if err != nil {
+		return "", "", err
 	}
 
 	tf, err := s.db.GetTrackFile(trackFileID)
 	if err != nil {
-		return "", fmt.Errorf("get track file: %w", err)
+		return "", "", fmt.Errorf("get track file: %w", err)
 	}
 	if tf.Path == newPath {
-		return newPath, nil
+		return newPath, "", nil
 	}
 	if _, err := os.Stat(newPath); err == nil {
-		return "", fmt.Errorf("destination already exists: %s", newPath)
+		return "", "", fmt.Errorf("destination already exists: %s", newPath)
 	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat destination %s: %w", newPath, err)
+		return "", "", fmt.Errorf("stat destination %s: %w", newPath, err)
 	}
 	rootFolder, err := s.db.GetRootFolder(tf.RootFolderID)
 	if err != nil {
-		return "", fmt.Errorf("get root folder: %w", err)
+		return "", "", fmt.Errorf("get root folder: %w", err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
-		return "", fmt.Errorf("create destination directory: %w", err)
+		return "", "", fmt.Errorf("create destination directory: %w", err)
 	}
 	oldDir := filepath.Dir(tf.Path)
+	oldPath = tf.Path
 	if err := os.Rename(tf.Path, newPath); err != nil {
-		return "", fmt.Errorf("move %s to %s: %w", tf.Path, newPath, err)
+		return "", "", fmt.Errorf("move %s to %s: %w", tf.Path, newPath, err)
 	}
 
 	if err := s.db.SetTrackFileOrganized(trackFileID, newPath, time.Now().UTC()); err != nil {
-		return "", fmt.Errorf("record organized path: %w", err)
+		return "", "", fmt.Errorf("record organized path: %w", err)
 	}
 	removeEmptyParents(oldDir, rootFolder.Path)
-	s.notifyPlexPaths(tf.Path, newPath)
-	return newPath, nil
+	return newPath, oldPath, nil
 }
 
 // RenameMove is one track file's planned (or applied) move under
@@ -401,20 +442,28 @@ func (s *Scanner) OrganizeAlbum(albumID int64) (moves []RenameMove, errs []strin
 	return s.applyOrganizePlan(plan)
 }
 
-// applyOrganizePlan moves each planned file one at a time via OrganizeFile —
-// a failure moving one file is recorded in errs and does not stop the rest,
-// the same non-aborting pattern ScanResult.Errors uses for a whole scan
-// pass. moves holds only the files that actually moved successfully.
+// applyOrganizePlan moves each planned file one at a time via the
+// notify-free organizeFile core — a failure moving one file is recorded
+// in errs and does not stop the rest, the same non-aborting pattern
+// ScanResult.Errors uses for a whole scan pass. moves holds only the
+// files that actually moved successfully. Notifies Plex once at the end
+// for every directory that actually changed across the whole plan,
+// rather than once per file (see organizeFile's own doc comment).
 func (s *Scanner) applyOrganizePlan(plan []RenameMove) (moves []RenameMove, errs []string, err error) {
 	moves = []RenameMove{}
 	errs = []string{}
+	var changedPaths []string
 	for _, m := range plan {
-		newPath, oerr := s.OrganizeFile(m.TrackFileID)
+		newPath, oldPath, oerr := s.organizeFile(m.TrackFileID)
 		if oerr != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", m.From, oerr))
 			continue
 		}
 		moves = append(moves, RenameMove{TrackFileID: m.TrackFileID, From: m.From, To: newPath})
+		if oldPath != "" {
+			changedPaths = append(changedPaths, oldPath, newPath)
+		}
 	}
+	s.notifyPlexPaths(changedPaths...)
 	return moves, errs, nil
 }

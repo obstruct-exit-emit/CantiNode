@@ -155,6 +155,14 @@ type ScanResult struct {
 	FilesOrganized int      `json:"filesOrganized"`
 	FilesRemoved   int      `json:"filesRemoved"` // rows deleted because the file is no longer on disk
 	Errors         []string `json:"errors"`
+	// organizedPaths accumulates every file organized during this pass
+	// (old and new path, per file) — unexported, so it never reaches the
+	// JSON response, purely internal plumbing so ScanAll/ScanAlbumFolder
+	// can notify Plex once for the whole pass instead of once per file
+	// (see organizeFile's own doc comment: found live, organizing a
+	// 13-track album fired 13 near-identical Plex refresh calls instead
+	// of the 1-2 directories that actually changed).
+	organizedPaths []string
 }
 
 func (r *ScanResult) merge(other ScanResult) {
@@ -163,6 +171,7 @@ func (r *ScanResult) merge(other ScanResult) {
 	r.FilesOrganized += other.FilesOrganized
 	r.FilesRemoved += other.FilesRemoved
 	r.Errors = append(r.Errors, other.Errors...)
+	r.organizedPaths = append(r.organizedPaths, other.organizedPaths...)
 }
 
 // ScanAll scans every configured root folder in turn. One root folder
@@ -198,6 +207,7 @@ func (s *Scanner) ScanAll(ctx context.Context) (*ScanResult, error) {
 		}
 		result.merge(*r)
 	}
+	s.notifyPlexPaths(result.organizedPaths...)
 	return result, nil
 }
 
@@ -415,6 +425,7 @@ func (s *Scanner) ScanAlbumFolder(ctx context.Context, albumID int64) (*ScanResu
 	for _, d := range dirs {
 		s.matchFolder(ctx, groups[d], result)
 	}
+	s.notifyPlexPaths(result.organizedPaths...)
 	return result, nil
 }
 
@@ -506,11 +517,15 @@ func (s *Scanner) recordFileResult(result *ScanResult, tf *musiclibrary.TrackFil
 	}
 	result.FilesMatched++
 	if s.getOrganizeOnMatch() {
-		if _, oerr := s.OrganizeFile(tf.ID); oerr != nil {
+		newPath, oldPath, oerr := s.organizeFile(tf.ID)
+		if oerr != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: organize: %v", tf.Path, oerr))
 			return
 		}
 		result.FilesOrganized++
+		if oldPath != "" {
+			result.organizedPaths = append(result.organizedPaths, oldPath, newPath)
+		}
 	}
 }
 

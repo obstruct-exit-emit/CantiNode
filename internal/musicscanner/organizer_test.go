@@ -595,6 +595,61 @@ func TestOrganizeArtistMovesFilesAndSurvivesPartialFailure(t *testing.T) {
 	}
 }
 
+// TestOrganizeArtistNotifiesPlexOncePerBatch is the regression test for
+// applyOrganizePlan's own batching: found live — organizing a real
+// 13-track album fired 13 separate (mostly identical) Plex refresh
+// calls, one per file, instead of one call covering the small number of
+// directories that actually changed. Two tracks organized by one
+// OrganizeArtist call must produce exactly one notifyPlex invocation,
+// carrying every file's own old and new path together.
+func TestOrganizeArtistNotifiesPlexOncePerBatch(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	var calls int
+	var notified []string
+	s.notifyPlex = func(paths []string) {
+		calls++
+		notified = append(notified, paths...)
+	}
+
+	artist, _ := s.db.GetOrCreateArtist("a-mbid", "Boards of Canada", "Boards of Canada")
+	album, _ := s.db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002-02-04", "Album")
+	track1, _ := s.db.GetOrCreateTrack(album.ID, "t1-mbid", "Alpha and Omega", 3, 1, 200000, "", "", "")
+	track2, _ := s.db.GetOrCreateTrack(album.ID, "t2-mbid", "Music Is Math", 4, 1, 200000, "", "", "")
+
+	src1 := filepath.Join(rf.Path, "one.flac")
+	os.WriteFile(src1, []byte("x"), 0o644)
+	tf1, err := s.db.UpsertTrackFileByPath(rf.ID, src1, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf1.ID, &track1.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+	src2 := filepath.Join(rf.Path, "two.flac")
+	os.WriteFile(src2, []byte("x"), 0o644)
+	tf2, err := s.db.UpsertTrackFileByPath(rf.ID, src2, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(tf2.ID, &track2.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	moves, errs, err := s.OrganizeArtist(artist.ID)
+	if err != nil {
+		t.Fatalf("OrganizeArtist: %v", err)
+	}
+	if len(moves) != 2 || len(errs) != 0 {
+		t.Fatalf("moves = %+v, errs = %+v, want both files organized cleanly", moves, errs)
+	}
+	if calls != 1 {
+		t.Errorf("notifyPlex called %d times, want exactly 1 for the whole batch", calls)
+	}
+	if len(notified) != 4 || notified[0] != src1 || notified[2] != src2 {
+		t.Errorf("notified = %v, want [src1, new1, src2, new2]", notified)
+	}
+}
+
 func TestOrganizeFileRequiresMatch(t *testing.T) {
 	s, rf := setupOrganizeScanner(t)
 
