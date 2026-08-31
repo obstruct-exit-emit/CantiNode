@@ -429,14 +429,15 @@ button.link {
   white-space: nowrap;
 }
 
-/* Playlist origin flag: unmarked/muted for the common case (created in
-   CantiNode itself), a distinct accent color only when it's worth calling
-   out — pulled in from Plex. */
+/* Playlist origin/link badge: muted by default (the label alone says
+   where it came from), a distinct accent color only when it's currently
+   linked and syncing to Plex — that's the state actually worth calling
+   out, independent of origin (see PlaylistOriginBadge.tsx). */
 .playlist-origin {
   white-space: nowrap;
 }
 
-.playlist-origin-plex {
+.playlist-linked {
   background: var(--info-soft);
   color: var(--accent);
 }

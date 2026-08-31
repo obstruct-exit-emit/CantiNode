@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type PlaylistDetail, type PlaylistTrack } from "../api";
 import { formatDuration } from "../format";
+import PlaylistOriginBadge from "../components/PlaylistOriginBadge";
 import { RowsSkeleton } from "../components/Skeleton";
 import { RowMenu, useUi } from "../ui";
 
@@ -156,6 +157,7 @@ export default function PlaylistDetailView({
         )}
 
         <p className="muted">
+          <PlaylistOriginBadge playlist={playlist} />{" "}
           {playlist.tracks.length} track{playlist.tracks.length === 1 ? "" : "s"}
           {playlist.totalDurationMs > 0 ? ` · ${formatDuration(playlist.totalDurationMs)}` : ""}
         </p>

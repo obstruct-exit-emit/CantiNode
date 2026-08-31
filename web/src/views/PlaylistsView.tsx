@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, PLAYLIST_ORIGIN_PLEX, type Playlist } from "../api";
+import { api, type Playlist } from "../api";
 import { formatDuration } from "../format";
+import PlaylistOriginBadge from "../components/PlaylistOriginBadge";
 import { RowsSkeleton } from "../components/Skeleton";
 import { RowMenu, useUi } from "../ui";
 
@@ -144,16 +145,7 @@ export default function PlaylistsView({
                     </span>
                   </button>
                   <span className="row-actions">
-                    <span
-                      className={`pill playlist-origin${p.origin === PLAYLIST_ORIGIN_PLEX ? " playlist-origin-plex" : ""}`}
-                      title={
-                        p.origin === PLAYLIST_ORIGIN_PLEX
-                          ? "First created on Plex, pulled into CantiNode"
-                          : "Created in CantiNode"
-                      }
-                    >
-                      {p.origin === PLAYLIST_ORIGIN_PLEX ? "Plex" : "CantiNode"}
-                    </span>
+                    <PlaylistOriginBadge playlist={p} />
                     <span className="pill playlist-meta">
                       {p.trackCount} track{p.trackCount === 1 ? "" : "s"}
                       {p.totalDurationMs > 0 ? ` · ${formatDuration(p.totalDurationMs)}` : ""}

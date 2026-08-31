@@ -463,6 +463,14 @@ export interface Playlist {
   // Which side this playlist was first created on, permanently —
   // "cantinode" or "plex" (see PLAYLIST_ORIGIN_PLEX). Purely informational.
   origin: string;
+  // Non-empty exactly when this playlist is currently linked to a Plex
+  // playlist and being kept in sync — distinct from origin, which never
+  // changes: a playlist can lose its link (Plex-side delete, unlink mode)
+  // without its origin changing. plexSyncedAt is the last successful
+  // sync's own timestamp, only meaningful alongside a non-empty
+  // plexRatingKey.
+  plexRatingKey?: string;
+  plexSyncedAt?: string;
 }
 
 // The one non-default Playlist.origin value — anything else (in practice
