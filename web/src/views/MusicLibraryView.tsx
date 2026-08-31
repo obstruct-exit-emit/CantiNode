@@ -164,7 +164,7 @@ export default function MusicLibraryView({
                           onChange={changeSort}
                           options={[
                             ["name", "Name"],
-                            ["added", "Recently added"],
+                            ["added", "Date added"],
                             ["albums", "Album count"],
                             ["missing", "Missing count"],
                           ]}
