@@ -338,6 +338,11 @@ type ReleaseGroupCache struct {
 	PrimaryType      string   `json:"primaryType"`
 	SecondaryTypes   []string `json:"secondaryTypes"`
 	FirstReleaseDate string   `json:"firstReleaseDate"`
+	// Genres is MusicBrainz's own curated genre tags for this specific
+	// release group (inc=genres on the same BrowseArtistReleaseGroups call
+	// that already fetches everything else here) — stored comma-joined,
+	// same convention as SecondaryTypes.
+	Genres []string `json:"genres"`
 }
 
 // ReplaceArtistReleaseGroups replaces artistID's entire cached
@@ -356,9 +361,9 @@ func (s *Store) ReplaceArtistReleaseGroups(artistID int64, groups []ReleaseGroup
 	}
 	for _, g := range groups {
 		if _, err := tx.Exec(
-			`INSERT INTO artist_release_groups (artist_id, release_group_mbid, title, primary_type, secondary_types, first_release_date)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
-			artistID, g.ReleaseGroupMBID, g.Title, g.PrimaryType, strings.Join(g.SecondaryTypes, ","), g.FirstReleaseDate); err != nil {
+			`INSERT INTO artist_release_groups (artist_id, release_group_mbid, title, primary_type, secondary_types, first_release_date, genres)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			artistID, g.ReleaseGroupMBID, g.Title, g.PrimaryType, strings.Join(g.SecondaryTypes, ","), g.FirstReleaseDate, strings.Join(g.Genres, ",")); err != nil {
 			return fmt.Errorf("insert release group %s: %w", g.ReleaseGroupMBID, err)
 		}
 	}
@@ -372,7 +377,7 @@ func (s *Store) ReplaceArtistReleaseGroups(artistID int64, groups []ReleaseGroup
 // most recent release first.
 func (s *Store) ListArtistReleaseGroups(artistID int64) ([]ReleaseGroupCache, error) {
 	rows, err := s.db.Query(`
-		SELECT id, artist_id, release_group_mbid, title, primary_type, secondary_types, first_release_date
+		SELECT id, artist_id, release_group_mbid, title, primary_type, secondary_types, first_release_date, genres
 		FROM artist_release_groups
 		WHERE artist_id = ?
 		ORDER BY first_release_date DESC, title`, artistID)
@@ -398,14 +403,19 @@ func (s *Store) ListArtistReleaseGroups(artistID int64) ([]ReleaseGroupCache, er
 // in a JSON response (a nil slice marshals to `null`, not `[]`).
 func scanReleaseGroupCache(row interface{ Scan(...any) error }) (ReleaseGroupCache, error) {
 	var g ReleaseGroupCache
-	var secondaryTypes string
-	if err := row.Scan(&g.ID, &g.ArtistID, &g.ReleaseGroupMBID, &g.Title, &g.PrimaryType, &secondaryTypes, &g.FirstReleaseDate); err != nil {
+	var secondaryTypes, genres string
+	if err := row.Scan(&g.ID, &g.ArtistID, &g.ReleaseGroupMBID, &g.Title, &g.PrimaryType, &secondaryTypes, &g.FirstReleaseDate, &genres); err != nil {
 		return g, fmt.Errorf("scan release group: %w", err)
 	}
 	if secondaryTypes != "" {
 		g.SecondaryTypes = strings.Split(secondaryTypes, ",")
 	} else {
 		g.SecondaryTypes = []string{}
+	}
+	if genres != "" {
+		g.Genres = strings.Split(genres, ",")
+	} else {
+		g.Genres = []string{}
 	}
 	return g, nil
 }
@@ -416,7 +426,7 @@ func scanReleaseGroupCache(row interface{ Scan(...any) error }) (ReleaseGroupCac
 // page's Missing section.
 func (s *Store) ListMissingArtistReleaseGroups(artistID int64) ([]ReleaseGroupCache, error) {
 	rows, err := s.db.Query(`
-		SELECT arg.id, arg.artist_id, arg.release_group_mbid, arg.title, arg.primary_type, arg.secondary_types, arg.first_release_date
+		SELECT arg.id, arg.artist_id, arg.release_group_mbid, arg.title, arg.primary_type, arg.secondary_types, arg.first_release_date, arg.genres
 		FROM artist_release_groups arg
 		WHERE arg.artist_id = ?
 		  AND NOT EXISTS (SELECT 1 FROM albums al WHERE al.artist_id = arg.artist_id AND al.release_group_mbid = arg.release_group_mbid)

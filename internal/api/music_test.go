@@ -166,6 +166,37 @@ func TestListAlbumsAndWantedEnrichWithSecondaryTypes(t *testing.T) {
 	}
 }
 
+// TestGetMusicAlbumEnrichesWithGenres covers genresByReleaseGroup's own use
+// in handleGetMusicAlbum: an owned album row stores none of its own genre
+// data, so the album detail endpoint must fill it in from the artist's
+// cached discography (matched by release group mbid) — cached once at
+// discography-sync time (internal/discography), never fetched live just
+// for viewing the album's own page.
+func TestGetMusicAlbumEnrichesWithGenres(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	if err := musicStore.ReplaceArtistReleaseGroups(artist.ID, []musiclibrary.ReleaseGroupCache{
+		{ReleaseGroupMBID: "rg-owned", Title: "Moonglow", PrimaryType: "Album", Genres: []string{"power metal", "symphonic metal"}, FirstReleaseDate: "2019"},
+	}); err != nil {
+		t.Fatalf("ReplaceArtistReleaseGroups: %v", err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "rel-owned", "rg-owned", "Moonglow", "2019", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+
+	var got musiclibrary.Album
+	a.want(a.call("GET", fmt.Sprintf("/api/v1/music/album/%d", album.ID), nil, &got), http.StatusOK)
+	if len(got.Genres) != 2 || got.Genres[0] != "power metal" || got.Genres[1] != "symphonic metal" {
+		t.Errorf("album genres = %+v, want [power metal, symphonic metal]", got.Genres)
+	}
+}
+
 // TestRemoveMusicArtistPurgesReleaseGroupCache is the regression test for
 // "if an artist is removed, its cached metadata should be deleted since
 // the artist is no longer in the library" — release_group_versions and

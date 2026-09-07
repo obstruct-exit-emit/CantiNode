@@ -187,6 +187,10 @@ type ReleaseGroupSummary struct {
 	PrimaryType      string   `json:"primary-type"`
 	SecondaryTypes   []string `json:"secondary-types"`
 	FirstReleaseDate string   `json:"first-release-date"`
+	// Genres is only populated when BrowseArtistReleaseGroups' own inc
+	// includes genres — free alongside the same request that already
+	// fetches SecondaryTypes/FirstReleaseDate, not a further lookup.
+	Genres []Genre `json:"genres"`
 }
 
 // releaseGroupBrowseResponse is one page of BrowseArtistReleaseGroups —

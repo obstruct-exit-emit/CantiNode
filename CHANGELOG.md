@@ -87,6 +87,17 @@ in progress. Highlights from the hardening period, newest first:
   for exactly this check; it just wasn't wired up here.
 
 ### Added
+- **An album's own page now shows MusicBrainz's genre tags for that
+  specific release group** — a row of chips (styled and placed like
+  LibriNode's own book-genre chips) between the Version/Quality/Size row
+  and Path. Sourced entirely from data already cached during an artist's
+  regular discography sync: `BrowseArtistReleaseGroups` now requests
+  `inc=genres` (free on the same already-scheduled request, not a further
+  lookup), stored on `artist_release_groups.genres` (migration 038) and
+  enriched onto the album detail response the same way `secondaryTypes`
+  already is — so viewing an album's page never triggers a live
+  MusicBrainz call for this, cache-once-at-sync exactly like everything
+  else this page shows.
 - **An upgrade now also replaces a remaster/reissue MusicBrainz gives a
   brand-new recording ID to, despite it obviously being the same song.**
   The old-file swap that runs after an upgrade import matched primarily by

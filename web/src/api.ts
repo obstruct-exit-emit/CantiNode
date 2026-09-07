@@ -363,6 +363,10 @@ export interface MusicAlbum {
   // this album row only ever stores primaryType); absent everywhere
   // else. See releaseCategory in components/SortControl.tsx.
   secondaryTypes?: string[];
+  // MusicBrainz's own genre tags for this release group, enriched from
+  // the artist's cached discography the same way secondaryTypes is —
+  // only present from getMusicAlbum (the album detail page).
+  genres?: string[];
 }
 
 export interface MusicTrack {

@@ -31,8 +31,12 @@ func New(mb *musicbrainz.Client, store *musiclibrary.Store) *Service {
 // RefreshArtist stores mbArtist's full release-group discography (any
 // primary/secondary type — the Missing section lets the user pick, fully
 // paginated via BrowseArtistReleaseGroups rather than the truncated-at-25
-// list a plain artist lookup returns) plus the genres/tags/rating that
-// came back with the same lookup for free.
+// list a plain artist lookup returns) plus the artist's own genres/tags/
+// rating that came back with the same lookup for free. Each release
+// group's own genre tags (a separate, per-album signal from the artist's
+// genres above — BrowseArtistReleaseGroups' own inc=genres) are cached
+// alongside it too, so an album's genre chips never need a fetch of their
+// own when its page is actually viewed.
 //
 // mbArtist.ID == musicbrainz.VariousArtistsMBID is a deliberate exception:
 // see that constant's own doc comment for why its "discography" is every
@@ -62,12 +66,17 @@ func (s *Service) RefreshArtist(ctx context.Context, artistID int64, mbArtist *m
 	}
 	groups := make([]musiclibrary.ReleaseGroupCache, 0, len(releaseGroups))
 	for _, rg := range releaseGroups {
+		genres := make([]string, 0, len(rg.Genres))
+		for _, g := range rg.Genres {
+			genres = append(genres, g.Name)
+		}
 		groups = append(groups, musiclibrary.ReleaseGroupCache{
 			ReleaseGroupMBID: rg.ID,
 			Title:            rg.Title,
 			PrimaryType:      rg.PrimaryType,
 			SecondaryTypes:   rg.SecondaryTypes,
 			FirstReleaseDate: rg.FirstReleaseDate,
+			Genres:           genres,
 		})
 	}
 	if err := s.store.ReplaceArtistReleaseGroups(artistID, groups); err != nil {

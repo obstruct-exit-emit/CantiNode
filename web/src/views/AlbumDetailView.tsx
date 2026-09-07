@@ -330,6 +330,13 @@ export default function AlbumDetailView({
               )}
             </div>
           )}
+          {album.genres && album.genres.length > 0 && (
+            <div className="detail-genres">
+              {album.genres.map((g) => (
+                <span key={g} className="genre-chip">{g}</span>
+              ))}
+            </div>
+          )}
           {basePath && (
             <div className="detail-stats">
               <div className="detail-stat">

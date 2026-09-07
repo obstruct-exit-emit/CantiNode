@@ -55,15 +55,17 @@ func TestLookupArtist(t *testing.T) {
 // accumulated count already meets the reported total.
 func TestBrowseArtistReleaseGroupsSinglePage(t *testing.T) {
 	var requests int
+	var gotInc string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		requests++
+		gotInc = r.URL.Query().Get("inc")
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{
 			"release-group-count": 2,
 			"release-group-offset": 0,
 			"release-groups": [
-				{"id": "17d74d52-c92b-3b8d-9f87-218ab2d1c4a0", "title": "Music Has the Right to Children", "primary-type": "Album", "secondary-types": [], "first-release-date": "1998-04-20"},
-				{"id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "title": "Live at Warp", "primary-type": "Album", "secondary-types": ["Live"], "first-release-date": "2001-01-01"}
+				{"id": "17d74d52-c92b-3b8d-9f87-218ab2d1c4a0", "title": "Music Has the Right to Children", "primary-type": "Album", "secondary-types": [], "first-release-date": "1998-04-20", "genres": [{"name": "idm", "count": 5}]},
+				{"id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "title": "Live at Warp", "primary-type": "Album", "secondary-types": ["Live"], "first-release-date": "2001-01-01", "genres": []}
 			]
 		}`))
 	})
@@ -75,11 +77,17 @@ func TestBrowseArtistReleaseGroupsSinglePage(t *testing.T) {
 	if requests != 1 {
 		t.Errorf("requests = %d, want exactly 1 (single page)", requests)
 	}
+	if gotInc != "genres" {
+		t.Errorf("inc = %q, want genres — release-group genre tags must be fetched alongside this same request, not a separate lookup", gotInc)
+	}
 	if len(groups) != 2 {
 		t.Fatalf("groups = %+v, want 2", groups)
 	}
 	if groups[0].PrimaryType != "Album" || groups[0].FirstReleaseDate != "1998-04-20" {
 		t.Errorf("groups[0] = %+v", groups[0])
+	}
+	if len(groups[0].Genres) != 1 || groups[0].Genres[0].Name != "idm" {
+		t.Errorf("groups[0].Genres = %+v, want [idm]", groups[0].Genres)
 	}
 	if len(groups[1].SecondaryTypes) != 1 || groups[1].SecondaryTypes[0] != "Live" {
 		t.Errorf("groups[1].SecondaryTypes = %v, want [Live]", groups[1].SecondaryTypes)

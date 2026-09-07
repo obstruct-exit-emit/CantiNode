@@ -317,12 +317,18 @@ const browseMaxPages = 100
 // truncated to (at most) its first 25 release groups, in whatever order
 // MusicBrainz happened to return them, regardless of the real total. A
 // prolific artist can have hundreds; this fetches all of them.
+//
+// inc=genres rides along on the same already-scheduled request — every
+// release group's own genre tags are cached from here (see
+// internal/discography), never fetched again on a later browse of the
+// album itself.
 func (c *Client) BrowseArtistReleaseGroups(ctx context.Context, mbid string) ([]ReleaseGroupSummary, error) {
 	var out []ReleaseGroupSummary
 	for page := 0; page < browseMaxPages; page++ {
 		offset := page * browseLimit
 		body, err := c.get(ctx, "/release-group/", url.Values{
 			"artist": {mbid},
+			"inc":    {"genres"},
 			"limit":  {fmt.Sprintf("%d", browseLimit)},
 			"offset": {fmt.Sprintf("%d", offset)},
 			"fmt":    {"json"},

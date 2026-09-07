@@ -53,8 +53,11 @@ newly-released album shows up in Missing without you having to click
 **Refresh metadata** yourself — landing in Missing only, same as any
 other gap, never auto-wanted.
 
-An album's own page shows its cover and tracklist, each track's matched
-file(s) with its format/size and a **Tags** button — a read-only popup of
+An album's own page shows its cover, MusicBrainz's own genre tags for that
+specific release group (when it has any — cached alongside the rest of an
+artist's discography, so this never costs a live provider call just from
+viewing the page), and its tracklist, each track's matched file(s) with
+its format/size and a **Tags** button — a read-only popup of
 that file's own embedded tags, read live off disk (not the database's own
 cached snapshot, which goes stale the moment a "Write tags" run changes
 what's actually on the file). Organize, write-tags, and delete are no

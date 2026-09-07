@@ -1721,6 +1721,23 @@ button.link.back:hover {
   overflow: hidden;
 }
 
+/* Genre chips on the album detail page, between the Version/Quality/Size
+   stats and the Path row. */
+.detail-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.25rem;
+}
+.genre-chip {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  background: var(--muted-soft);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 /* Labeled stat row (Path/Quality/Size/…) on the album detail page — each
    stat stacks a small muted label over its value, in a wrapping row with
    its own breathing room above/below, distinct from the plain descriptive

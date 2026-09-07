@@ -42,6 +42,13 @@ type Album struct {
 	// web/src/components/SortControl.tsx's releaseCategory). nil for any
 	// other caller.
 	SecondaryTypes []string `json:"secondaryTypes,omitempty"`
+	// Genres mirrors SecondaryTypes' own enrichment pattern exactly — an
+	// owned album row stores none of its own, internal/api's album-detail
+	// handler fills it in from the artist's cached discography
+	// (ArtistReleaseGroup.Genres, matched by ReleaseGroupMBID, itself
+	// cached from MusicBrainz's own release-group genre tags — see
+	// internal/discography). nil for any other caller.
+	Genres []string `json:"genres,omitempty"`
 }
 
 // GetOrCreateAlbum returns the existing album for artistID+releaseGroupMBID,

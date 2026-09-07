@@ -914,7 +914,27 @@ func (s *server) handleGetMusicAlbum(w http.ResponseWriter, r *http.Request) {
 		writeMusicStoreError(w, err)
 		return
 	}
+	album.Genres = s.genresByReleaseGroup(album.ArtistID)[album.ReleaseGroupMBID]
 	writeJSON(w, http.StatusOK, album)
+}
+
+// genresByReleaseGroup mirrors secondaryTypesByReleaseGroup exactly, one
+// field over: looks up artistID's own cached discography purely to map
+// each release group to its own MusicBrainz genre tags, cached at
+// discography-sync time (see internal/discography) and never fetched
+// again just for viewing an album's own page. Best-effort: a lookup
+// failure just returns nil, leaving the album's genre chips unset rather
+// than failing the whole page load over a cosmetic detail.
+func (s *server) genresByReleaseGroup(artistID int64) map[string][]string {
+	groups, err := s.musicStore.ListArtistReleaseGroups(artistID)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string][]string, len(groups))
+	for _, g := range groups {
+		out[g.ReleaseGroupMBID] = g.Genres
+	}
+	return out
 }
 
 // albumTrack is a Track plus whether it's already in some playlist — an
