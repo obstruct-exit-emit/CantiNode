@@ -98,6 +98,13 @@ in progress. Highlights from the hardening period, newest first:
   already is — so viewing an album's page never triggers a live
   MusicBrainz call for this, cache-once-at-sync exactly like everything
   else this page shows.
+- **The artist page now shows MusicBrainz's genre tags for the artist as
+  a whole**, same chip styling as the album page's own (a genuinely
+  separate signal — an artist's overall genres versus one specific
+  release group's own tags). This data was already being cached (`Artist.
+  Genres`, fetched alongside bio/photo/rating on first monitor or an
+  explicit "Refresh metadata") — it just wasn't surfaced in the UI yet;
+  no backend change needed.
 - **An upgrade now also replaces a remaster/reissue MusicBrainz gives a
   brand-new recording ID to, despite it obviously being the same song.**
   The old-file swap that runs after an upgrade import matched primarily by

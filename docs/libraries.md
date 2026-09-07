@@ -10,8 +10,9 @@ sortable by name, recently-added, album count, or missing count. Grids over
 
 Browsing: library grid (artists) → **artist page** → **album**.
 
-The artist page has a photo, bio, a **monitored/unmonitored** toggle, and
-artist-scoped actions (**Refresh metadata**, **Scan files** — see the note
+The artist page has a photo, MusicBrainz's own genre tags for the artist
+as a whole (cached alongside bio/photo — see below), bio, a
+**monitored/unmonitored** toggle, and artist-scoped actions (**Refresh metadata**, **Scan files** — see the note
 on scan scope below, **Organize…**, **Write tags…** — see
 [Write tags](#write-tags) below, **Remove artist**) — each touches only
 this artist. Below that: one **Albums** grid (Grid/Compact/List views,

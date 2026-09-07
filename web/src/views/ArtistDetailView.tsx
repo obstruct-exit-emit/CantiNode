@@ -424,6 +424,13 @@ export default function ArtistDetailView({
             {albums.length} album{albums.length === 1 ? "" : "s"} owned
             {wanted.length > 0 ? `, ${wanted.length} wanted` : ""}
           </p>
+          {artist.genres && artist.genres.length > 0 && (
+            <div className="detail-genres">
+              {artist.genres.map((g) => (
+                <span key={g} className="genre-chip">{g}</span>
+              ))}
+            </div>
+          )}
           {artist.bio && <p className="detail-desc">{artist.bio}</p>}
           {artist.mbid && (
             <div className="settings-actions detail-links">

@@ -339,6 +339,10 @@ export interface MusicArtist {
   ownedAlbumCount?: number;
   totalAlbumCount?: number;
   kind: string;
+  // MusicBrainz's own genre tags for the artist as a whole — cached
+  // alongside bio/photo (see MetadataFetchedAt), never fetched just from
+  // browsing.
+  genres?: string[];
 }
 
 export interface MusicAlbum {
