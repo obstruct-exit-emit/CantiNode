@@ -55,13 +55,17 @@ Windows or WSL — `npm install` itself ran from, since `web/node_modules`
 is one shared directory on disk either way.)
 
 A live WSL systemd service (`cantinode.service`, data dir
-`/var/lib/cantinode`, same port 7847) may already be running in this same
-WSL distro for manual/live verification — check `sudo systemctl status
-cantinode` before assuming a fresh `go run` is the only instance on that
-port. Redeploying a locally-built fix to it: `sudo systemctl stop
-cantinode`, replace `/usr/local/bin/cantinode`, `sudo systemctl start
-cantinode`. Login/API-key details for that instance aren't in this repo —
-don't invent or assume any.
+`/var/lib/cantinode`, same port 7847) exists in this same WSL distro for
+manual/live verification. **It's deliberately `disabled`, not
+`enabled`** (user preference, set 2026-09-07) — it does NOT auto-start
+when WSL boots, only when explicitly started. Never assume it's up:
+`sudo systemctl status cantinode` first. Turn it on/off with `sudo
+systemctl start cantinode` / `stop cantinode` — don't `enable` it (that
+would silently restore auto-start on boot, undoing this). Redeploying a
+locally-built fix to it: `sudo systemctl stop cantinode`, replace
+`/usr/local/bin/cantinode`, `sudo systemctl start cantinode`. Login/
+API-key details for that instance aren't in this repo — don't invent or
+assume any.
 
 ## Architecture
 
