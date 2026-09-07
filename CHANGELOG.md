@@ -87,6 +87,20 @@ in progress. Highlights from the hardening period, newest first:
   for exactly this check; it just wasn't wired up here.
 
 ### Added
+- **A whole album packed into one continuous audio file is now rejected
+  and blocklisted instead of imported.** Some rips do this — one giant
+  file per CD, meant to be split at playback time via an accompanying
+  `.m3u`/`.cue` rather than real per-track files — which CantiNode has no
+  way to match or organize; letting it through to a scan could even
+  wrongly slot the one file into a single track position. Caught in
+  `internal/importer` right after copying, before any scan/match attempt:
+  a completed grab that delivers exactly one audio file for a release
+  group confidently known (via its already-cached versions — no extra
+  MusicBrainz call) to have more than one track is deleted, blocklisted,
+  and reverted to wanted, the same as any other confidently-bad release.
+  A release group with no cached version data yet, or one whose every
+  known edition really is one track long (a genuine single), is left to
+  the normal scan-then-match path, never rejected on a guess.
 - **An album's own page now shows MusicBrainz's genre tags for that
   specific release group** — a row of chips (styled and placed like
   LibriNode's own book-genre chips) between the Version/Quality/Size row

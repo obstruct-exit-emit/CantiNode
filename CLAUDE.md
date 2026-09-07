@@ -103,7 +103,15 @@ grab hands off to a qBittorrent/SABnzbd/direct client
 (`internal/download`). `internal/importer.PollOnce` (its own 2-minute
 timer, or the "Import now" button) polls in-flight grabs, and once one
 completes, copies its audio files into a root folder and runs the same
-scanner scan above to match them in. An **upgrade** grab
+scanner scan above to match them in — but first,
+`looksLikeSingleFileWholeAlbumRip` rejects (deletes + blocklists +
+reverts to wanted) a completed download that copied exactly one audio
+file for a release group whose cached versions (`ListReleaseGroupVersions`,
+local, no MusicBrainz call) confidently show more than one track — some
+rips pack a whole album into one continuous file meant to be split via an
+accompanying `.m3u`/`.cue`, which can never be matched/organized and,
+worse, could get wrongly slotted into a single track position if the scan
+were allowed to try. An **upgrade** grab
 (`GrabRecord.UpgradeAlbumID`, not `WantedAlbumID` — the album is already
 owned) additionally runs `swapUpgradedFiles` afterward: deletes the old
 file for each track actually superseded, track-by-track, never wiping

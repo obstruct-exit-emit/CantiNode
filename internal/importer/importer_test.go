@@ -446,6 +446,155 @@ func TestPollOnceFailsGrabWithNoAudioFiles(t *testing.T) {
 	}
 }
 
+// TestPollOnceRejectsSingleFileWholeAlbumRip is the regression test for a
+// real, requested rejection: some rips pack an entire multi-track album
+// into one continuous audio file, meant to be split at playback time via
+// an accompanying .m3u/.cue rather than real per-track files. CantiNode
+// can never match or organize that, so it must be rejected and blocklisted
+// outright — not given a scan/match attempt, which could otherwise wrongly
+// slot the one giant file into a single track position — and the wanted
+// album must revert to "wanted" so the next autosearch sweep tries a
+// different release.
+func TestPollOnceRejectsSingleFileWholeAlbumRip(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Whole Album Rip")
+	buildFLACWithRecordingID(t, albumDir, "whole-album.flac", "rec-does-not-matter")
+	// The .m3u a player would use to navigate the one giant file —
+	// copyTree only copies the audio file (playlists/cue sheets aren't
+	// audio), so exactly one file reaches the library either way; the
+	// .m3u here is just proof this is really the pattern being rejected,
+	// not load-bearing for the detection itself.
+	if err := os.WriteFile(filepath.Join(albumDir, "Whole Album Rip.m3u"), []byte("whole-album.flac\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, destRoot, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Whole Album Rip", "Album", "2020")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatalf("set wanted album downloading: %v", err)
+	}
+	// The signal this whole feature depends on: a cached version proving
+	// the real album has more than one track, so a single copied file is
+	// confidently wrong rather than just an unknown/unverifiable case.
+	if err := musicStore.ReplaceReleaseGroupVersions("rg-mbid", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-mbid", ReleaseMBID: "rel-mbid", Title: "Whole Album Rip", TrackCount: 10, IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("seed release group versions: %v", err)
+	}
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Whole Album Rip",
+		GUID: "guid-whole-album-rip", Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Imported != 0 || result.Failed != 1 {
+		t.Fatalf("PollOnce result = %+v, want 0 imported, 1 failed", result)
+	}
+
+	if _, err := os.Stat(filepath.Join(destRoot, "Whole Album Rip")); !os.IsNotExist(err) {
+		t.Errorf("the copied file (and its now-empty directory) should have been removed, stat err = %v", err)
+	}
+
+	got, err := musicStore.GetWantedAlbum(wanted.ID)
+	if err != nil {
+		t.Fatalf("GetWantedAlbum after rejected import: %v", err)
+	}
+	if got.Status != musiclibrary.WantedStatusWanted {
+		t.Errorf("wanted album status = %q, want %q (retryable)", got.Status, musiclibrary.WantedStatusWanted)
+	}
+
+	blocked, err := dlStore.BlockedKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !download.IsBlocked(blocked, "guid-whole-album-rip", "Whole Album Rip") {
+		t.Error("the rejected release should be blocklisted so autosearch never offers it again")
+	}
+}
+
+// TestPollOnceAcceptsSingleFileWhenReleaseGroupReallyIsOneTrack confirms
+// the carve-out: a release group whose every known cached version really
+// is one track long (a genuine single) must NOT be rejected just for
+// producing one file — same setup as
+// TestPollOnceRejectsSingleFileWholeAlbumRip, TrackCount 1 instead of 10.
+func TestPollOnceAcceptsSingleFileWhenReleaseGroupReallyIsOneTrack(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Genuine Single")
+	buildFLACWithRecordingID(t, albumDir, "track.flac", "rec-single")
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, _, _ := setup(t, sab)
+	rec := musicbrainz.Recording{
+		ID: "rec-single", Title: "Alpha and Omega", Length: 200_000,
+		ArtistCredit: []musicbrainz.ArtistCredit{{
+			Name:   "Test Artist",
+			Artist: musicbrainz.ArtistRef{ID: "artist-mbid", Name: "Test Artist", SortName: "Test Artist"},
+		}},
+		Releases: []musicbrainz.Release{{
+			// PrimaryType "Album" here is just to route around
+			// correctArtistCreditForCompilation's own extra release lookup
+			// (triggered by any non-"Album" primary type or a secondary
+			// type, in case it's a compilation needing a per-track credit
+			// correction) — newRealMatchScanner's fake server only serves
+			// recording lookups, not release ones. This test's actual
+			// "single-ness" comes entirely from the cached release-group
+			// version's TrackCount below, not this field.
+			ID: "release-mbid", Title: "Genuine Single", Date: "2020",
+			ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-mbid", Title: "Genuine Single", PrimaryType: "Album"},
+		}},
+	}
+	svc.scanner = newRealMatchScanner(t, musicStore, "rec-single", rec)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-mbid", "Genuine Single", "Single", "2020")
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	if err := musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusDownloading); err != nil {
+		t.Fatalf("set wanted album downloading: %v", err)
+	}
+	if err := musicStore.ReplaceReleaseGroupVersions("rg-mbid", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-mbid", ReleaseMBID: "release-mbid", Title: "Genuine Single", TrackCount: 1, IsRepresentative: true},
+	}); err != nil {
+		t.Fatalf("seed release group versions: %v", err)
+	}
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		WantedAlbumID: wanted.ID, ClientConfigID: 1, ClientItemID: "nzo1", Title: "Genuine Single",
+		GUID: "guid-genuine-single", Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("PollOnce result = %+v, want 1 imported, 0 failed (a real single must not be rejected)", result)
+	}
+
+	blocked, err := dlStore.BlockedKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if download.IsBlocked(blocked, "guid-genuine-single", "Genuine Single") {
+		t.Error("a genuine single-track release must never be blocklisted by this check")
+	}
+}
+
 // TestImportGrabSkipsWhenCanceledBeforeCopy is the regression test for a
 // real race: removing an artist/album with a grab still in flight
 // (internal/api's cancelInFlightGrabs) resolves that grab as failed, but

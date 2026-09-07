@@ -288,6 +288,73 @@ func (s *Service) expectedReleaseGroupMBID(g download.GrabRecord) string {
 	return ""
 }
 
+// looksLikeSingleFileWholeAlbumRip reports whether copiedPaths (already
+// known to be non-empty — see importGrab's own check just above) is a
+// single audio file standing in for a whole album that should have more
+// than one track — the "rip the whole CD to one continuous file, play it
+// with an accompanying .m3u/.cue for track markers" pattern some releases
+// use, which CantiNode has no way to split into individual tracks. Fires
+// only when the target release group is confidently known to have more
+// than one track: any of its cached versions (musiclibrary.
+// ListReleaseGroupVersions — already warmed by the discography sync, no
+// MusicBrainz call here) reporting TrackCount > 1 is enough, since a
+// single file is never a plausible match for ANY multi-track edition. A
+// release group with no cached versions yet, or one whose every known
+// edition really is one track long (a genuine single), is left alone —
+// "the version is really 1 file" is not an error, and an unknown release
+// group falls through to the normal scan-then-match path exactly as
+// before this check existed.
+func (s *Service) looksLikeSingleFileWholeAlbumRip(g download.GrabRecord, copiedPaths []string) (string, bool) {
+	if len(copiedPaths) != 1 {
+		return "", false
+	}
+	rgMBID := s.expectedReleaseGroupMBID(g)
+	if rgMBID == "" {
+		return "", false
+	}
+	versions, err := s.music.ListReleaseGroupVersions(rgMBID)
+	if err != nil || len(versions) == 0 {
+		return "", false
+	}
+	multiTrack := false
+	for _, v := range versions {
+		if v.TrackCount > 1 {
+			multiTrack = true
+			break
+		}
+	}
+	if !multiTrack {
+		return "", false
+	}
+	return "grabbed release is a single audio file for an album known to have more than one track " +
+		"(likely a whole-album-in-one-file rip meant to be split via an accompanying .m3u/.cue) " +
+		"— rejected rather than matched", true
+}
+
+// removeCopiedFiles deletes copiedPaths (already known to be on disk —
+// copyTree's own return value) and sweeps up whatever empty directories
+// that leaves behind under dest, up to (never including) root — the same
+// cleanup importGrab's own success path leaves to Organize normally, but
+// needed explicitly here since a rejected import never reaches a scan or
+// Organize at all. Best-effort throughout: this is tidiness after a grab
+// that's already being reported as failed, never a reason to fail it a
+// second way.
+func removeCopiedFiles(copiedPaths []string, dest, root string, logger *slog.Logger) {
+	for _, p := range copiedPaths {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			logger.Warn("importer: removing rejected download's file failed", "path", p, "error", err)
+		}
+	}
+	dir := filepath.Clean(dest)
+	boundary := filepath.Clean(root)
+	for dir != boundary && dir != "." && dir != string(filepath.Separator) {
+		if err := os.Remove(dir); err != nil {
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
+}
+
 // seedExpectedReleaseGroup stamps releaseGroupMBID onto every one of
 // copiedPaths (copyTree's own return value — the exact files it just
 // wrote, already known without a second walk of dest) via
@@ -381,6 +448,21 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		s.logger.Warn("importer: no audio files found in completed download, nothing imported",
 			"grab_id", g.ID, "src", src)
 		s.failGrab(g, "completed download contained no recognized audio files", true)
+		return false
+	}
+	if reason, ok := s.looksLikeSingleFileWholeAlbumRip(g, copiedPaths); ok {
+		// Some rips pack an entire multi-track album into one continuous
+		// audio file, relying on an accompanying .m3u/.cue for track
+		// boundaries instead of real per-track files — CantiNode can never
+		// usefully match or organize that (there's nothing to slot into
+		// individual tracks), and letting the scan below try anyway risks
+		// wrongly matching the one giant file to a single track position.
+		// Rejected outright and blocklisted — unlike the generic "nothing
+		// matched" case below, a single file for an album confidently known
+		// to have more than one track is never ambiguous.
+		s.logger.Warn("importer: rejecting single-file whole-album rip", "grab_id", g.ID, "reason", reason)
+		removeCopiedFiles(copiedPaths, dest, root.Path, s.logger)
+		s.failGrab(g, reason, true)
 		return false
 	}
 	// Stamps the files just copied with the release group this grab was

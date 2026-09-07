@@ -141,8 +141,13 @@ linking working regardless of what name the bridge shows.
   pushes a partial refresh to Plex, scoped to just the album it landed in.
 - **Failed and junk downloads** are blocklisted (never offered again by a
   future search) and deleted — out of the client and off disk. This covers
-  client-side failures and spam whose content isn't the media (an `.exe`
-  instead of an audio file). The album itself reverts to **wanted**, so it's
+  client-side failures, spam whose content isn't the media (an `.exe`
+  instead of an audio file), and a whole album packed into a single
+  continuous audio file (some rips do this, relying on an accompanying
+  `.m3u`/`.cue` for track boundaries instead of real per-track files) —
+  detected by comparing the one file actually delivered against the
+  album's own cached track count, so a genuine single-track release is
+  never rejected. The album itself reverts to **wanted**, so it's
   picked up by the next automatic sweep, or searchable by hand right away.
   The blocklist is managed from the Activity page.
 - **Removing a download** from the Activity queue deletes it (and its data)
