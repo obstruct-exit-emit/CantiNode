@@ -11,6 +11,26 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Multi-disc matching silently failed for the most common real-world
+  tagging pattern, and for any disc that arrived after its siblings were
+  already owned.** Two separate bugs in the same area, both confirmed live
+  against a real Prowlarr-grabbed 2CD release:
+  - When a rip tags each disc's own Album field with a per-disc qualifier
+    ("Moonglow CD 1" / "Moonglow CD 2" — genuinely common, and something
+    the multi-disc folder-merge logic already claimed to tolerate), the
+    merge itself worked, but the whole-folder MusicBrainz search that's
+    supposed to follow it never ran: the query-building step re-checked
+    the merged files' Album tags without stripping that same qualifier, so
+    they "disagreed" right where it mattered and every file fell back to
+    a much weaker per-track fuzzy search. A completely fresh two-disc
+    import with this tagging style used to land every file in Unmatched.
+  - A disc that only shows up on a later scan — because its sibling(s)
+    were already matched/owned from an earlier one — could never be
+    recognized as part of that same album: the folder-merge logic only
+    ever sees the current scan's still-*unmatched* folders, so a lone
+    latecomer was treated like an ordinary standalone file and skipped
+    the whole-folder search entirely, again falling back to the weaker
+    per-track search instead of joining the album it actually belongs to.
 - **Deleting files from disk (removing an artist or album with "also delete
   its files from disk" checked) went straight to deletion the moment you
   clicked through the panel, with no separate warning for the irreversible
@@ -67,6 +87,25 @@ in progress. Highlights from the hardening period, newest first:
   for exactly this check; it just wasn't wired up here.
 
 ### Added
+- **An upgrade now also replaces a remaster/reissue MusicBrainz gives a
+  brand-new recording ID to, despite it obviously being the same song.**
+  The old-file swap that runs after an upgrade import matched primarily by
+  MusicBrainz recording ID — exact, but blind to the one real case where
+  that ID legitimately changes between editions for what's still
+  unmistakably the same track. It now also pairs an old track with a
+  newly-matched one that shares the same disc+track position *and* a
+  similar-enough title (never on position alone — a reordered or
+  otherwise mismatched tracklist between editions must never risk deleting
+  the wrong file), so an upgrade to a different edition of an album
+  actually replaces everything it should, not just the songs whose
+  recording ID happened to stay the same.
+- **Grabbing a quality-profile upgrade now confirms first.** Search
+  upgrade's own "Grab" button used to be a single click identical to a
+  normal wanted-album grab — but unlike that case, an upgrade grab
+  deletes the old file for each track it replaces automatically once the
+  new one matches, with no separate step and no undo. A danger-styled
+  confirmation (the same pattern used for "also delete its files from
+  disk") now stands between the click and the download.
 - **A wanted album now opens its own full page**, matching an owned
   album's layout instead of an inline panel below the Albums grid:
   cover, tracklist (each track flagged **wanted**), **Search

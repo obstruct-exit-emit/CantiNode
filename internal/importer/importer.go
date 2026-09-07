@@ -22,6 +22,7 @@ import (
 	"github.com/cantinode/cantinode/internal/download"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
 	"github.com/cantinode/cantinode/internal/musicscanner"
+	"github.com/cantinode/cantinode/internal/relname"
 	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
@@ -526,6 +527,13 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 // with nothing. Best-effort and non-fatal — the import itself already
 // succeeded either way, so a failure here is logged and left for manual
 // cleanup, never treated as reason to fail the import.
+//
+// Matches primarily by MusicBrainz recording ID (musiclibrary.Track is
+// keyed by (albumID, recording MBID) — see GetOrCreateTrack's own doc
+// comment), which is exact but has one real gap: a remaster/reissue that
+// MusicBrainz assigns a fresh recording ID to, even though it's clearly the
+// same song, never lines up with the old track by ID alone. See
+// swapByPosition below for the fallback that closes that gap.
 func (s *Service) swapUpgradedFiles(albumID int64, before []musiclibrary.TrackFile) {
 	beforeIDs := make(map[int64]bool, len(before))
 	oldByTrack := make(map[int64][]musiclibrary.TrackFile)
@@ -551,21 +559,99 @@ func (s *Service) swapUpgradedFiles(albumID int64, before []musiclibrary.TrackFi
 		newlyMatchedTracks[*tf.TrackID] = true
 	}
 
+	// Any track ID that actually had an old file deleted just above — not
+	// just every newlyMatchedTracks key, which also includes a track that's
+	// genuinely brand new (nothing in oldByTrack for it at all). Marking
+	// those "resolved" too would wrongly hide them from swapByPosition
+	// below, which needs exactly this ID to pair a same-position remaster
+	// against — a trackID only really counts as resolved once oldByTrack
+	// had something to delete for it.
+	resolved := make(map[int64]bool, len(newlyMatchedTracks))
 	for trackID := range newlyMatchedTracks {
-		for _, old := range oldByTrack[trackID] {
-			if err := os.Remove(old.Path); err != nil && !os.IsNotExist(err) {
-				s.logger.Warn("importer: deleting file superseded by an upgrade failed, leaving its row in place",
-					"album_id", albumID, "path", old.Path, "error", err)
+		old := oldByTrack[trackID]
+		if len(old) == 0 {
+			continue
+		}
+		for _, o := range old {
+			s.deleteSupersededFile(albumID, o)
+		}
+		resolved[trackID] = true
+	}
+
+	s.swapByPosition(albumID, oldByTrack, newlyMatchedTracks, resolved)
+}
+
+// swapByPosition is swapUpgradedFiles' fallback for an old track the
+// exact-recording-ID pass couldn't place: it pairs an old track with a
+// newly-matched one when they share the same disc+track position AND their
+// titles plausibly agree (internal/relname.TitleSimilarity — the same
+// case/punctuation-tolerant check internal/musicscanner's own slotTrack
+// uses to place a file within a release), treating that as "the same song,
+// just a different MusicBrainz recording ID" and deleting the old file too.
+// Position alone isn't trusted on its own: a reissue with a shifted or
+// reordered tracklist could otherwise pair up — and delete — completely the
+// wrong old file. Anything this can't confidently pair stays exactly as it
+// was, the same safe-by-default behavior as before this fallback existed.
+func (s *Service) swapByPosition(albumID int64, oldByTrack map[int64][]musiclibrary.TrackFile, newlyMatchedTracks, resolved map[int64]bool) {
+	if len(oldByTrack) == 0 || len(newlyMatchedTracks) == 0 {
+		return
+	}
+	tracks, err := s.music.ListTracksByAlbum(albumID)
+	if err != nil {
+		s.logger.Warn("importer: list tracks for position-based upgrade swap, any remaining old file(s) left in place",
+			"album_id", albumID, "error", err)
+		return
+	}
+	byID := make(map[int64]musiclibrary.Track, len(tracks))
+	for _, t := range tracks {
+		byID[t.ID] = t
+	}
+
+	const titleMatchThreshold = 0.6 // same threshold slotTrack itself uses for its own title fallback
+	usedNew := make(map[int64]bool, len(newlyMatchedTracks))
+	for oldTrackID, files := range oldByTrack {
+		if resolved[oldTrackID] {
+			continue
+		}
+		oldTrack, ok := byID[oldTrackID]
+		if !ok {
+			continue
+		}
+		for newTrackID := range newlyMatchedTracks {
+			if resolved[newTrackID] || usedNew[newTrackID] {
 				continue
 			}
-			if err := s.music.DeleteTrackFile(old.ID); err != nil {
-				s.logger.Warn("importer: deleting superseded track file row failed",
-					"album_id", albumID, "track_file_id", old.ID, "error", err)
+			newTrack, ok := byID[newTrackID]
+			if !ok || newTrack.DiscNumber != oldTrack.DiscNumber || newTrack.TrackNumber != oldTrack.TrackNumber {
 				continue
 			}
-			s.logger.Info("importer: deleted file superseded by an upgrade", "album_id", albumID, "path", old.Path)
+			if relname.TitleSimilarity(oldTrack.Title, newTrack.Title) < titleMatchThreshold {
+				continue
+			}
+			for _, old := range files {
+				s.deleteSupersededFile(albumID, old)
+			}
+			usedNew[newTrackID] = true
+			break
 		}
 	}
+}
+
+// deleteSupersededFile removes one old track_file (both its file on disk
+// and its own row) on behalf of swapUpgradedFiles/swapByPosition — shared
+// so both matching strategies log and fail the same way.
+func (s *Service) deleteSupersededFile(albumID int64, old musiclibrary.TrackFile) {
+	if err := os.Remove(old.Path); err != nil && !os.IsNotExist(err) {
+		s.logger.Warn("importer: deleting file superseded by an upgrade failed, leaving its row in place",
+			"album_id", albumID, "path", old.Path, "error", err)
+		return
+	}
+	if err := s.music.DeleteTrackFile(old.ID); err != nil {
+		s.logger.Warn("importer: deleting superseded track file row failed",
+			"album_id", albumID, "track_file_id", old.ID, "error", err)
+		return
+	}
+	s.logger.Info("importer: deleted file superseded by an upgrade", "album_id", albumID, "path", old.Path)
 }
 
 // deleteDownloadData removes a completed download's own files after a

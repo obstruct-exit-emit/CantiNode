@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -282,6 +283,137 @@ func TestScanRootFolderGroupsFolderIntoOneRelease(t *testing.T) {
 	}
 	if albums[0].MBID != "rel-main" {
 		t.Errorf("album MBID = %q, want rel-main", albums[0].MBID)
+	}
+}
+
+// TestScanRootFolderMergesPerDiscAlbumSuffixIntoOneReleaseSearch is the
+// regression test for a real bug found live: groupMultiDiscFolders
+// correctly merges CD1/CD2 sibling folders even when each disc's own
+// Album tag carries a different per-disc qualifier ("Moonglow CD 1" vs
+// "Moonglow CD 2" — see TestGroupMultiDiscFoldersToleratesPerDiscAlbumSuffix)
+// — but resolveFolderRelease used to re-derive its search query by calling
+// folderTagConsensus directly on the merged entries WITHOUT stripping that
+// same suffix, so the merged group's own files disagreed on the album
+// right back at the one place it actually mattered: no release search was
+// ever issued, and every file fell through to much weaker independent
+// per-track fuzzy matching instead. A completely fresh (never
+// previously scanned) two-disc folder with this exact real-world tagging
+// pattern used to land every file in Unmatched.
+func TestScanRootFolderMergesPerDiscAlbumSuffixIntoOneReleaseSearch(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.releaseSearch = []mbReleaseSearchResult{
+		{ID: "rel-moonglow", Title: "Moonglow", Score: 100, TrackCount: 2,
+			ArtistCredit: []mbArtistCredit{{Name: "Avantasia", Artist: mbArtistRef{ID: "artist-mbid", Name: "Avantasia"}}},
+			ReleaseGroup: mbReleaseGroup{ID: "rg-moonglow", Title: "Moonglow", PrimaryType: "Album"}},
+	}
+	fs.releaseLookups["rel-moonglow"] = newTestAlbumRelease("rel-moonglow", "Moonglow", "Ghost in the Moon", "Ghost in the Moon (instrumental version)")
+
+	s, rf := newFolderTestScanner(t, fs)
+	albumDir := filepath.Join(rf.Path, "Avantasia", "Moonglow (2CD)")
+	cd1Dir := filepath.Join(albumDir, "CD1")
+	cd2Dir := filepath.Join(albumDir, "CD2")
+	if err := os.MkdirAll(cd1Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cd2Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildFLACFile(t, cd1Dir, "01.flac", map[string]string{
+		"ARTIST": "Avantasia", "ALBUM": "Moonglow CD 1", "TITLE": "Ghost in the Moon", "TRACKNUMBER": "1",
+	})
+	buildFLACFile(t, cd2Dir, "01.flac", map[string]string{
+		"ARTIST": "Avantasia", "ALBUM": "Moonglow CD 2", "TITLE": "Ghost in the Moon (instrumental version)", "TRACKNUMBER": "1",
+	})
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 2 {
+		t.Fatalf("FilesMatched = %d, want 2 (result=%+v)", result.FilesMatched, result)
+	}
+	if fs.countOf("release-search") != 1 {
+		t.Errorf("release-search calls = %d, want exactly 1 (one whole-folder search for the merged group, not a per-file fallback)", fs.countOf("release-search"))
+	}
+}
+
+// TestScanRootFolderLateArrivingDiscOfAlreadyOwnedAlbumStillMatches is the
+// regression test for a real bug found live: groupMultiDiscFolders only
+// ever sees the CURRENT scan's still-unmatched folder groups (an
+// already-matched file is dropped before ScanRootFolder's walk callback
+// ever adds it to the grouping map), so once CD1 of a multi-disc album is
+// matched/owned, it can never again be one of the >=2 sibling folders a
+// later merge needs — a CD2 that only shows up on a subsequent scan is on
+// its own. resolveFolderRelease used to treat that lone folder exactly
+// like a genuinely standalone loose file and skip the release search
+// entirely (not worth the round trip for one file), falling back to a much
+// weaker per-track fuzzy search — which, for a disc whose own Album tag
+// carries a qualifier like "Geogaddi CD 2", searched Recording text
+// polluted with a qualifier that doesn't appear on the real recording at
+// all. CD2 used to land in Unmatched instead of joining the album it
+// actually belongs to.
+func TestScanRootFolderLateArrivingDiscOfAlreadyOwnedAlbumStillMatches(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.recordingLookups["direct-rec"] = sampleRecording("direct-rec", 0) // Boards of Canada / Geogaddi / release-mbid
+	fs.releaseSearch = []mbReleaseSearchResult{
+		{ID: "release-mbid", Title: "Geogaddi", Score: 100, TrackCount: 2,
+			ArtistCredit: []mbArtistCredit{{Name: "Boards of Canada", Artist: mbArtistRef{ID: "artist-mbid", Name: "Boards of Canada"}}},
+			ReleaseGroup: mbReleaseGroup{ID: "rg-geogaddi", Title: "Geogaddi", PrimaryType: "Album"}},
+	}
+	fs.releaseLookups["release-mbid"] = newTestAlbumRelease("release-mbid", "Geogaddi", "Alpha and Omega", "Julie and Candy")
+
+	s, rf := newFolderTestScanner(t, fs)
+	albumDir := filepath.Join(rf.Path, "Boards of Canada", "Geogaddi (2CD)")
+	cd1Dir := filepath.Join(albumDir, "CD1")
+	cd2Dir := filepath.Join(albumDir, "CD2")
+
+	if err := os.MkdirAll(cd1Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildFLACFile(t, cd1Dir, "01.flac", map[string]string{
+		"ARTIST": "Boards of Canada", "ALBUM": "Geogaddi", "TITLE": "Alpha and Omega",
+		"MUSICBRAINZ_TRACKID": "direct-rec",
+	})
+	if _, err := s.ScanRootFolder(t.Context(), rf); err != nil {
+		t.Fatalf("scan 1: %v", err)
+	}
+	albumsAfter1, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil || len(albumsAfter1) != 1 {
+		t.Fatalf("albums after scan 1 = %+v, err %v, want exactly 1", albumsAfter1, err)
+	}
+
+	// CD2 arrives on a LATER scan — CD1's file is already matched, so it's
+	// invisible to this scan's own groupMultiDiscFolders pass. Also
+	// carries the real-world per-disc Album suffix, compounding both bugs
+	// this test (and the one above) each cover independently.
+	if err := os.MkdirAll(cd2Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildFLACFile(t, cd2Dir, "01.flac", map[string]string{
+		"ARTIST": "Boards of Canada", "ALBUM": "Geogaddi CD 2", "TITLE": "Julie and Candy", "TRACKNUMBER": "1",
+	})
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("scan 2: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("scan 2 FilesMatched = %d, want 1 (CD2 should match via a real release search, not fall back to per-track fuzzy)", result.FilesMatched)
+	}
+
+	albumsAfter2, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(albumsAfter2) != 1 {
+		t.Errorf("albums after scan 2 = %d, want exactly 1 (CD2 must join the already-owned album, not create a second one)", len(albumsAfter2))
+	}
+
+	groups, err := s.ListUnmatchedWithGroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("unmatched files after scan 2 = %d, want 0 (CD2 should have matched)", len(groups))
 	}
 }
 

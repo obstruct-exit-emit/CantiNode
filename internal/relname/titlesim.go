@@ -1,14 +1,17 @@
-package musicscanner
+package relname
 
 import "strings"
 
-// titleSimilarity scores how alike two track titles are, 0 (nothing in
+// TitleSimilarity scores how alike two track titles are, 0 (nothing in
 // common) to 1 (identical after normalization) — a case/punctuation-
-// insensitive Levenshtein ratio, used by folder_match.go's slotTrack to
-// match a local file's own title against a candidate release's own
-// (already-fetched) tracklist when track/disc numbers alone aren't
-// enough to place it.
-func titleSimilarity(a, b string) float64 {
+// insensitive Levenshtein ratio. Used by internal/musicscanner's slotTrack
+// to match a local file's own title against a candidate release's own
+// (already-fetched) tracklist when track/disc numbers alone aren't enough
+// to place it, and by internal/importer's swapUpgradedFiles to recognize
+// "the same song, a different MusicBrainz recording ID" across an upgrade
+// (a remaster MusicBrainz treats as a distinct recording from the
+// original, even though it's clearly the same track at the same position).
+func TitleSimilarity(a, b string) float64 {
 	na, nb := normalizeTitle(a), normalizeTitle(b)
 	if na == "" || nb == "" {
 		return 0
@@ -26,8 +29,8 @@ func titleSimilarity(a, b string) float64 {
 
 // normalizeTitle lowercases and strips everything but letters/digits/
 // spaces, collapsing runs of whitespace — punctuation/case differences
-// between a file's own tag and MusicBrainz's title shouldn't count
-// against a real match (e.g. "Layla (Acoustic)" vs "Layla - Acoustic").
+// between a file's own tag and MusicBrainz's title shouldn't count against
+// a real match (e.g. "Layla (Acoustic)" vs "Layla - Acoustic").
 func normalizeTitle(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {

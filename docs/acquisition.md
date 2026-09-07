@@ -82,12 +82,21 @@ that phrase literally).
 With **upgrades allowed** (per quality profile) and a **cutoff** format set
 (blank = the profile's own best format), an already-owned album whose
 format hasn't reached the cutoff gets a **Search upgrade** button on its
-own page — manually triggered, not swept automatically. Every candidate is
-scored against the owned format itself, so only a release that's a genuine
-step up ever approves; a rejected one still shows why. Once a grabbed
-upgrade is imported and matched, the old file it replaces is deleted
-automatically — track-by-track, so a release that only partially matches
-never leaves a track with nothing.
+own page — manually triggered, not swept automatically; grabbing asks for
+confirmation first, since the old file it replaces has no undo. Every
+candidate is scored against the owned format itself, so only a release
+that's a genuine step up ever approves; a rejected one still shows why.
+Once a grabbed upgrade is imported and matched, the old file it replaces
+is deleted automatically — track-by-track, so a release that only
+partially matches never leaves a track with nothing, and a track the
+upgrade doesn't cover at all (e.g. moving from a single-disc release to a
+multi-disc edition) keeps its old file untouched, not deleted.
+Matched primarily by MusicBrainz recording ID, with a same-position
+title-matched fallback for the one real gap that misses (a remaster
+MusicBrainz assigns a fresh recording ID to despite it obviously being the
+same song) — never applied to two tracks whose titles don't actually
+agree, so a reordered or otherwise mismatched tracklist between editions
+can't accidentally delete the wrong file.
 
 ## Download clients
 

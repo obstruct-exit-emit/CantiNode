@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type ReleaseCandidate } from "../api";
 import { formatBytes } from "../format";
+import { useUi } from "../ui";
 
 // ReleaseBrowser is the interactive search: every release candidate for a
 // wanted album, scored and organized — approved first, sortable, filterable
@@ -73,6 +74,7 @@ export default function ReleaseBrowser({
   const [sort, setSort] = useState<SortKey>("score");
   // Per-release grab state, keyed by guid+indexer: "sending", "✓ …", "✗ …".
   const [grabState, setGrabState] = useState<Record<string, string>>({});
+  const { confirmDlg } = useUi();
 
   useEffect(() => {
     let stopped = false;
@@ -120,7 +122,25 @@ export default function ReleaseBrowser({
     return sorted;
   }, [releases, approved, showRejected, proto, sort]);
 
-  const grab = (c: ReleaseCandidate) => {
+  const grab = async (c: ReleaseCandidate) => {
+    // Unlike a wantedAlbumId grab (nothing owned yet — there's no file to
+    // touch), an upgradeAlbumId grab replaces real, already-owned files:
+    // once the download is imported and a track matches, the old file that
+    // track had is deleted automatically (internal/importer.swapUpgradedFiles)
+    // — no separate step, no undo. Worth a confirmation here the same way
+    // RemovePanel's own "also delete its files from disk" gets one, since
+    // this button is otherwise a single click with no visible warning that
+    // it's about to do the same kind of irreversible thing.
+    if (upgradeAlbumId != null) {
+      const ok = await confirmDlg({
+        title: "Replace the file(s) you already own?",
+        message:
+          "Once this download is matched, the old file for each track it replaces is deleted automatically. There is no undo.",
+        confirmLabel: "Grab & replace",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     const key = c.guid + c.indexer;
     setGrabState((s) => ({ ...s, [key]: "sending" }));
     const send = wantedAlbumId != null

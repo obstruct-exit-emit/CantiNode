@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1171,5 +1172,389 @@ func TestSwapUpgradedFilesReplacesOnlyMatchedTracks(t *testing.T) {
 		if tf.ID == oldTFReplaced.ID {
 			t.Errorf("old track_files row for the replaced track should have been deleted: %+v", tf)
 		}
+	}
+}
+
+// newMultiRecordingMatchScanner is newRealMatchScanner's own sibling for a
+// grab whose folder needs more than one distinct recording resolved —
+// serves LookupRecording's single-MBID path and BatchLookupRecordings'
+// batched rid:(...) form (whichever matchDirectEntries actually calls),
+// from a plain map of every recording the fake MusicBrainz server knows
+// about.
+func newMultiRecordingMatchScanner(t *testing.T, musicStore *musiclibrary.Store, recs map[string]musicbrainz.Recording) *musicscanner.Scanner {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/recording/" {
+			query := r.URL.Query().Get("query")
+			if strings.HasPrefix(query, "rid:(") {
+				var found []musicbrainz.Recording
+				for id, rec := range recs {
+					if strings.Contains(query, id) {
+						found = append(found, rec)
+					}
+				}
+				json.NewEncoder(w).Encode(map[string]any{"count": len(found), "recordings": found})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"count": 0, "recordings": []musicbrainz.Recording{}})
+			return
+		}
+		if rec, ok := recs[filepath.Base(r.URL.Path)]; ok {
+			json.NewEncoder(w).Encode(rec)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	mb := musicbrainz.NewClientWithBaseURL("0.1.0-test", "", srv.URL)
+	return musicscanner.New(musicStore, mb, nil, nil, "{Artist}/{Album}/{TrackNumber} - {Title}.{Ext}", 0.75, false, tagwriter.AllEnabled, false, nil)
+}
+
+// buildFLACDirectMatch writes a minimal FLAC file (Vorbis comment block
+// only, same shape as buildFLACWithRecordingID) carrying a full real-world
+// tag set — embedded recording ID plus title/track/disc numbers — so a
+// direct match both resolves *and* lands with the right position, not just
+// a bare MBID.
+func buildFLACDirectMatch(t *testing.T, dir, name, recordingID, title string, trackNumber, discNumber int) string {
+	t.Helper()
+	comments := map[string]string{
+		"MUSICBRAINZ_TRACKID": recordingID,
+		"TITLE":               title,
+		"TRACKNUMBER":         fmt.Sprintf("%d", trackNumber),
+		"DISCNUMBER":          fmt.Sprintf("%d", discNumber),
+	}
+
+	var block bytes.Buffer
+	binary.Write(&block, binary.LittleEndian, uint32(0)) // vendor length
+	binary.Write(&block, binary.LittleEndian, uint32(len(comments)))
+	for k, v := range comments {
+		c := k + "=" + v
+		binary.Write(&block, binary.LittleEndian, uint32(len(c)))
+		block.WriteString(c)
+	}
+
+	var file bytes.Buffer
+	file.WriteString("fLaC")
+	file.WriteByte(0x80 | 4)
+	n := block.Len()
+	file.Write([]byte{byte(n >> 16), byte(n >> 8), byte(n)})
+	file.Write(block.Bytes())
+
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, file.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestUpgradeFromSingleDiscToMultiDiscReplacesSharedTracksAddsNewOnes
+// answers a real question about the upgrade path end to end, through the
+// actual PollOnce->importGrab->scan->swapUpgradedFiles pipeline, not just
+// swapUpgradedFiles in isolation (see TestSwapUpgradedFilesReplacesOnlyMatchedTracks
+// above): if an album is owned as a single-disc release and the grabbed
+// upgrade turns out to be a 2-disc edition of the same release group, does
+// the old single-disc file for each shared song actually get replaced, and
+// what happens to the brand-new disc-2 songs that were never owned before?
+//
+// The mechanism: musiclibrary.GetOrCreateTrack is keyed by (albumID,
+// recording MBID) — not by which specific release/edition a file came
+// from. When the new release reuses the exact same recording MBIDs as the
+// old one for its shared songs (the common case for a deluxe/expanded
+// reissue built from the same masters), matching a new file to that
+// recording resolves back to the SAME existing track row, so
+// swapUpgradedFiles' before/after diff (keyed by track ID) correctly finds
+// and deletes the old file. A song that's genuinely new to this album
+// (only on the new disc 2) gets a brand-new track row instead, with no old
+// file to delete — it's simply added, exactly like an ordinary new match.
+func TestUpgradeFromSingleDiscToMultiDiscReplacesSharedTracksAddsNewOnes(t *testing.T) {
+	oldTrackMBIDs := []string{"rec-1", "rec-2", "rec-3"}
+	oldTitles := []string{"Track One", "Track Two", "Track Three"}
+
+	// The grabbed upgrade's real folder shape: CD1 (the 3 shared songs) +
+	// CD2 (the 2 new bonus songs) — every file direct-tagged with its own
+	// real recording ID, exactly like a Picard-tagged rip. Built up front so
+	// mockSab can point at its final location from the start.
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Test Album (2CD)")
+	cd1 := filepath.Join(albumDir, "CD1")
+	cd2 := filepath.Join(albumDir, "CD2")
+	for i, mbid := range oldTrackMBIDs {
+		buildFLACDirectMatch(t, cd1, fmt.Sprintf("%02d.flac", i+1), mbid, oldTitles[i], i+1, 1)
+	}
+	buildFLACDirectMatch(t, cd2, "01.flac", "rec-4", "Bonus One", 1, 2)
+	buildFLACDirectMatch(t, cd2, "02.flac", "rec-5", "Bonus Two", 2, 2)
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, root, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Owned today as the old single-disc release: 3 tracks, one medium.
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "rel-old-single", "rg-mbid", "Test Album", "2020", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rootFolders, err := musicStore.ListRootFolders()
+	if err != nil || len(rootFolders) == 0 {
+		t.Fatalf("root folders = %+v, err %v", rootFolders, err)
+	}
+	rf := rootFolders[0]
+
+	var before []musiclibrary.TrackFile
+	for i, mbid := range oldTrackMBIDs {
+		track, err := musicStore.GetOrCreateTrack(album.ID, mbid, oldTitles[i], i+1, 1, 200000, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		oldPath := filepath.Join(root, fmt.Sprintf("old-%d.flac", i+1))
+		if err := os.WriteFile(oldPath, []byte("old audio"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		oldTF, err := musicStore.UpsertTrackFileByPath(rf.ID, oldPath, 100, "flac", 0, 0, "{}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := musicStore.SetTrackFileMatch(oldTF.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+			t.Fatal(err)
+		}
+		before = append(before, *oldTF)
+	}
+
+	artistCredit := []musicbrainz.ArtistCredit{{
+		Name:   "Test Artist",
+		Artist: musicbrainz.ArtistRef{ID: "artist-mbid", Name: "Test Artist", SortName: "Test Artist"},
+	}}
+	newRelease := musicbrainz.Release{ID: "rel-new-2cd", Title: "Test Album (2CD)", Date: "2021", ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-mbid", Title: "Test Album", PrimaryType: "Album"}}
+	recs := map[string]musicbrainz.Recording{}
+	// The 3 shared songs: same recording MBIDs the old single-disc release
+	// already used — the realistic case for a deluxe reissue built from the
+	// same masters plus a bonus disc.
+	for i, mbid := range oldTrackMBIDs {
+		recs[mbid] = musicbrainz.Recording{ID: mbid, Title: oldTitles[i], Length: 200000, ArtistCredit: artistCredit, Releases: []musicbrainz.Release{newRelease}}
+	}
+	// 2 brand-new songs, only ever on the new disc 2 — never owned before.
+	recs["rec-4"] = musicbrainz.Recording{ID: "rec-4", Title: "Bonus One", Length: 200000, ArtistCredit: artistCredit, Releases: []musicbrainz.Release{newRelease}}
+	recs["rec-5"] = musicbrainz.Recording{ID: "rec-5", Title: "Bonus Two", Length: 200000, ArtistCredit: artistCredit, Releases: []musicbrainz.Release{newRelease}}
+	svc.scanner = newMultiRecordingMatchScanner(t, musicStore, recs)
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album (2CD)",
+		Protocol: download.ProtocolUsenet, MediaType: "music", UpgradeAlbumID: album.ID,
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("PollOnce result = %+v, want 1 imported, 0 failed", result)
+	}
+
+	// The 3 old single-disc files must be gone — replaced by the new
+	// upgrade for every song the two releases actually share.
+	for i := range oldTrackMBIDs {
+		oldPath := filepath.Join(root, fmt.Sprintf("old-%d.flac", i+1))
+		if _, statErr := os.Stat(oldPath); !os.IsNotExist(statErr) {
+			t.Errorf("old file %s should have been deleted by the upgrade swap, stat err = %v", oldPath, statErr)
+		}
+	}
+
+	files, err := musicStore.ListTrackFilesByAlbum(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 5 {
+		t.Fatalf("track files after upgrade = %d, want 5 (3 replaced + 2 brand new disc-2 songs), files=%+v", len(files), files)
+	}
+	for _, tf := range files {
+		if tf.MatchStatus != musiclibrary.StatusMatched {
+			t.Errorf("file %s match status = %s, want matched", tf.Path, tf.MatchStatus)
+		}
+		for _, old := range before {
+			if tf.ID == old.ID {
+				t.Errorf("old track_file row %d should have been deleted, still present at %s", old.ID, tf.Path)
+			}
+		}
+	}
+
+	// The 3 shared songs must have reused their EXISTING track rows (same
+	// recording MBID, same album) rather than getting duplicated —
+	// confirms GetOrCreateTrack's (albumID, mbid) keying is what makes the
+	// swap even possible: the old and new file for "Track One" agree on
+	// which track they both belong to.
+	tracks, err := musicStore.ListTracksByAlbum(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 5 {
+		t.Fatalf("tracks after upgrade = %d, want 5 (3 reused + 2 new), tracks=%+v", len(tracks), tracks)
+	}
+}
+
+// TestUpgradeReplacesRemasterTrackWithDifferentRecordingIDByPosition is the
+// regression test for the caveat this session's earlier live testing
+// surfaced: a remaster that MusicBrainz assigns a fresh recording ID to,
+// even though it's unmistakably the same song at the same disc+track
+// position — GetOrCreateTrack's (albumID, recording MBID) keying alone
+// would never line the two up, leaving the old file behind forever
+// alongside the new one. swapByPosition is the fallback that closes this:
+// same disc, same track number, similar-enough title.
+func TestUpgradeReplacesRemasterTrackWithDifferentRecordingIDByPosition(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Test Album (Remaster)")
+	// One track, disc 1 track 1 — a 2009 remaster MusicBrainz treats as a
+	// wholly distinct recording from the 1975 original, same title.
+	buildFLACDirectMatch(t, albumDir, "01.flac", "rec-remaster", "Track One", 1, 1)
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, root, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "rel-old", "rg-mbid", "Test Album", "1975", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTrack, err := musicStore.GetOrCreateTrack(album.ID, "rec-original", "Track One", 1, 1, 200000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rootFolders, err := musicStore.ListRootFolders()
+	if err != nil || len(rootFolders) == 0 {
+		t.Fatalf("root folders = %+v, err %v", rootFolders, err)
+	}
+	oldPath := filepath.Join(root, "old-track-one.flac")
+	if err := os.WriteFile(oldPath, []byte("old audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTF, err := musicStore.UpsertTrackFileByPath(rootFolders[0].ID, oldPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetTrackFileMatch(oldTF.ID, &oldTrack.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	artistCredit := []musicbrainz.ArtistCredit{{
+		Name:   "Test Artist",
+		Artist: musicbrainz.ArtistRef{ID: "artist-mbid", Name: "Test Artist", SortName: "Test Artist"},
+	}}
+	newRelease := musicbrainz.Release{ID: "rel-remaster", Title: "Test Album (Remaster)", Date: "2009", ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-mbid", Title: "Test Album", PrimaryType: "Album"}}
+	svc.scanner = newMultiRecordingMatchScanner(t, musicStore, map[string]musicbrainz.Recording{
+		"rec-remaster": {ID: "rec-remaster", Title: "Track One", Length: 200000, ArtistCredit: artistCredit, Releases: []musicbrainz.Release{newRelease}},
+	})
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album (Remaster)",
+		Protocol: download.ProtocolUsenet, MediaType: "music", UpgradeAlbumID: album.ID,
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("PollOnce result = %+v, want 1 imported, 0 failed", result)
+	}
+
+	if _, statErr := os.Stat(oldPath); !os.IsNotExist(statErr) {
+		t.Errorf("old file %s should have been replaced by swapByPosition's title+position fallback, stat err = %v", oldPath, statErr)
+	}
+
+	files, err := musicStore.ListTrackFilesByAlbum(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("track files after upgrade = %d, want 1 (the old file replaced, not left alongside the new one), files=%+v", len(files), files)
+	}
+	if files[0].ID == oldTF.ID {
+		t.Errorf("the surviving file should be the new one, not the old track_file row %d", oldTF.ID)
+	}
+}
+
+// TestUpgradeNeverPairsMismatchedTitlesAtTheSamePosition confirms
+// swapByPosition's own safety rail: two songs that happen to share a disc
+// number and track number but are genuinely different tracks (a reordered
+// or otherwise mismatched tracklist between editions) must never be paired
+// up — the old file has to survive untouched rather than risk deleting the
+// wrong one.
+func TestUpgradeNeverPairsMismatchedTitlesAtTheSamePosition(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Test Album (Reissue)")
+	buildFLACDirectMatch(t, albumDir, "01.flac", "rec-new", "A Completely Different Song", 1, 1)
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, root, _ := setup(t, sab)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "rel-old", "rg-mbid", "Test Album", "1975", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTrack, err := musicStore.GetOrCreateTrack(album.ID, "rec-original", "Track One", 1, 1, 200000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rootFolders, err := musicStore.ListRootFolders()
+	if err != nil || len(rootFolders) == 0 {
+		t.Fatalf("root folders = %+v, err %v", rootFolders, err)
+	}
+	oldPath := filepath.Join(root, "old-track-one.flac")
+	if err := os.WriteFile(oldPath, []byte("old audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldTF, err := musicStore.UpsertTrackFileByPath(rootFolders[0].ID, oldPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := musicStore.SetTrackFileMatch(oldTF.ID, &oldTrack.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	artistCredit := []musicbrainz.ArtistCredit{{
+		Name:   "Test Artist",
+		Artist: musicbrainz.ArtistRef{ID: "artist-mbid", Name: "Test Artist", SortName: "Test Artist"},
+	}}
+	newRelease := musicbrainz.Release{ID: "rel-reissue", Title: "Test Album (Reissue)", Date: "2009", ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-mbid", Title: "Test Album", PrimaryType: "Album"}}
+	svc.scanner = newMultiRecordingMatchScanner(t, musicStore, map[string]musicbrainz.Recording{
+		"rec-new": {ID: "rec-new", Title: "A Completely Different Song", Length: 200000, ArtistCredit: artistCredit, Releases: []musicbrainz.Release{newRelease}},
+	})
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album (Reissue)",
+		Protocol: download.ProtocolUsenet, MediaType: "music", UpgradeAlbumID: album.ID,
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("PollOnce result = %+v, want 1 imported, 0 failed", result)
+	}
+
+	if _, statErr := os.Stat(oldPath); statErr != nil {
+		t.Errorf("old file %s should survive untouched — same position but a genuinely different title must never be paired, stat err = %v", oldPath, statErr)
+	}
+
+	files, err := musicStore.ListTrackFilesByAlbum(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("track files after upgrade = %d, want 2 (old track kept, new different song added alongside it), files=%+v", len(files), files)
 	}
 }

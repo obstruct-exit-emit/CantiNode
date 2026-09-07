@@ -9,6 +9,7 @@ import (
 
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/relname"
 	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
@@ -221,7 +222,7 @@ func titleAgrees(tags *tagreader.Tags, rec *musicbrainz.Recording) bool {
 		return true
 	}
 	const directMatchTitleThreshold = 0.6
-	return titleSimilarity(tags.Title, rec.Title) >= directMatchTitleThreshold
+	return relname.TitleSimilarity(tags.Title, rec.Title) >= directMatchTitleThreshold
 }
 
 // errDirectMatchInconsistent is matchFileDirect's own sentinel for "the

@@ -2044,9 +2044,13 @@ func (s *server) resolveAlbumUpgrade(w http.ResponseWriter, albumID int64) (albu
 // that as "no wanted album to update"): the album is already owned, so
 // there's nothing to transition to "downloading". Once the download
 // finishes, internal/importer copies it in and the scanner matches the new
-// (better) file against this album's existing tracks — alongside the old
-// file, not replacing it; removing the old one is a manual step via its
-// own "delete" button on the track, the same as any other file cleanup.
+// (better) file against this album's existing tracks — the old file each
+// newly-matched track had is then deleted automatically, track-by-track
+// (importer.swapUpgradedFiles), never left to a manual cleanup step: a
+// track the new release didn't end up matching keeps whatever file it
+// already had, so a partial match never leaves a track with nothing. See
+// docs/acquisition.md's own "Search upgrade" section for the user-facing
+// version of this.
 func (s *server) handleGrabAlbumUpgrade(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {

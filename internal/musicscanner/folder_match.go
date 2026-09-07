@@ -12,6 +12,7 @@ import (
 
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/relname"
 	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
@@ -181,13 +182,27 @@ func (s *Scanner) resolveFolderRelease(ctx context.Context, remaining []folderEn
 		return release, confidence, nil
 	}
 
-	if len(remaining) == 1 {
+	if len(remaining) == 1 && !discFolderPattern.MatchString(filepath.Base(filepath.Dir(remaining[0].tf.Path))) {
 		// Nothing to disambiguate with a single file — a release search
 		// only earns its cost when there's more than one sibling to
 		// converge onto a shared answer (the actual bug this rework
 		// fixes). A genuinely standalone file is just as well served by
 		// the original per-file fuzzy search, at a third of the
 		// MusicBrainz round trips.
+		//
+		// The exception is a lone CD1/CD2/Disc-N-pattern folder: unlike an
+		// ordinary loose file, its very name says it's one disc of a
+		// multi-disc album, which groupMultiDiscFolders can only merge
+		// with a sibling that's ALSO still unmatched in this same scan —
+		// a sibling disc that's already matched/owned from an earlier
+		// scan is invisible to it (ScanRootFolder drops an already-matched
+		// file before it's ever added to the folder-grouping map), leaving
+		// a later-arriving disc permanently alone. Confirmed live: that
+		// left the file stuck with no release search ever attempted,
+		// falling back to the much weaker per-track fuzzy search instead
+		// — worth the extra round trip here since the folder name itself
+		// is real evidence a whole-album match is the right thing to try,
+		// not a guess.
 		return nil, 0, nil
 	}
 
@@ -267,7 +282,7 @@ func (s *Scanner) resolveExpectedRelease(ctx context.Context, remaining []folder
 	if _, album, ok := folderTagConsensus(remaining, s.resolveArtistAlbumFallback); ok {
 		matchesAny := false
 		for _, v := range versions {
-			if titleSimilarity(album, v.Title) >= albumTitleMatchThreshold {
+			if relname.TitleSimilarity(album, v.Title) >= albumTitleMatchThreshold {
 				matchesAny = true
 				break
 			}
@@ -318,10 +333,17 @@ func embeddedReleaseMBID(entries []folderEntry) string {
 // Album tag anywhere) — this only fires on an actual internal
 // contradiction, the specific red flag resolveExpectedRelease's safety
 // gate needs to catch ahead of the normal consensus check.
+//
+// Compares stripDiscSuffix'd values — the same real-world per-disc
+// qualifier ("Moonglow CD 1" vs "Moonglow CD 2") groupMultiDiscFolders
+// already tolerates when deciding whether to merge two disc folders in
+// the first place must not then read back as a genuine contradiction
+// here, or this safety gate would reject the exact grab-provenance
+// shortcut it exists to protect for the most common multi-disc case.
 func albumTagsDisagree(entries []folderEntry) bool {
 	album := ""
 	for _, e := range entries {
-		a := strings.TrimSpace(e.tags.Album)
+		a := stripDiscSuffix(strings.TrimSpace(e.tags.Album))
 		if a == "" {
 			continue
 		}
@@ -358,7 +380,24 @@ func folderTagConsensus(entries []folderEntry, fallback func(*musiclibrary.Track
 	distinctArtists := map[string]bool{}
 
 	for _, e := range entries {
-		a := strings.TrimSpace(e.tags.Album)
+		// stripDiscSuffix here (not just in groupMultiDiscFolders' own
+		// merge-decision comparison) is what actually matters once files
+		// merge: the album this function returns feeds straight into
+		// resolveFolderRelease's own MusicBrainz release search and
+		// resolveExpectedRelease's cached-version title check, both called
+		// on the ALREADY-merged entries — a folder of "Moonglow CD 1" +
+		// "Moonglow CD 2" files used to disagree right back here even
+		// though groupMultiDiscFolders had just finished treating them as
+		// one release, so the search that actually mattered ran with
+		// stale mismatched tags (or never ran at all, since disagreement
+		// here means "no shared album to search a release by" below) —
+		// confirmed live, a completely fresh two-disc rip with this exact
+		// tagging pattern never issued a single release search, falling
+		// back to much weaker per-track fuzzy matching instead. Idempotent
+		// on an already-stripped or never-suffixed album, so this is safe
+		// for every other caller too (groupMultiDiscFolders' own
+		// per-subfolder consensus check, single-disc folders, ...).
+		a := stripDiscSuffix(strings.TrimSpace(e.tags.Album))
 		aa := strings.TrimSpace(e.tags.AlbumArtist)
 		ar := aa
 		if ar == "" {
@@ -603,7 +642,7 @@ func slotTrack(tags *tagreader.Tags, tracks []flatTrack, used map[int]bool) (int
 		if used[i] {
 			continue
 		}
-		if score := titleSimilarity(tags.Title, t.Title); score > bestScore {
+		if score := relname.TitleSimilarity(tags.Title, t.Title); score > bestScore {
 			bestIdx, bestScore = i, score
 		}
 	}
@@ -693,12 +732,16 @@ func groupMultiDiscFolders(groups map[string][]folderEntry, fallback func(*music
 		var refArtist, refAlbum string
 		agree := true
 		for i, dir := range subdirs {
+			// folderTagConsensus already strips a disc-number qualifier from
+			// the album it returns, so no separate stripDiscSuffix call is
+			// needed here anymore — kept as one comparison, not two, so this
+			// merge decision and the release search that follows a
+			// successful merge always agree on what "the album" is called.
 			artist, album, ok := folderTagConsensus(groups[dir], fallback)
 			if !ok {
 				agree = false
 				break
 			}
-			album = stripDiscSuffix(album)
 			if i == 0 {
 				refArtist, refAlbum = artist, album
 				continue
