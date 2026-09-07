@@ -267,6 +267,25 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    per-disc Album-tag suffixes ("Album CD 1"/"Album CD 2") sank the
    auto-match album-name score below its confidence threshold. See
    [CHANGELOG](CHANGELOG.md).
+
+   **Follow-up (2026-09-07):** two further real bugs in this same feature,
+   both confirmed live against a real Prowlarr-grabbed 2CD release
+   (`Avantasia - 2019 - Moonglow (2CD)`), distinct from the confidence-score
+   issue fixed above — this pair hit the *automatic* whole-folder release
+   search itself, not the manual auto-match UI's scoring. The same
+   per-disc Album-tag suffix pattern broke a fresh multi-disc import
+   outright: `groupMultiDiscFolders` correctly merged CD1/CD2 folders even
+   with mismatched per-disc suffixes, but `resolveFolderRelease`'s own
+   tag-consensus check re-compared the same *unstripped* tags right after
+   — so the merged group's own files "disagreed" right where it mattered,
+   the whole-folder MusicBrainz search never ran, and every file fell back
+   to much weaker per-track fuzzy search. Separately, a disc that only
+   shows up on a later scan — because its sibling(s) are already
+   matched/owned from an earlier one — could never be recognized as part
+   of that same album at all: the folder-merge logic only ever sees the
+   current scan's still-*unmatched* folders. Both fixed in
+   `internal/musicscanner/folder_match.go`, with new regression tests
+   covering each. See [CHANGELOG](CHANGELOG.md).
 7. [x] **Auto-swap the old file after an "Upgrades allowed" grab** — done
    2026-08-13, delete-outright (the judgment call this item flagged):
    `grabs.upgrade_album_id` (migration 024) ties an upgrade grab to the
@@ -277,6 +296,21 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    just gained a genuinely new matched one — track-by-track, not the whole
    album at once, so a partial/failed match on the new release can never
    leave a track with nothing.
+
+   **Follow-up (2026-09-07):** that swap matched old-to-new files by
+   MusicBrainz recording ID alone, missing the one real case where that ID
+   changes between editions for what's still unmistakably the same song (a
+   remaster MusicBrainz treats as a distinct recording). Added a
+   same-disc/track-position + title-similarity fallback
+   (`swapByPosition`) — deliberately never triggered by position alone, so
+   a reordered or otherwise mismatched tracklist between editions can't
+   pair up (and delete) the wrong file. Also verified live: an upgrade
+   from a single-disc release to a multi-disc edition correctly replaces
+   every shared song and adds the new disc's songs fresh, with nothing
+   left orphaned. The "Grab" button on a Search Upgrade candidate now
+   confirms first, matching the delete-files-from-disk pattern, since it
+   silently replaces an existing file with no undo. See
+   [CHANGELOG](CHANGELOG.md).
 8. [x] **Sort the Library grid** — done 2026-08-13: `SortControl.tsx` gets
    a `sortArtists` (name / recently-added / album count / missing count,
    mirroring `sortAlbums`/`sortReleaseGroups`), wired into

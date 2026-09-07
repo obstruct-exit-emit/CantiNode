@@ -74,8 +74,11 @@ internal/release/      release parsing + scoring
 internal/candidatesearch/ shared search->score->rank pipeline used by both
                        manual search/upgrade-search and the autosearch sweep
 internal/download/     qBittorrent/SABnzbd/direct clients, grabs, blocklist
-internal/relname/      generic release-name text utilities (used by
-                       release scoring and download-queue enrichment)
+internal/relname/      generic text utilities: release-name parsing (used
+                       by release scoring and download-queue enrichment)
+                       plus track-title similarity scoring (used by
+                       musicscanner's folder matching and importer's
+                       upgrade-file swap)
 internal/library/      generic shared model: root folders, quality profiles
 internal/imagecache/   provider-image download cache
 internal/health/       background health checks
