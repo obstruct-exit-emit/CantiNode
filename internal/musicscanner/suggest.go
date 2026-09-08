@@ -19,6 +19,24 @@ type TrackSuggestion struct {
 	TrackTitle    string `json:"trackTitle"`
 	TrackNumber   int    `json:"trackNumber"`
 	DiscNumber    int    `json:"discNumber"`
+	// Duplicate is set when this exact recording is already matched to a
+	// different, real file — approving this suggestion as-is would just be
+	// a second copy of a song already owned. Left for the review UI to
+	// resolve explicitly (replace the owned copy, or drop this file)
+	// rather than silently approved like an ordinary suggestion.
+	Duplicate *DuplicateInfo `json:"duplicate,omitempty"`
+}
+
+// DuplicateInfo names the already-owned file/album a suggestion's own
+// recording would duplicate — musiclibrary.OwnedDuplicate flattened for
+// the API response.
+type DuplicateInfo struct {
+	TrackFileID int64  `json:"trackFileId"`
+	Path        string `json:"path"`
+	Format      string `json:"format"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	AlbumTitle  string `json:"albumTitle"`
+	ReleaseDate string `json:"releaseDate,omitempty"`
 }
 
 // SuggestMatches proposes, for each of fileIDs, which track within release
@@ -59,14 +77,25 @@ func (s *Scanner) SuggestMatches(fileIDs []int64, release *musicbrainz.ReleaseWi
 		}
 		used[idx] = true
 		rec := recordingForReleaseTrack(ft, release)
-		out = append(out, TrackSuggestion{
+		suggestion := TrackSuggestion{
 			TrackFileID:   id,
 			RecordingMBID: rec.ID,
 			ReleaseMBID:   release.ID,
 			TrackTitle:    rec.Title,
 			TrackNumber:   ft.Position,
 			DiscNumber:    ft.disc,
-		})
+		}
+		if dup, err := s.db.FindOwnedTrackFile(release.PrimaryArtist().ID, release.ReleaseGroup.ID, rec.ID); err == nil && dup != nil {
+			suggestion.Duplicate = &DuplicateInfo{
+				TrackFileID: dup.File.ID,
+				Path:        dup.File.Path,
+				Format:      dup.File.Format,
+				SizeBytes:   dup.File.SizeBytes,
+				AlbumTitle:  dup.Album.Title,
+				ReleaseDate: dup.Album.ReleaseDate,
+			}
+		}
+		out = append(out, suggestion)
 	}
 	return out
 }

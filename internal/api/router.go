@@ -64,6 +64,9 @@ type server struct {
 	musicScanMu    sync.Mutex
 	musicScanState musicScanState
 
+	musicRefreshAllMu    sync.Mutex
+	musicRefreshAllState musicRefreshAllState
+
 	musicMoveMu    sync.Mutex
 	musicMoveState musicMoveState
 
@@ -266,6 +269,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("GET /api/v1/music/releasegroup/{mbid}/cover", s.auth(s.handleReleaseGroupCover))
 	mux.HandleFunc("POST /api/v1/music/scan", s.auth(s.handleTriggerMusicScan))
 	mux.HandleFunc("GET /api/v1/music/scan/status", s.auth(s.handleMusicScanStatus))
+	mux.HandleFunc("POST /api/v1/music/artists/refresh", s.auth(s.handleRefreshAllMusicArtists))
+	mux.HandleFunc("GET /api/v1/music/artists/refresh/status", s.auth(s.handleRefreshAllMusicArtistsStatus))
 	mux.HandleFunc("DELETE /api/v1/music/wanted/{id}", s.auth(s.handleRemoveWantedMusicAlbum))
 	mux.HandleFunc("GET /api/v1/music/wanted/{id}/search", s.auth(s.handleSearchWantedMusicAlbum))
 	mux.HandleFunc("POST /api/v1/music/wanted/{id}/grab", s.auth(s.handleGrabWantedMusicAlbum))

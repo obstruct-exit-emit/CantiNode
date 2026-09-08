@@ -135,6 +135,60 @@ func (s *Store) getTrackByAlbumAndMBID(albumID int64, mbid string) (*Track, erro
 	return &t, nil
 }
 
+// OwnedDuplicate is what FindOwnedTrackFile finds: a real file already
+// matched to the same recording being proposed a match here, plus enough
+// of its own track/album for the review UI to explain what it's a
+// duplicate of.
+type OwnedDuplicate struct {
+	File  TrackFile
+	Track Track
+	Album Album
+}
+
+// FindOwnedTrackFile looks up whether recordingMBID is already matched to a
+// real file under the album identified by (artistMBID, releaseGroupMBID) —
+// read-only, creates nothing. Used by musicscanner's SuggestMatches to warn
+// before proposing a match that would duplicate a song already owned,
+// rather than silently offering a second copy of the same recording.
+// Returns (nil, nil) whenever there's genuinely nothing to duplicate: the
+// artist or album doesn't exist yet (a brand-new match can't collide with
+// anything), the track exists but was never actually matched to a file
+// (e.g. left over from a prior partial match), or its only file(s) are
+// themselves still StatusUnmatched (mid-review, not really "owned" yet).
+func (s *Store) FindOwnedTrackFile(artistMBID, releaseGroupMBID, recordingMBID string) (*OwnedDuplicate, error) {
+	artist, err := s.getArtistByMBID(artistMBID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	album, err := s.getAlbumByReleaseGroupMBID(artist.ID, releaseGroupMBID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	track, err := s.getTrackByAlbumAndMBID(album.ID, recordingMBID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	files, err := s.ListTrackFilesByTrack(track.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range files {
+		if f.MatchStatus == StatusMatched || f.MatchStatus == StatusManual {
+			return &OwnedDuplicate{File: f, Track: *track, Album: *album}, nil
+		}
+	}
+	return nil, nil
+}
+
 // GetTrack returns a single track by ID, or ErrNotFound.
 func (s *Store) GetTrack(id int64) (*Track, error) {
 	var t Track

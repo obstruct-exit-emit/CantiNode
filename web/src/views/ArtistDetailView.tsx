@@ -725,6 +725,8 @@ function MissingAlbumsCard({
 }) {
   const [missing, setMissing] = useState<MusicReleaseGroup[] | null>(null);
   const [busyMbid, setBusyMbid] = useState<string | null>(null);
+  const [busyAll, setBusyAll] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState("date");
   const [dir, setDir] = useState<SortDir>(defaultDirFor("date"));
@@ -752,6 +754,30 @@ function MissingAlbumsCard({
       .finally(() => setBusyMbid(null));
   };
 
+  // Bulk add: the checked rows, or a whole release-type group's "add all" —
+  // with or without monitoring, same split as the per-row buttons.
+  const addMany = (groups: MusicReleaseGroup[], monitor: boolean) => {
+    setBusyAll(true);
+    Promise.allSettled(groups.map((rg) => api.wantMusicAlbum(artistId, rg.releaseGroupMbid, monitor)))
+      .then((results) => {
+        const failed = results.filter((r) => r.status === "rejected").length;
+        if (failed > 0) onError(`${failed} of ${groups.length} could not be added`);
+        setSelected(new Set());
+        onChanged();
+      })
+      .finally(() => setBusyAll(false));
+  };
+
+  const toggleSelect = (mbid: string) => {
+    const next = new Set(selected);
+    if (next.has(mbid)) {
+      next.delete(mbid);
+    } else {
+      next.add(mbid);
+    }
+    setSelected(next);
+  };
+
   const filtered = missing.filter((rg) => rg.title.toLowerCase().includes(filter.toLowerCase()));
   // Grouped by release type (Album on top, then EP/Single/Live/...) —
   // sorting only reorders items *within* a group, never the groups
@@ -764,19 +790,39 @@ function MissingAlbumsCard({
     <section className="card">
       <div className="card-head">
         <h2>Missing ({missing.length})</h2>
-        {missing.length > 1 && (
-          <span className="row-actions">
-            <SortSelect
-              value={sort}
-              onChange={changeSort}
-              options={[
-                ["date", "Release date"],
-                ["title", "Title"],
-              ]}
-            />
-            <DirectionButtons value={dir} onChange={setDir} />
-          </span>
-        )}
+        <div className="card-head-actions">
+          {selected.size > 0 && (
+            <>
+              <button
+                disabled={busyAll}
+                title={`Want the ${selected.size} checked album(s) without monitoring`}
+                onClick={() => addMany(missing.filter((rg) => selected.has(rg.releaseGroupMbid)), false)}
+              >
+                {`+ Add (${selected.size})`}
+              </button>
+              <button
+                disabled={busyAll}
+                title={`Want and monitor the ${selected.size} checked album(s)`}
+                onClick={() => addMany(missing.filter((rg) => selected.has(rg.releaseGroupMbid)), true)}
+              >
+                {`+ Add & Monitor (${selected.size})`}
+              </button>
+            </>
+          )}
+          {missing.length > 1 && (
+            <>
+              <SortSelect
+                value={sort}
+                onChange={changeSort}
+                options={[
+                  ["date", "Release date"],
+                  ["title", "Title"],
+                ]}
+              />
+              <DirectionButtons value={dir} onChange={setDir} />
+            </>
+          )}
+        </div>
       </div>
       {missing.length === 0 ? (
         <p className="muted">
@@ -799,13 +845,39 @@ function MissingAlbumsCard({
               {groups.length > 1 && (
                 <h3 className="group-heading">
                   {g.category} ({g.items.length})
+                  {g.items.length > 1 && (
+                    <>
+                      <button
+                        className="toggle group-monitor"
+                        disabled={busyAll}
+                        title={`Want all ${g.items.length} missing ${g.category} albums (not monitored)`}
+                        onClick={() => addMany(g.items, false)}
+                      >
+                        + Add all ({g.items.length})
+                      </button>
+                      <button
+                        className="toggle group-monitor"
+                        disabled={busyAll}
+                        title={`Want and monitor all ${g.items.length} missing ${g.category} albums`}
+                        onClick={() => addMany(g.items, true)}
+                      >
+                        + Monitor all ({g.items.length})
+                      </button>
+                    </>
+                  )}
                 </h3>
               )}
               <ul className="rows">
                 {g.items.map((rg) => (
                   <li key={rg.releaseGroupMbid}>
                     <div className="row">
-                      <span>
+                      <span className="row-select">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${rg.title}`}
+                          checked={selected.has(rg.releaseGroupMbid)}
+                          onChange={() => toggleSelect(rg.releaseGroupMbid)}
+                        />
                         <button
                           className="link"
                           onClick={() =>
@@ -823,14 +895,14 @@ function MissingAlbumsCard({
                       </span>
                       <span className="row-actions">
                         <button
-                          disabled={busyMbid !== null}
+                          disabled={busyMbid !== null || busyAll}
                           title="Want this album without monitoring the artist further"
                           onClick={() => add(rg, false)}
                         >
                           + Add
                         </button>
                         <button
-                          disabled={busyMbid !== null}
+                          disabled={busyMbid !== null || busyAll}
                           title="Want this album and monitor the artist"
                           onClick={() => add(rg, true)}
                         >

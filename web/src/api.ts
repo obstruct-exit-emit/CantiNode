@@ -458,6 +458,19 @@ export interface TrackSuggestion {
   trackTitle: string;
   trackNumber: number;
   discNumber: number;
+  // Set when this exact recording is already matched to a different, real
+  // file — approving this suggestion as-is would just be a second copy of
+  // a song already owned.
+  duplicate?: DuplicateInfo;
+}
+
+export interface DuplicateInfo {
+  trackFileId: number;
+  path: string;
+  format: string;
+  sizeBytes: number;
+  albumTitle: string;
+  releaseDate?: string;
 }
 
 export interface Playlist {
@@ -642,6 +655,19 @@ export interface MusicScanState {
   finishedAt?: string;
   result?: MusicScanResult;
   error?: string;
+}
+
+// MusicRefreshAllState is the library-wide "Refresh all metadata" run's
+// status — the bulk twin of MusicScanState, for a job that re-syncs every
+// artist's discography/genres/bio one at a time (MusicBrainz's rate limit
+// applies regardless of how many artists there are).
+export interface MusicRefreshAllState {
+  running: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+  total?: number;
+  completed?: number;
+  failed?: number;
 }
 
 export interface ImportResult {
@@ -1141,6 +1167,9 @@ export const api = {
     ),
   clearTrackFileMatch: (id: number) =>
     request<void>(`/api/v1/music/trackfile/${id}/match`, { method: "DELETE" }),
+  // Always deletes the file from disk (internal/musicscanner.DeleteTrackFile
+  // is unconditional) — there's no "forget without touching disk" mode at
+  // this endpoint despite what older docs may say.
   deleteTrackFile: (id: number) =>
     request<void>(`/api/v1/music/trackfile/${id}`, { method: "DELETE" }),
   previewOrganizeMusicArtist: (id: number) =>
@@ -1165,6 +1194,9 @@ export const api = {
   triggerMusicScan: () =>
     request<{ status: string }>("/api/v1/music/scan", { method: "POST" }),
   musicScanStatus: () => request<MusicScanState>("/api/v1/music/scan/status"),
+  triggerRefreshAllMusicArtists: () =>
+    request<{ status: string }>("/api/v1/music/artists/refresh", { method: "POST" }),
+  musicRefreshAllStatus: () => request<MusicRefreshAllState>("/api/v1/music/artists/refresh/status"),
   wantMusicAlbum: (artistId: number, releaseGroupMbid: string, monitor: boolean) =>
     request<WantedAlbum>(
       `/api/v1/music/artist/${artistId}/wanted`,

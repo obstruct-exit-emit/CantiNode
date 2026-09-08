@@ -13,6 +13,7 @@ import {
 } from "../api";
 import { RowsSkeleton } from "../components/Skeleton";
 import { formatBytes, formatDuration } from "../format";
+import { useUi } from "../ui";
 
 // normalizeForMatch/bigrams/diceSimilarity are a small, dependency-free
 // fuzzy string match (Sørensen–Dice coefficient over character bigrams) —
@@ -369,6 +370,7 @@ function AutoMatchPanel({
   const [autoMatching, setAutoMatching] = useState(false);
   const [applyingIds, setApplyingIds] = useState<Set<number>>(new Set());
   const [approvedIds, setApprovedIds] = useState<Set<number>>(new Set());
+  const { confirmDlg } = useUi();
 
   // Artist-not-in-your-library-yet fallback: a live MusicBrainz search,
   // shown only on demand (never run automatically — adding a whole new
@@ -640,7 +642,10 @@ function AutoMatchPanel({
   // every failure still gets reported via onError.
   const approveAll = async () => {
     if (!suggestions) return;
-    const targets = suggestions.filter((s) => !approvedIds.has(s.trackFileId));
+    // Duplicates are excluded — each one needs its own explicit
+    // Replace/Delete resolution, never silently approved into a second
+    // copy of a song already owned.
+    const targets = suggestions.filter((s) => !approvedIds.has(s.trackFileId) && !s.duplicate);
     if (targets.length === 0) return;
     setApplyingIds((prev) => {
       const next = new Set(prev);
@@ -673,7 +678,68 @@ function AutoMatchPanel({
     if (approved.length > 0) onApplied();
   };
 
+  // Use this file instead of the copy already owned — the owned copy is
+  // deleted from disk first (confirmed, irreversible), then this file is
+  // matched into its place. Two sequential calls rather than one atomic
+  // backend endpoint: a manual, one-at-a-time review action, not a
+  // high-frequency or racy path, so a match failure after a successful
+  // delete just leaves this file unmatched for another pass rather than
+  // losing anything.
+  const replaceDuplicate = async (s: TrackSuggestion) => {
+    const dup = s.duplicate;
+    if (!dup) return;
+    const ok = await confirmDlg({
+      title: "Replace the owned copy",
+      message: `Replace the library's copy of "${dup.albumTitle}" with this file?\n\nThe current file (${dup.path}) is deleted from disk.`,
+      confirmLabel: "Replace",
+      danger: true,
+    });
+    if (!ok) return;
+    setApplyingIds((prev) => new Set(prev).add(s.trackFileId));
+    try {
+      await api.deleteTrackFile(dup.trackFileId);
+      await api.matchTrackFile(s.trackFileId, s.recordingMbid, s.releaseMbid);
+      setApprovedIds((prev) => new Set(prev).add(s.trackFileId));
+      onApplied();
+    } catch (err: unknown) {
+      onError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setApplyingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(s.trackFileId);
+        return next;
+      });
+    }
+  };
+
+  // Keep the owned copy — delete this duplicate file from disk instead.
+  const dropDuplicate = async (s: TrackSuggestion) => {
+    const ok = await confirmDlg({
+      title: "Delete this file",
+      message: "Delete this file from disk? The library's existing copy is kept.",
+      confirmLabel: "Delete from disk",
+      danger: true,
+    });
+    if (!ok) return;
+    setApplyingIds((prev) => new Set(prev).add(s.trackFileId));
+    api
+      .deleteTrackFile(s.trackFileId)
+      .then(() => {
+        setApprovedIds((prev) => new Set(prev).add(s.trackFileId));
+        onApplied();
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() =>
+        setApplyingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(s.trackFileId);
+          return next;
+        }),
+      );
+  };
+
   const pending = (suggestions ?? []).filter((s) => !approvedIds.has(s.trackFileId));
+  const pendingApprovable = pending.filter((s) => !s.duplicate);
   const fileById = new Map(files.map((f) => [f.id, f]));
 
   // Keep the parent's "hide these from the plain file list" set in sync —
@@ -806,9 +872,9 @@ function AutoMatchPanel({
               {suggestions.length} of {files.length} file(s) confidently slotted.
               {suggestions.length === 0 && " Try a different album, or match these by hand below."}
             </span>
-            {pending.length > 1 && (
+            {pendingApprovable.length > 1 && (
               <button className="toggle" disabled={applyingIds.size > 0} onClick={approveAll}>
-                Approve all ({pending.length})
+                Approve all ({pendingApprovable.length})
               </button>
             )}
           </div>
@@ -816,6 +882,65 @@ function AutoMatchPanel({
             <ul className="rows nested">
               {pending.map((s) => {
                 const file = fileById.get(s.trackFileId);
+                const dup = s.duplicate;
+                const busy = applyingIds.has(s.trackFileId);
+                // Duplicate of a song already owned: shown side by side
+                // with the existing file, resolved explicitly (never a
+                // plain "Approve") — replace the owned copy with this
+                // one, or delete this one and keep what's already there.
+                if (dup) {
+                  return (
+                    <li key={s.trackFileId}>
+                      <div className="row">
+                        <span className="file-path">
+                          ⚠️ Duplicate of <strong>{dup.albumTitle}</strong>
+                          {dup.releaseDate && ` (${dup.releaseDate.slice(0, 4)})`} —{" "}
+                          {s.discNumber > 1 ? `${s.discNumber}.` : ""}
+                          {String(s.trackNumber).padStart(2, "0")} — {s.trackTitle}
+                        </span>
+                      </div>
+                      <ul className="rows nested">
+                        <li>
+                          <div className="row">
+                            <span className="file-path muted">in library: {dup.path}</span>
+                            <span className="muted">
+                              {dup.format} · {formatBytes(dup.sizeBytes)}
+                            </span>
+                          </div>
+                        </li>
+                        <li>
+                          <div className="row">
+                            <span className="file-path">
+                              this file: {file ? file.path : `file ${s.trackFileId}`}
+                            </span>
+                            <span className="row-actions">
+                              {file && (
+                                <span className="muted">
+                                  {file.format} · {formatBytes(file.sizeBytes)}
+                                </span>
+                              )}
+                              <button
+                                disabled={busy}
+                                title="Use this file instead — the library's current copy is deleted from disk"
+                                onClick={() => replaceDuplicate(s)}
+                              >
+                                {busy ? "Working…" : "Replace"}
+                              </button>
+                              <button
+                                className="danger"
+                                disabled={busy}
+                                title="Keep the library's copy — delete this file from disk"
+                                onClick={() => dropDuplicate(s)}
+                              >
+                                Delete
+                              </button>
+                            </span>
+                          </div>
+                        </li>
+                      </ul>
+                    </li>
+                  );
+                }
                 return (
                   <li key={s.trackFileId}>
                     <div className="row">
@@ -828,8 +953,8 @@ function AutoMatchPanel({
                         </span>
                       </span>
                       <span className="row-actions">
-                        <button disabled={applyingIds.size > 0} onClick={() => approve(s)}>
-                          {applyingIds.has(s.trackFileId) ? "Approving…" : "Approve"}
+                        <button disabled={busy} onClick={() => approve(s)}>
+                          {busy ? "Approving…" : "Approve"}
                         </button>
                       </span>
                     </div>

@@ -1746,6 +1746,91 @@ func (s *server) handleMusicScanStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, state)
 }
 
+// musicRefreshAllState is the last (or currently running) library-wide
+// metadata refresh's status, reported by GET
+// /api/v1/music/artists/refresh/status. Completed/Total let the UI show
+// real progress across a run that — at MusicBrainz's ~1/sec rate limit —
+// can take minutes for a large library, the same reason
+// handleTriggerMusicScan's own scan is backgrounded and polled rather than
+// held open on one request.
+type musicRefreshAllState struct {
+	Running    bool       `json:"running"`
+	StartedAt  *time.Time `json:"startedAt,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	Total      int        `json:"total,omitempty"`
+	Completed  int        `json:"completed,omitempty"`
+	Failed     int        `json:"failed,omitempty"`
+}
+
+// handleRefreshAllMusicArtists re-syncs every artist's discography, genres/
+// tags/rating, and bio/photo in one action — the bulk twin of the
+// per-artist "Refresh metadata" button (metadataBackfill.RefreshArtist,
+// same call each artist page's own button makes), for a field that only
+// ever gets (re-)fetched on add/monitor or an explicit refresh, never just
+// from browsing: adding one to every already-cached artist (like the
+// genre tags above) would otherwise mean clicking "Refresh metadata"
+// artist by artist. Runs in the background and reports progress via
+// GET .../refresh/status, one artist at a time — sequential, not
+// parallel, since every artist shares the same MusicBrainz rate limit
+// regardless. Refuses to start a second run while one is already going;
+// unlike a scan, this never touches track_files/root folders, so it isn't
+// gated against a scan or artist move the way handleTriggerMusicScan is.
+func (s *server) handleRefreshAllMusicArtists(w http.ResponseWriter, r *http.Request) {
+	s.musicRefreshAllMu.Lock()
+	if s.musicRefreshAllState.Running {
+		s.musicRefreshAllMu.Unlock()
+		writeError(w, http.StatusConflict, "a metadata refresh is already running")
+		return
+	}
+	s.musicRefreshAllMu.Unlock()
+
+	artists, err := s.musicStore.ListArtists()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.musicRefreshAllMu.Lock()
+	now := time.Now().UTC()
+	s.musicRefreshAllState = musicRefreshAllState{Running: true, StartedAt: &now, Total: len(artists)}
+	s.musicRefreshAllMu.Unlock()
+
+	go func() {
+		// The request's own context is canceled the moment the handler
+		// returns — long before a real, rate-limited run across every
+		// artist could finish. See handleTriggerMusicScan's own identical
+		// reasoning.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		failed := 0
+		for _, a := range artists {
+			if err := s.metadataBackfill.RefreshArtist(ctx, a.ID, a.MBID); err != nil {
+				failed++
+			}
+			s.musicRefreshAllMu.Lock()
+			s.musicRefreshAllState.Completed++
+			s.musicRefreshAllState.Failed = failed
+			s.musicRefreshAllMu.Unlock()
+		}
+
+		s.musicRefreshAllMu.Lock()
+		finished := time.Now().UTC()
+		s.musicRefreshAllState.Running = false
+		s.musicRefreshAllState.FinishedAt = &finished
+		s.musicRefreshAllMu.Unlock()
+	}()
+
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
+}
+
+func (s *server) handleRefreshAllMusicArtistsStatus(w http.ResponseWriter, r *http.Request) {
+	s.musicRefreshAllMu.Lock()
+	state := s.musicRefreshAllState
+	s.musicRefreshAllMu.Unlock()
+	writeJSON(w, http.StatusOK, state)
+}
+
 // --- Wanted albums / acquisition ---
 
 // handleWantMusicAlbum is the artist page's per-row/bulk "Add"/"Add &

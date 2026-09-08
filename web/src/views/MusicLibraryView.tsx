@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, proxiedImage, type MusicArtist, type MusicBrainzArtistResult } from "../api";
+import { api, proxiedImage, type MusicArtist, type MusicBrainzArtistResult, type MusicRefreshAllState } from "../api";
 import { PosterGridSkeleton } from "../components/Skeleton";
 import { SortSelect, DirectionButtons, sortArtists, defaultDirFor, type SortDir } from "../components/SortControl";
 
@@ -85,6 +85,44 @@ export default function MusicLibraryView({
       return "Scan started — this can take a while for a large library.";
     });
 
+  // The bulk twin of each artist page's own "Refresh metadata" button — for
+  // a field that only ever gets (re-)fetched on add/monitor or an explicit
+  // refresh (genres, bio, discography...), never just from browsing, so an
+  // already-cached artist won't pick up something new until refreshed.
+  // Fire-and-forget like Scan above, but polled in the background (not
+  // blocking busyHeader, which could otherwise stay locked for minutes on a
+  // large library) so the button can report a real completion count rather
+  // than just "started".
+  const [refreshAllStatus, setRefreshAllStatus] = useState<MusicRefreshAllState | null>(null);
+  const refreshAllMetadata = () => {
+    setNotice("");
+    api
+      .triggerRefreshAllMusicArtists()
+      .then(() => api.musicRefreshAllStatus())
+      .then(setRefreshAllStatus)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  };
+  useEffect(() => {
+    if (!refreshAllStatus?.running) return;
+    const timer = setInterval(() => {
+      api
+        .musicRefreshAllStatus()
+        .then((s) => {
+          setRefreshAllStatus(s);
+          if (!s.running) {
+            setNotice(
+              `Refreshed ${s.completed ?? 0}/${s.total ?? 0} artist(s)` +
+                (s.failed ? `, ${s.failed} failed` : "") +
+                ".",
+            );
+            reload();
+          }
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [refreshAllStatus?.running, reload]);
+
   if (loading) return <PosterGridSkeleton />;
 
   return (
@@ -96,6 +134,15 @@ export default function MusicLibraryView({
             <button onClick={() => setShowAdd(!showAdd)}>{showAdd ? "Close" : "+ Add"}</button>
             <button disabled={busyHeader} onClick={scan} title="Scan root folders for new files">
               Scan files
+            </button>
+            <button
+              disabled={refreshAllStatus?.running}
+              onClick={refreshAllMetadata}
+              title="Re-fetch discography, genres, bio, and photo for every artist from MusicBrainz/TheAudioDB"
+            >
+              {refreshAllStatus?.running
+                ? `Refreshing… ${refreshAllStatus.completed ?? 0}/${refreshAllStatus.total ?? 0}`
+                : "Refresh all metadata"}
             </button>
           </span>
         </div>

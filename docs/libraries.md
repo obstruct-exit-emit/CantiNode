@@ -4,7 +4,14 @@ Music only appears in the sidebar once you add a root folder for it
 (Settings → Media Management) — content alone never surfaces it, Plex-style.
 The library page is a poster grid of artists with owned/total album counts,
 sortable by name, recently-added, album count, or missing count. Grids over
-10 cards get a filter box too, and render incrementally.
+10 cards get a filter box too, and render incrementally. **Scan files** and
+**Refresh all metadata** sit next to the grid — the latter is the bulk
+twin of every artist page's own **Refresh metadata** (discography,
+genres, bio/photo), for picking up something new (or newly added, like
+genre tags) across the whole library at once instead of artist by artist.
+Runs in the background at MusicBrainz's own rate limit, so it can take a
+while for a large library — the button shows live progress while it's
+running.
 
 ## Artists (artist-first, two levels deep)
 
@@ -35,7 +42,11 @@ shows, with an empty grid pointing at Missing, instead of disappearing.
 Compilation/…); each row has **+ Add** (want it without touching the
 artist's monitored state) and **+ Add & Monitor** (want it and monitor the
 artist) — neither one searches or grabs anything by itself, they just mark
-the album wanted and it moves into the Albums grid. Clicking a wanted
+the album wanted and it moves into the Albums grid. A checkbox on each row
+lets you do several at once — **+ Add**/**+ Add & Monitor** in the card's
+own header act on whatever's checked, and a release-type group with more
+than one gap gets its own **Add all**/**Monitor all** for the whole group
+in one click. Clicking a wanted
 album's card there opens its own full page — the same shell as an owned
 album's, with **Search releases** (scored candidates to hand-pick a
 **Grab** from) and **Stop wanting** in place of the owned actions, and its
@@ -203,6 +214,15 @@ can be matched two ways:
   and bio/photo too — the next scan catches those up on its own. Auto-
   match itself never does this search on its own — adding a whole new
   artist always needs its own explicit pick.
+
+  A proposed suggestion whose exact recording is already matched to a
+  real file elsewhere shows as a **⚠️ Duplicate** instead of a plain
+  **Approve** row — both files shown side by side (path, format, size) so
+  you can pick: **Replace** deletes the existing copy from disk and
+  matches this file into its place, or **Delete** keeps the existing copy
+  and removes this file instead. Never silently approved either way — a
+  duplicate is always its own explicit choice, and **Approve all** skips
+  past every duplicate rather than resolving it for you.
 
 ## Release versions
 

@@ -87,6 +87,33 @@ in progress. Highlights from the hardening period, newest first:
   for exactly this check; it just wasn't wired up here.
 
 ### Added
+- **A library-wide "Refresh all metadata" button** (Music page, next to
+  Scan files) — the bulk twin of each artist page's own **Refresh
+  metadata**: re-syncs discography, genres/tags/rating, and bio/photo for
+  every artist in one action instead of one at a time. Runs in the
+  background, one artist at a time (MusicBrainz's rate limit applies
+  regardless of how many artists there are), with a live "Refreshing…
+  N/total" count on the button itself and a completion summary when it's
+  done. New `POST /music/artists/refresh` + `GET
+  /music/artists/refresh/status`, mirroring the existing library-scan
+  background-job pattern (`musicScanState`) exactly.
+- **Missing gets bulk "+ Add"/"+ Add & Monitor".** A checkbox on each
+  missing-album row, "+ Add (N)"/"+ Add & Monitor (N)" in the card header
+  for whatever's checked, and "Add all"/"Monitor all" per release-type
+  group (Album, EP, Single, …) when it has more than one gap — no more
+  clicking through a long discography one album at a time. Ported from
+  LibriNode's own equivalent Missing-section pattern.
+- **A duplicate suggestion in Unmatched Files' Auto-match is now flagged
+  and resolved explicitly, instead of silently approved as a second copy
+  of a song already owned.** When a proposed match's exact MusicBrainz
+  recording is already matched to a real file under the same album, the
+  suggestion shows as a **⚠️ Duplicate** with both files side by side —
+  **Replace** deletes the existing copy and matches this file into its
+  place, **Delete** keeps the existing copy and removes this file
+  instead. **Approve all** skips every duplicate rather than resolving it
+  for you. New `musiclibrary.Store.FindOwnedTrackFile` (read-only,
+  creates nothing) backs the check; ported from LibriNode's own
+  duplicate-resolution UI in its unmatched-files review.
 - **A whole album packed into one continuous audio file is now rejected
   and blocklisted instead of imported.** Some rips do this — one giant
   file per CD, meant to be split at playback time via an accompanying

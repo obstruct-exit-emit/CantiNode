@@ -23,6 +23,10 @@ func testGeogaddiRelease() *musicbrainz.ReleaseWithTracklist {
 	return &musicbrainz.ReleaseWithTracklist{
 		ID:    "release-geogaddi",
 		Title: "Geogaddi",
+		ArtistCredit: []musicbrainz.ArtistCredit{
+			{Name: "Boards of Canada", Artist: musicbrainz.ArtistRef{ID: "artist-boc", Name: "Boards of Canada"}},
+		},
+		ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-geogaddi", Title: "Geogaddi", PrimaryType: "Album"},
 		Media: []musicbrainz.ReleaseMedium{
 			{
 				Position: 1,
@@ -161,5 +165,74 @@ func TestSuggestMatchesOmitsUnslottableFiles(t *testing.T) {
 
 	if len(got) != 1 || got[0].TrackFileID != good {
 		t.Fatalf("suggestions = %+v, want only the confidently-slotted file", got)
+	}
+}
+
+// TestSuggestMatchesFlagsAlreadyOwnedDuplicate confirms a suggestion whose
+// recording is already matched to a real, existing file (same artist +
+// release group, same recording MBID) carries Duplicate rather than being
+// silently offered as an ordinary suggestion — the review UI's cue to
+// resolve it explicitly (replace or drop) instead of just approving it.
+func TestSuggestMatchesFlagsAlreadyOwnedDuplicate(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	artist, err := s.db.GetOrCreateArtist("artist-boc", "Boards of Canada", "Boards of Canada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.db.GetOrCreateAlbum(artist.ID, "release-geogaddi-2002", "rg-geogaddi", "Geogaddi", "2002", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track, err := s.db.GetOrCreateTrack(album.ID, "rec-1", "Ready Lets Go", 1, 1, 200000, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedPath := rf.Path + "/already-owned.flac"
+	owned, err := s.db.UpsertTrackFileByPath(rf.ID, ownedPath, 100, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.SetTrackFileMatch(owned.ID, &track.ID, musiclibrary.StatusMatched, 1.0); err != nil {
+		t.Fatal(err)
+	}
+
+	newFile := seedUnmatchedFile(t, s, rf, "duplicate-rip.flac", `{"TrackNumber":1}`)
+
+	got := s.SuggestMatches([]int64{newFile}, testGeogaddiRelease())
+
+	if len(got) != 1 {
+		t.Fatalf("suggestions = %+v, want 1", got)
+	}
+	dup := got[0].Duplicate
+	if dup == nil {
+		t.Fatal("Duplicate = nil, want the already-owned file flagged")
+	}
+	if dup.TrackFileID != owned.ID || dup.Path != ownedPath {
+		t.Errorf("Duplicate = %+v, want the owned file (id=%d, path=%s)", dup, owned.ID, ownedPath)
+	}
+	if dup.AlbumTitle != "Geogaddi" {
+		t.Errorf("Duplicate.AlbumTitle = %q, want Geogaddi", dup.AlbumTitle)
+	}
+}
+
+// TestSuggestMatchesNoDuplicateWhenNothingOwnedYet is the negative control:
+// a fresh, never-matched album must never be flagged — confirms the
+// duplicate check doesn't fire just because an artist/album row happens to
+// already exist (e.g. from being monitored), only when a real file is
+// already matched to that exact recording.
+func TestSuggestMatchesNoDuplicateWhenNothingOwnedYet(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+
+	if _, err := s.db.GetOrCreateArtist("artist-boc", "Boards of Canada", "Boards of Canada"); err != nil {
+		t.Fatal(err)
+	}
+
+	id := seedUnmatchedFile(t, s, rf, "01.flac", `{"TrackNumber":1}`)
+
+	got := s.SuggestMatches([]int64{id}, testGeogaddiRelease())
+
+	if len(got) != 1 || got[0].Duplicate != nil {
+		t.Fatalf("suggestions = %+v, want 1 with no Duplicate (nothing owned yet)", got)
 	}
 }
