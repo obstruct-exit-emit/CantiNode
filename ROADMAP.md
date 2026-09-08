@@ -286,6 +286,30 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    current scan's still-*unmatched* folders. Both fixed in
    `internal/musicscanner/folder_match.go`, with new regression tests
    covering each. See [CHANGELOG](CHANGELOG.md).
+
+   **Follow-up (2026-09-07, same day):** a third real bug in this same
+   area, found live against a real Avantasia 2CD Japanese edition (vocal
+   disc + instrumental disc, same track titles on both) the user actually
+   dropped into their library. This time the merge and tag-consensus both
+   worked fine — the whole-folder MusicBrainz release search itself
+   silently returned zero candidates, because the file tag's embellished
+   subtitle used a padded hyphen ("Time **-** A Rock Epic") while
+   MusicBrainz's own real title uses a glued colon ("Time**:** A Rock
+   Epic") — a whitespace-padded separator apparently occupies its own
+   token position in MusicBrainz's search index that a phrase query can't
+   bridge. With the release search failing silently (no error, just no
+   candidates), every file fell back to per-track fuzzy search, which
+   can't tell two identically-titled tracks on different discs apart by
+   title alone — the observed symptom was files getting matched to the
+   wrong disc's recording. Fixed in
+   `internal/musicbrainz/sanitize.go` (`sanitizeReleaseTitle`): a
+   space-padded dash/colon collapses to a plain space before searching; a
+   dash/colon glued directly to a word is left alone. Diagnosed by
+   reproducing against the user's real files directly (a temporary
+   in-tree diagnostic scan plus live MusicBrainz queries) rather than
+   guessing from the tag-consensus code alone — confirmed all 22 tracks
+   (12 vocal, 10 instrumental) now resolve to their own correct, distinct
+   MusicBrainz recordings. See [CHANGELOG](CHANGELOG.md).
 7. [x] **Auto-swap the old file after an "Upgrades allowed" grab** — done
    2026-08-13, delete-outright (the judgment call this item flagged):
    `grabs.upgrade_album_id` (migration 024) ties an upgrade grab to the

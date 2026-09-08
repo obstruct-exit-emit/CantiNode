@@ -11,6 +11,25 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A whitespace-padded subtitle separator (" - ", " : ", " – ", " — ")
+  anywhere in a release title made the whole-folder MusicBrainz search
+  return zero results, even with every real word present — degrading to
+  weak per-track fuzzy search for the entire folder, which can't tell two
+  identically-titled tracks on different discs of the same release apart
+  (a vocal-disc and instrumental-disc pair sharing the exact same track
+  titles, say) and can slot one disc's files onto the wrong disc's
+  recordings.** Confirmed live against a real Avantasia 2CD Japanese
+  edition: the file tag's "The Mystery Of Time **-** A Rock Epic" found
+  nothing, while MusicBrainz's own real title is "The Mystery of Time
+  **:** A Rock Epic" (no surrounding spaces) — a padded punctuation mark
+  apparently occupies its own token position in MusicBrainz's search
+  index, which a phrase query needs an exact adjacent match for. Fixed by
+  collapsing a space-padded separator to a plain space before searching
+  (`sanitizeReleaseTitle`) — a colon/dash glued directly to a word (real
+  title punctuation, or a hyphenated word like "Sci-Fi") is left alone.
+  With the real release found, the already-correct per-disc slotting
+  matched all 22 tracks — 12 vocal, 10 instrumental — to their own real,
+  distinct recordings.
 - **Multi-disc matching silently failed for the most common real-world
   tagging pattern, and for any disc that arrived after its siblings were
   already owned.** Two separate bugs in the same area, both confirmed live

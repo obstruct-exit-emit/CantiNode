@@ -93,7 +93,18 @@ happened and degrades to much weaker per-file matching. A lone disc-pattern
 folder (a sibling already matched/owned from an earlier scan, so it's
 invisible to this scan's own grouping) still gets a real release search
 rather than being treated like an ordinary standalone file — see
-`resolveFolderRelease`'s own comment on `discFolderPattern`.
+`resolveFolderRelease`'s own comment on `discFolderPattern`. **Another
+non-obvious gotcha, in `internal/musicbrainz`**: a whitespace-padded
+subtitle separator (" - ", " : ", an en/em-dash) anywhere in a release
+title fed to `SearchReleases`/`SearchRecordings` makes MusicBrainz's own
+phrase-query search return *zero* results, even when every real word is
+present and correct — `sanitizeReleaseTitle` collapses one to a plain
+space before searching now, but a fresh symptom that looks like "the
+whole-folder search silently found nothing" is worth checking against
+this before assuming it's a `folderTagConsensus`/grouping problem again;
+confirm with a direct `SearchReleases` call before touching the matching
+code itself. A colon/dash glued straight to a word (real title
+punctuation, or a hyphenated word) is deliberately left alone.
 
 **Acquisition** (`internal/candidatesearch` → `internal/download` →
 `internal/importer`): a search (manual, or `internal/autosearch`'s

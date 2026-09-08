@@ -29,6 +29,20 @@ var emptyBracketsPattern = regexp.MustCompile(`[([]\s*[)\]]`)
 // becomes "( Remaster)" before this tidies it to "(Remaster)").
 var innerBracketSpacePattern = regexp.MustCompile(`([([])\s+|\s+([)\]])`)
 
+// standaloneSeparatorPattern matches a whitespace-padded subtitle
+// separator — " - ", " : ", " – ", " — " — collapsed to a single space
+// rather than left in place. Confirmed live: MusicBrainz's own search
+// treats a space-padded punctuation mark as its own token position, which
+// a phrase query needs an exact adjacent match for — "The Mystery Of Time
+// - A Rock Epic" (a file's own tag, hyphen-separated) returned zero
+// results against MusicBrainz's real title "The Mystery of Time: A Rock
+// Epic" (colon, no surrounding spaces) even though every real word
+// matches; removing the space-padded separator entirely ("The Mystery Of
+// Time A Rock Epic") found it immediately. A colon/dash glued directly to
+// a word (no space, e.g. "Time:") is left alone — only the padded,
+// stray-token form is the problem.
+var standaloneSeparatorPattern = regexp.MustCompile(`\s+[-–—:]\s+`)
+
 // sanitizeReleaseTitle strips known rip/format junk from a release title
 // before it's sent to MusicBrainz as part of a recording search — see
 // SearchRecordings, the one place both internal/scanner's automatic
@@ -38,6 +52,7 @@ func sanitizeReleaseTitle(s string) string {
 	cleaned := releaseJunkPattern.ReplaceAllString(s, "")
 	cleaned = innerBracketSpacePattern.ReplaceAllString(cleaned, "$1$2")
 	cleaned = emptyBracketsPattern.ReplaceAllString(cleaned, "")
+	cleaned = standaloneSeparatorPattern.ReplaceAllString(cleaned, " ")
 	cleaned = strings.Join(strings.Fields(cleaned), " ")
 	cleaned = strings.Trim(cleaned, " -–—,")
 	return cleaned
