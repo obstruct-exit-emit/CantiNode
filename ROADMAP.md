@@ -310,6 +310,25 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    guessing from the tag-consensus code alone — confirmed all 22 tracks
    (12 vocal, 10 instrumental) now resolve to their own correct, distinct
    MusicBrainz recordings. See [CHANGELOG](CHANGELOG.md).
+
+   **Follow-up, same day:** verifying that fix against the user's actual
+   live report (not just the diagnostic reproduction) found the manual
+   Unmatched Files "Auto-match" flow — what the user had really been
+   looking at — still didn't work, even once the automatic scanner did.
+   Two more bugs, both in that manual review path specifically: a release
+   group's cached version list is trusted forever once fetched, even after
+   MusicBrainz later gains an edition the original fetch never saw
+   (`GET .../releasegroup/{mbid}/versions?minTracks=N` now force-refreshes
+   when nothing cached is plausibly close to N); and `SuggestMatches`
+   never applied the automatic scanner's own CD1/CD2 folder-name disc
+   inference, so a folder with no embedded disc-number tags had every file
+   default to disc 1 and only half a real 2-disc album ever got suggested,
+   even once the right release was chosen. Both confirmed by driving the
+   actual API calls the browser makes, end to end, against the same real
+   files copied onto the WSL test instance — 22/22 correctly suggested
+   with both fixes in place, only 12/22 (matching the user's own
+   screenshot exactly) with either one missing. See
+   [CHANGELOG](CHANGELOG.md).
 7. [x] **Auto-swap the old file after an "Upgrades allowed" grab** — done
    2026-08-13, delete-outright (the judgment call this item flagged):
    `grabs.upgrade_album_id` (migration 024) ties an upgrade grab to the

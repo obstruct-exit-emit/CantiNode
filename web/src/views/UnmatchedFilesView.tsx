@@ -432,11 +432,16 @@ function AutoMatchPanel({
   // fetchVersionsForAlbum loads mbid's cached release versions/editions
   // into the Version dropdown — shared by the plain album picker (which
   // also auto-picks the file-count-closest version as a starting default,
-  // still freely changeable) and autoMatch. Ignores its own result if
-  // superseded by a newer pick/auto-match before the request resolves.
+  // still freely changeable) and autoMatch. Passes this group's own file
+  // count along so a cache with nothing plausibly close to it (e.g. every
+  // cached edition topping out at 12 tracks when this folder has 22 files
+  // across two discs) gets a fresh live look instead of silently offering
+  // the closest-but-still-wrong edition as the default pick. Ignores its
+  // own result if superseded by a newer pick/auto-match before the request
+  // resolves.
   const fetchVersionsForAlbum = (mbid: string): Promise<ReleaseGroupVersion[]> => {
     const token = requestToken.current;
-    return api.listReleaseGroupVersions(mbid).then((vs) => {
+    return api.listReleaseGroupVersions(mbid, files.length).then((vs) => {
       if (requestToken.current === token) setVersions(vs);
       return vs;
     });

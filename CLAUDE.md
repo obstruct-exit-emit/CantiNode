@@ -106,6 +106,22 @@ confirm with a direct `SearchReleases` call before touching the matching
 code itself. A colon/dash glued straight to a word (real title
 punctuation, or a hyphenated word) is deliberately left alone.
 
+**A third gotcha, this one structural**: the automatic scanner above and
+the manual Unmatched Files "Auto-match" review flow (`SuggestMatches`,
+same file) are two genuinely separate matching code paths that don't
+automatically share fixes — `SuggestMatches` calls `slotTrack` directly
+on a file's raw cached tags, never through `groupMultiDiscFolders`, so a
+fix to the automatic scanner's own disc handling doesn't reach the manual
+flow unless applied there too (confirmed live: `SuggestMatches` now also
+infers a missing disc number from the file's own CD1/CD2 folder name,
+same as the scanner already did). Relatedly, the manual flow's own
+Version dropdown reads from `release_group_versions`, a cache that — once
+populated, ever — is normally trusted forever; `GET .../versions` takes
+an optional `?minTracks=N` specifically so the unmatched-files page can
+force a fresh look when nothing cached is a plausible match for its own
+known file count, rather than silently offering a stale, wrong-track-count
+edition as the default pick.
+
 **Acquisition** (`internal/candidatesearch` → `internal/download` →
 `internal/importer`): a search (manual, or `internal/autosearch`'s
 periodic wanted-list sweep) fans out through `internal/indexer` (including

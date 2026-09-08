@@ -30,6 +30,35 @@ in progress. Highlights from the hardening period, newest first:
   With the real release found, the already-correct per-disc slotting
   matched all 22 tracks — 12 vocal, 10 instrumental — to their own real,
   distinct recordings.
+- **The manual Unmatched Files "Auto-match" flow had two more bugs in
+  this same area**, found live verifying the fix above actually resolved
+  the user's real report end to end — the automatic scanner now matched
+  the album correctly, but the manual review page (what the user had
+  actually been looking at) still didn't:
+  - A release group's cached version list, once fetched, was trusted
+    forever — even after MusicBrainz gained a real edition (a 2CD reissue,
+    say) the original fetch never saw. Auto-match's own version auto-pick
+    then had nothing better than a badly-wrong-track-count edition (a
+    12-track single-disc pressing instead of the real 22-track 2CD one)
+    to silently default to. `GET .../releasegroup/{mbid}/versions` now
+    takes an optional `?minTracks=N`; when nothing cached is plausibly
+    close to N, it force-refreshes from MusicBrainz instead of trusting
+    the stale list.
+  - Even with the *correct* version picked, `SuggestMatches` never applied
+    the same CD1/CD2 folder-name disc inference the automatic scanner
+    already has — every file defaulted to disc 1, so a CD1/CD2 pair with
+    no embedded disc-number tags (the common case) had CD1's files claim
+    every disc-1 slot by track number, leaving CD2's own files nothing to
+    slot into but a weak title-only match against the *other* disc's
+    differently-titled tracks (an "(instrumental version)" suffix, say) —
+    which never clears the confidence threshold, so only half the album
+    ever got suggested. Fixed the same way `groupMultiDiscFolders` already
+    infers it for a scan.
+
+  Verified live end to end, both fixes together: the same real 22-track
+  2CD album that started this investigation now gets all 22 files
+  correctly suggested through the manual review flow too, not just the
+  automatic scanner.
 - **Multi-disc matching silently failed for the most common real-world
   tagging pattern, and for any disc that arrived after its siblings were
   already owned.** Two separate bugs in the same area, both confirmed live

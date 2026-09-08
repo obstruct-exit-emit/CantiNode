@@ -75,6 +75,43 @@ func TestHasRealVersionMetadata(t *testing.T) {
 	}
 }
 
+// TestVersionsPlausibleFor is the regression test for a real bug found
+// live: a release group cached once (any time in the past) and never
+// revisited keeps whatever MusicBrainz had *then* forever — hasRealVersionMetadata
+// alone treats that as "already cached," even if every version it holds is
+// wildly the wrong track count for what a caller actually needs (a 2CD
+// edition MusicBrainz gained after the first fetch, say). Confirmed live
+// against a real Avantasia 2CD release: Auto-match's version pick silently
+// defaulted to a cached 12-track single-disc edition instead of the real
+// 22-track one, because nothing plausibly close to 22 had ever been cached.
+func TestVersionsPlausibleFor(t *testing.T) {
+	cases := []struct {
+		name      string
+		versions  []musiclibrary.ReleaseGroupVersion
+		fileCount int
+		want      bool
+	}{
+		{"no target count — always trust the cache", nil, 0, true},
+		{"empty cache, real target", nil, 22, false},
+		{"exact match", []musiclibrary.ReleaseGroupVersion{{TrackCount: 22}}, 22, true},
+		{"close enough (off by one)", []musiclibrary.ReleaseGroupVersion{{TrackCount: 21}}, 22, true},
+		{"wildly off — the actual bug", []musiclibrary.ReleaseGroupVersion{
+			{TrackCount: 12}, {TrackCount: 10}, {TrackCount: 12},
+		}, 22, false},
+		{"one plausible among several implausible", []musiclibrary.ReleaseGroupVersion{
+			{TrackCount: 12}, {TrackCount: 22}, {TrackCount: 10},
+		}, 22, true},
+		{"unfetched placeholder (zero track count) ignored", []musiclibrary.ReleaseGroupVersion{
+			{TrackCount: 0},
+		}, 22, false},
+	}
+	for _, c := range cases {
+		if got := versionsPlausibleFor(c.versions, c.fileCount); got != c.want {
+			t.Errorf("%s: versionsPlausibleFor(%+v, %d) = %v, want %v", c.name, c.versions, c.fileCount, got, c.want)
+		}
+	}
+}
+
 // TestWantMusicAlbumRefusesAlreadyOwned is the API-level counterpart to
 // musiclibrary's TestGetOrCreateWantedAlbumRefusesAlreadyOwned — confirms
 // the handler surfaces ErrAlreadyOwned as a clean 400 instead of a 500 or

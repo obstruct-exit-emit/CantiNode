@@ -130,12 +130,56 @@ func TestCacheReleaseGroupVersionsSkipsAlreadyCached(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.CacheReleaseGroupVersions(context.Background(), "rg-mbid")
+	got, err := s.CacheReleaseGroupVersions(context.Background(), "rg-mbid", false)
 	if err != nil {
 		t.Fatalf("CacheReleaseGroupVersions: %v", err)
 	}
 	if len(got) != 1 || got[0].ReleaseMBID != "release-1" {
 		t.Errorf("got = %+v, want the already-cached version returned untouched", got)
+	}
+}
+
+// TestCacheReleaseGroupVersionsForceBypassesTheSkip is
+// TestCacheReleaseGroupVersionsSkipsAlreadyCached's own mirror: force=true
+// is the one escape hatch from that skip, for internal/api's
+// handleListReleaseGroupVersions when it already has good reason to
+// distrust the cache (nothing plausible for a known target track count) —
+// confirms the real MusicBrainz round trip actually happens and the old
+// cached row is genuinely replaced, not merely appended to or ignored.
+func TestCacheReleaseGroupVersionsForceBypassesTheSkip(t *testing.T) {
+	var browseRequests int
+	s, store := newTestDeps(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/release/" {
+			browseRequests++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"release-count": 1,
+				"releases": []map[string]any{{
+					"id": "release-2", "title": "Geogaddi (2CD)",
+					"media": []map[string]any{{"track-count": 22}},
+				}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "artist-mbid", "name": "Test Artist"})
+	})
+
+	seeded := []musiclibrary.ReleaseGroupVersion{
+		{ReleaseMBID: "release-1", Title: "Geogaddi", ReleaseDate: "2002-02-04", TrackCount: 12, IsRepresentative: true},
+	}
+	if err := store.ReplaceReleaseGroupVersions("rg-mbid", seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.CacheReleaseGroupVersions(context.Background(), "rg-mbid", true)
+	if err != nil {
+		t.Fatalf("CacheReleaseGroupVersions: %v", err)
+	}
+	if browseRequests != 1 {
+		t.Errorf("browse requests = %d, want exactly 1 (force must actually hit MusicBrainz)", browseRequests)
+	}
+	if len(got) != 1 || got[0].ReleaseMBID != "release-2" || got[0].TrackCount != 22 {
+		t.Errorf("got = %+v, want the stale release-1 row replaced by the freshly-fetched release-2", got)
 	}
 }
 

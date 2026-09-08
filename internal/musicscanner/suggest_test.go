@@ -236,3 +236,86 @@ func TestSuggestMatchesNoDuplicateWhenNothingOwnedYet(t *testing.T) {
 		t.Fatalf("suggestions = %+v, want 1 with no Duplicate (nothing owned yet)", got)
 	}
 }
+
+// testTwoDiscRelease is a 2-medium fixture mirroring a real live case: a
+// vocal disc and an instrumental disc sharing the exact same track titles
+// verbatim except for the instrumental disc's own "(instrumental version)"
+// suffix — the same shape a title-only fuzzy match can't tell apart, only
+// disc+track-number slotting can.
+func testTwoDiscRelease() *musicbrainz.ReleaseWithTracklist {
+	return &musicbrainz.ReleaseWithTracklist{
+		ID:    "release-2cd",
+		Title: "Two Disc Album",
+		Media: []musicbrainz.ReleaseMedium{
+			{
+				Position: 1,
+				Tracks: []musicbrainz.ReleaseTrack{
+					{Position: 1, Title: "Spectres", Recording: musicbrainz.Recording{ID: "rec-1-vocal", Title: "Spectres"}},
+					{Position: 2, Title: "Black Orchid", Recording: musicbrainz.Recording{ID: "rec-2-vocal", Title: "Black Orchid"}},
+				},
+			},
+			{
+				Position: 2,
+				Tracks: []musicbrainz.ReleaseTrack{
+					{Position: 1, Title: "Spectres (instrumental version)", Recording: musicbrainz.Recording{ID: "rec-1-instrumental", Title: "Spectres (instrumental version)"}},
+					{Position: 2, Title: "Black Orchid (instrumental version)", Recording: musicbrainz.Recording{ID: "rec-2-instrumental", Title: "Black Orchid (instrumental version)"}},
+				},
+			},
+		},
+	}
+}
+
+// TestSuggestMatchesInfersDiscFromFolderWhenTagIsMissing is the regression
+// test for a real bug found live, right after the release-search fix
+// above: SuggestMatches (the manual Unmatched Files review flow) never
+// applied groupMultiDiscFolders' own folder-name disc inference, so a
+// CD1/CD2 pair with no embedded DiscNumber tag at all (the common,
+// undertagged real-world case) had every file default to disc 1 —
+// CD1's files correctly claimed the disc-1 slots by track number, but
+// CD2's own identically-numbered files found those same slots already
+// taken and fell back to a weak title-only match against the *other*
+// disc's differently-suffixed titles, which never clears the confidence
+// threshold. Confirmed live: even after picking the correct 2-disc
+// release version, only half a real 22-track 2CD album ever got
+// suggested. Folder-name inference (CD1 -> disc 1, CD2 -> disc 2) closes
+// the gap the same way the automatic scanner already has it closed.
+func TestSuggestMatchesInfersDiscFromFolderWhenTagIsMissing(t *testing.T) {
+	s, rf := setupOrganizeScanner(t)
+	// No DiscNumber in any tag — exactly the real-world case (a rip with
+	// per-track-number-only tagging, disc identity implied by the folder
+	// alone).
+	disc1a := seedUnmatchedFile(t, s, rf, "CD1/01 - Spectres.flac", `{"TrackNumber":1,"Title":"Spectres"}`)
+	disc1b := seedUnmatchedFile(t, s, rf, "CD1/02 - Black Orchid.flac", `{"TrackNumber":2,"Title":"Black Orchid"}`)
+	disc2a := seedUnmatchedFile(t, s, rf, "CD2/01 - Spectres.flac", `{"TrackNumber":1,"Title":"Spectres"}`)
+	disc2b := seedUnmatchedFile(t, s, rf, "CD2/02 - Black Orchid.flac", `{"TrackNumber":2,"Title":"Black Orchid"}`)
+
+	got := s.SuggestMatches([]int64{disc1a, disc1b, disc2a, disc2b}, testTwoDiscRelease())
+
+	if len(got) != 4 {
+		t.Fatalf("suggestions = %+v, want all 4 files confidently slotted (2 per disc)", got)
+	}
+	byFile := map[int64]TrackSuggestion{}
+	for _, sug := range got {
+		byFile[sug.TrackFileID] = sug
+	}
+	cases := []struct {
+		id       int64
+		wantDisc int
+		wantMBID string
+	}{
+		{disc1a, 1, "rec-1-vocal"},
+		{disc1b, 1, "rec-2-vocal"},
+		{disc2a, 2, "rec-1-instrumental"},
+		{disc2b, 2, "rec-2-instrumental"},
+	}
+	for _, c := range cases {
+		sug, ok := byFile[c.id]
+		if !ok {
+			t.Errorf("file %d: no suggestion", c.id)
+			continue
+		}
+		if sug.DiscNumber != c.wantDisc || sug.RecordingMBID != c.wantMBID {
+			t.Errorf("file %d: suggestion = %+v, want disc %d / %s", c.id, sug, c.wantDisc, c.wantMBID)
+		}
+	}
+}

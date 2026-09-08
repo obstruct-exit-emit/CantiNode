@@ -200,8 +200,14 @@ can be matched two ways:
   enough: artist and album by name match against the folder's own tags
   (threshold tunable — see
   [Configuration](configuration.md#music-matching)), version by comparing
-  the folder's own file count against each cached edition's track count.
-  Nothing is proposed until **Suggest matches** is clicked, and nothing is
+  the folder's own file count against each cached edition's track count —
+  live-checking MusicBrainz for a fresh edition list first if nothing
+  already cached is a plausible match for that count, rather than settling
+  for the closest-but-still-wrong one forever. A CD1/CD2/Disc-N folder
+  layout is disc-aware here the same way an automatic scan already is, so
+  a rip with no embedded disc number at all still slots each disc's files
+  against that disc's own tracks, not just whichever disc claims a track
+  number first. Nothing is proposed until **Suggest matches** is clicked, and nothing is
   applied until each suggestion is individually **Approve**d (or
   **Approve all**) — every field stays yours to review and change first,
   whether it was auto-filled or picked by hand. The Artist dropdown only

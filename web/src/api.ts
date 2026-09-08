@@ -1078,9 +1078,17 @@ export const api = {
     const qs = params.toString();
     return request<CalendarEntry[]>(`/api/v1/music/calendar${qs ? `?${qs}` : ""}`);
   },
-  listReleaseGroupVersions: (releaseGroupMbid: string) =>
+  // minTracks: the caller's own known target track count (e.g. the
+  // unmatched-files review page's already multi-disc-merged file count) —
+  // when given, a cache with nothing plausibly close to it is treated as a
+  // miss too, not just an empty one, so a version list cached before a real
+  // edition existed on MusicBrainz gets a fresh look instead of staying
+  // stuck on whatever was there the first time. Omit for a caller with no
+  // specific count in mind (the album page's own version label).
+  listReleaseGroupVersions: (releaseGroupMbid: string, minTracks?: number) =>
     request<ReleaseGroupVersion[]>(
-      `/api/v1/music/releasegroup/${encodeURIComponent(releaseGroupMbid)}/versions`,
+      `/api/v1/music/releasegroup/${encodeURIComponent(releaseGroupMbid)}/versions` +
+        (minTracks ? `?minTracks=${minTracks}` : ""),
     ),
   getReleaseGroupTracks: (releaseGroupMbid: string) =>
     request<ReleaseGroupTracklist>(

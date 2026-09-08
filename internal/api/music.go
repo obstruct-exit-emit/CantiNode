@@ -466,7 +466,7 @@ func (s *server) getReleaseWithTracklist(ctx context.Context, releaseMBID, relea
 func (s *server) resolveRepresentativeRelease(ctx context.Context, releaseGroupMBID string) (*musicbrainz.ReleaseWithTracklist, error) {
 	v, err := s.musicStore.GetRepresentativeReleaseVersion(releaseGroupMBID)
 	if errors.Is(err, musiclibrary.ErrNotFound) {
-		if _, cerr := s.metadataBackfill.CacheReleaseGroupVersions(ctx, releaseGroupMBID); cerr != nil {
+		if _, cerr := s.metadataBackfill.CacheReleaseGroupVersions(ctx, releaseGroupMBID, false); cerr != nil {
 			return nil, cerr
 		}
 		v, err = s.musicStore.GetRepresentativeReleaseVersion(releaseGroupMBID)
@@ -536,27 +536,77 @@ func (s *server) handleGetReleaseGroupTracklist(w http.ResponseWriter, r *http.R
 // release group — the matching UI's version picker. Falls back to a live
 // browse+cache (like resolveRepresentativeRelease) if nothing's cached yet
 // for this release group at all.
+// handleListReleaseGroupVersions serves the Version dropdown's own cached
+// editions, live-fetching on a miss (see hasRealVersionMetadata). An
+// optional ?minTracks=N — the caller's own known target track count, e.g.
+// the unmatched-files review page's already multi-disc-merged file count —
+// additionally treats a cache with nothing plausibly close to N as a miss
+// too: found live, a release group cached once (any time in the past) and
+// never revisited keeps whatever MusicBrainz had *then* forever, even
+// after a real edition (a multi-disc reissue, say) gets added to
+// MusicBrainz later — Auto-match's own confidence-gated version pick then
+// has nothing better than a badly-wrong-track-count edition to choose
+// from, silently picking it instead of what's actually needed. A caller
+// with no specific track count in mind (the album page's own version
+// label) omits minTracks and gets the plain cached-or-fetch-once behavior
+// unchanged.
 func (s *server) handleListReleaseGroupVersions(w http.ResponseWriter, r *http.Request) {
 	mbid := r.PathValue("mbid")
 	if mbid == "" {
 		writeError(w, http.StatusBadRequest, "invalid release group mbid")
 		return
 	}
+	minTracks, _ := strconv.Atoi(r.URL.Query().Get("minTracks"))
 	versions, err := s.musicStore.ListReleaseGroupVersions(mbid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !hasRealVersionMetadata(versions) {
+	if !hasRealVersionMetadata(versions) || !versionsPlausibleFor(versions, minTracks) {
 		ctx, cancel := s.metadataCtx()
 		defer cancel()
-		versions, err = s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid)
+		// force: true — a plain cache miss (empty/placeholder) would
+		// refetch anyway, but the implausible-for-minTracks case has real,
+		// already-fetched data sitting there that CacheReleaseGroupVersions
+		// would otherwise trust and skip past unchanged. See its own doc
+		// comment on force for why this is the one caller that needs it.
+		versions, err = s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid, true)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 	}
 	writeJSON(w, http.StatusOK, versions)
+}
+
+// versionsPlausibleFor reports whether any of versions has a track count
+// close enough to fileCount to be worth trusting as the cache stands — a
+// generous relative tolerance, not an exact match, since a legitimate
+// edition can genuinely differ by a track or two (a missing bonus track, a
+// slightly different regional pressing) without being the wrong release
+// entirely. fileCount <= 0 (no specific target in mind) always trusts the
+// cache as-is.
+func versionsPlausibleFor(versions []musiclibrary.ReleaseGroupVersion, fileCount int) bool {
+	if fileCount <= 0 {
+		return true
+	}
+	tolerance := fileCount / 4
+	if tolerance < 2 {
+		tolerance = 2
+	}
+	for _, v := range versions {
+		if v.TrackCount <= 0 {
+			continue
+		}
+		diff := v.TrackCount - fileCount
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff <= tolerance {
+			return true
+		}
+	}
+	return false
 }
 
 // hasRealVersionMetadata reports whether versions contains at least one
@@ -1149,7 +1199,7 @@ func (s *server) handleReleaseGroupCover(w http.ResponseWriter, r *http.Request)
 	if errors.Is(err, musiclibrary.ErrNotFound) {
 		ctx, cancel := s.metadataCtx()
 		defer cancel()
-		if _, cerr := s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid); cerr != nil {
+		if _, cerr := s.metadataBackfill.CacheReleaseGroupVersions(ctx, mbid, false); cerr != nil {
 			writeError(w, http.StatusBadGateway, cerr.Error())
 			return
 		}

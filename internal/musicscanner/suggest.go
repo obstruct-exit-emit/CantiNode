@@ -71,6 +71,22 @@ func (s *Scanner) SuggestMatches(fileIDs []int64, release *musicbrainz.ReleaseWi
 		if tf.TagsJSON != "" {
 			_ = json.Unmarshal([]byte(tf.TagsJSON), &tags)
 		}
+		// Same folder-name disc inference groupMultiDiscFolders applies
+		// during an automatic scan (tags always win when present) —
+		// without it, every file here defaults to disc 1 (slotTrack's own
+		// fallback for DiscNumber == 0), so a CD1/CD2 pair with no
+		// embedded disc tags at all has CD1's files claim every disc-1
+		// position by track number, leaving CD2's own files nothing to
+		// slot into but a weaker title-only fuzzy match against the
+		// *other* disc's differently-titled tracks (an "(instrumental
+		// version)" suffix, say) — found live, this alone left half a
+		// real 2-disc album unsuggested even once the right release
+		// version was chosen.
+		if tags.DiscNumber == 0 {
+			if disc := inferDiscNumber(filepath.Base(filepath.Dir(tf.Path))); disc > 0 {
+				tags.DiscNumber = disc
+			}
+		}
 		idx, ft, ok := slotTrack(&tags, tracks, used)
 		if !ok {
 			continue
