@@ -50,3 +50,40 @@ func TestSystemUpdateAndRestartRunTheExpectedCommand(t *testing.T) {
 		t.Errorf("restart command = %q %v, want bash -lc \"reboot now\"", got.name, got.args)
 	}
 }
+
+// TestSystemUpdateAndRestartUseConfiguredCommand is the regression test
+// for an altitude fix: the exact command each button runs used to be a
+// hardcoded Go string literal, baking one deployment's own convention
+// (an "update" shell alias, a full host "reboot now") into source for
+// every CantiNode install — a different deployment (no such alias, a
+// container where rebooting the host is wrong) had no way to change it
+// short of editing Go source and rebuilding. Settings → System
+// (config.SystemSettings) now makes this configurable; confirmed here
+// that a saved override actually reaches the command execution, not just
+// the settings round trip.
+func TestSystemUpdateAndRestartUseConfiguredCommand(t *testing.T) {
+	a := newTestAPI(t)
+
+	var saved struct {
+		UpdateCommand  string `json:"updateCommand"`
+		RestartCommand string `json:"restartCommand"`
+	}
+	a.want(a.call("PUT", "/api/v1/settings/system",
+		map[string]string{"updateCommand": "deploy.sh", "restartCommand": "systemctl reboot"},
+		&saved), http.StatusOK)
+	if saved.UpdateCommand != "deploy.sh" || saved.RestartCommand != "systemctl reboot" {
+		t.Fatalf("saved settings = %+v, want the values just submitted", saved)
+	}
+
+	got := fakeSystemCommand(t)
+	a.want(a.call("POST", "/api/v1/system/update", nil, nil), http.StatusAccepted)
+	if got.name != "bash" || len(got.args) != 2 || got.args[1] != "deploy.sh" {
+		t.Errorf("update command = %q %v, want bash -lc deploy.sh (the configured override)", got.name, got.args)
+	}
+
+	got = fakeSystemCommand(t)
+	a.want(a.call("POST", "/api/v1/system/restart", nil, nil), http.StatusAccepted)
+	if got.name != "bash" || len(got.args) != 2 || got.args[1] != "systemctl reboot" {
+		t.Errorf("restart command = %q %v, want bash -lc \"systemctl reboot\" (the configured override)", got.name, got.args)
+	}
+}

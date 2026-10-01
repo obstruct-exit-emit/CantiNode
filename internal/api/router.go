@@ -285,6 +285,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 	mux.HandleFunc("PUT /api/v1/settings/tagwrite", s.requireAdmin(s.handlePutTagWriteSettings))
 	mux.HandleFunc("GET /api/v1/settings/timings", s.requireAdmin(s.handleGetTimingSettings))
 	mux.HandleFunc("PUT /api/v1/settings/timings", s.requireAdmin(s.handlePutTimingSettings))
+	mux.HandleFunc("GET /api/v1/settings/system", s.requireAdmin(s.handleGetSystemSettings))
+	mux.HandleFunc("PUT /api/v1/settings/system", s.requireAdmin(s.handlePutSystemSettings))
 	mux.HandleFunc("GET /api/v1/settings/pathmappings", s.requireAdmin(s.handleGetPathMappings))
 	mux.HandleFunc("PUT /api/v1/settings/pathmappings", s.requireAdmin(s.handlePutPathMappings))
 	mux.HandleFunc("GET /api/v1/settings/plex", s.requireAdmin(s.handleGetPlexSettings))

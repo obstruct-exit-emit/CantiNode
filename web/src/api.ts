@@ -242,6 +242,17 @@ export interface TimingSettings {
   importListSyncIntervalMinutes: number;
 }
 
+// SystemSettings: the exact host commands the System page's Update/Restart
+// buttons run. Empty = the built-in default ("update" / "reboot now") —
+// see api.systemUpdate/systemRestart's own doc comment for why those run
+// through a login shell. A different deployment convention (no "update"
+// alias, a container where rebooting the host is wrong) overrides either
+// independently.
+export interface SystemSettings {
+  updateCommand: string;
+  restartCommand: string;
+}
+
 // PlexSettings pushes a "refresh this path" notification to a Plex Media
 // Server whenever CantiNode adds, moves, or removes files on disk, so
 // Plex's own library stays current without a manual rescan. Off by
@@ -828,6 +839,9 @@ export const api = {
   // actually happen.
   systemUpdate: () => request<{ status: string }>("/api/v1/system/update", { method: "POST" }),
   systemRestart: () => request<{ status: string }>("/api/v1/system/restart", { method: "POST" }),
+  getSystemSettings: () => request<SystemSettings>("/api/v1/settings/system"),
+  saveSystemSettings: (settings: SystemSettings) =>
+    request<SystemSettings>("/api/v1/settings/system", { ...json(settings), method: "PUT" }),
   authStatus: () => request<AuthStatus>("/api/v1/auth/status"),
   // First-run wizard: only answers/claims on a fresh instance — no API key.
   setupStatus: () => request<{ needed: boolean }>("/api/v1/setup/status"),

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type BackupInfo, type HealthResult, type SystemStatus } from "../api";
+import {
+  api,
+  type BackupInfo,
+  type HealthResult,
+  type SystemSettings,
+  type SystemStatus,
+} from "../api";
 import { formatBytes, relativeTime } from "../format";
 import { useUi } from "../ui";
 
@@ -103,10 +109,80 @@ export default function SystemView({
           </dd>
         </dl>
       </section>
+      <SystemCommandsCard onError={onError} />
       <HealthCard onError={onError} />
       <BackupsCard onError={onError} />
       <LogCard onError={onError} />
     </>
+  );
+}
+
+// SystemCommandsCard lets an admin override the exact host commands the
+// Update/Restart buttons above run — see config.SystemSettings' own doc
+// comment for why this needs to be a real setting rather than fixed in
+// source: what "update" or "restart" means is entirely host/deployment
+// specific. A blank field keeps the built-in default (shown as its own
+// placeholder), not an empty command.
+function SystemCommandsCard({ onError }: { onError: (message: string) => void }) {
+  const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    api
+      .getSystemSettings()
+      .then(setSettings)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
+  }, [onError]);
+
+  if (!settings) return null;
+
+  const save = () => {
+    setBusy(true);
+    setNotice("");
+    api
+      .saveSystemSettings(settings)
+      .then((saved) => {
+        setSettings(saved);
+        setNotice("✓ Saved");
+      })
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Update &amp; restart commands</h2>
+        <button disabled={busy} onClick={save}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+      <p className="muted">
+        The exact host commands the Update/Restart buttons above run, via a
+        login shell (<code>bash -lc</code>). Leave a field blank to use the
+        default shown as its placeholder.
+      </p>
+      <label>
+        Update command
+        <input
+          type="text"
+          placeholder="update"
+          value={settings.updateCommand}
+          onChange={(e) => setSettings({ ...settings, updateCommand: e.target.value })}
+        />
+      </label>
+      <label>
+        Restart command
+        <input
+          type="text"
+          placeholder="reboot now"
+          value={settings.restartCommand}
+          onChange={(e) => setSettings({ ...settings, restartCommand: e.target.value })}
+        />
+      </label>
+      {notice && <p className="notice ok">{notice}</p>}
+    </section>
   );
 }
 

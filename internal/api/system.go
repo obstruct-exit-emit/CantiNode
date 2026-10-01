@@ -91,22 +91,26 @@ func (s *server) runSystemCommand(w http.ResponseWriter, command string) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
-// handleSystemUpdate runs the host's own "update" command/script/alias —
-// whatever an admin would type into the server's own console to pull and
-// apply a new build. Admin-only (requireAdmin, see router.go): this is
-// arbitrary host-level execution, not scoped to CantiNode's own data at
-// all.
+// handleSystemUpdate runs the host's own update command — config.
+// SystemSettings.UpdateCmd() (default "update"), configurable per
+// deployment at Settings → System rather than fixed in source, since what
+// "update" means is entirely host-specific. Whatever it resolves to is
+// run through a login shell, same as an admin would type into the
+// server's own console to pull and apply a new build. Admin-only
+// (requireAdmin, see router.go): this is arbitrary host-level execution,
+// not scoped to CantiNode's own data at all.
 func (s *server) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
-	s.runSystemCommand(w, "update")
+	s.runSystemCommand(w, s.cfg.SystemSettings().UpdateCmd())
 }
 
-// handleSystemRestart reboots the host machine outright (not just this
-// process) — confirmed as the intended behavior, matching how this
-// deployment is actually operated (a Proxmox box, not a container where
-// restarting just the service would be the lighter-weight equivalent).
-// Admin-only, see handleSystemUpdate's own doc comment.
+// handleSystemRestart runs config.SystemSettings.RestartCmd() (default
+// "reboot now" — the host, not just this process), same configurability
+// and reasoning as handleSystemUpdate's own doc comment: a deployment that
+// wants the lighter-weight "just restart the service" behavior sets this
+// explicitly instead. Admin-only, see handleSystemUpdate's own doc
+// comment.
 func (s *server) handleSystemRestart(w http.ResponseWriter, r *http.Request) {
-	s.runSystemCommand(w, "reboot now")
+	s.runSystemCommand(w, s.cfg.SystemSettings().RestartCmd())
 }
 
 // handleIndex serves the embedded web UI: real files directly, anything else

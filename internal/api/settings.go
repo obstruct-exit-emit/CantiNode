@@ -178,6 +178,25 @@ func (s *server) handlePutTimingSettings(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, s.cfg.TimingSettings())
 }
 
+// --- System update/restart commands ---
+
+func (s *server) handleGetSystemSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.SystemSettings())
+}
+
+func (s *server) handlePutSystemSettings(w http.ResponseWriter, r *http.Request) {
+	var req config.SystemSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.cfg.SetSystemSettings(req); err != nil {
+		writeError(w, http.StatusInternalServerError, "saving config: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.cfg.SystemSettings())
+}
+
 // --- Plex notification settings ---
 
 func (s *server) handleGetPlexSettings(w http.ResponseWriter, r *http.Request) {

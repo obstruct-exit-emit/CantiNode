@@ -508,6 +508,46 @@ func defaultTagWrite() TagWriteSettings {
 	return TagWriteSettings{}
 }
 
+// SystemSettings holds the host-level commands the System page's
+// Update/Restart buttons run (internal/api's handleSystemUpdate/
+// handleSystemRestart) — a destructive, deployment-specific choice that
+// stays a configurable setting rather than a hardcoded branch: a different
+// host or deployment convention (no "update" alias on PATH, a container
+// where rebooting the host isn't the right "restart" at all) needs a
+// different command, with no way to supply one short of editing Go source
+// and rebuilding otherwise.
+type SystemSettings struct {
+	// UpdateCommand is run (via `bash -lc`, so a login shell's own
+	// profile/PATH/aliases resolve the same way they would interactively)
+	// when an admin clicks Update. Empty uses the default "update" — the
+	// Proxmox-console convention this was originally built for.
+	UpdateCommand string `yaml:"update_command,omitempty" json:"updateCommand"`
+	// RestartCommand is run the same way when an admin clicks Restart.
+	// Empty uses the default "reboot now" — a full host reboot, not just
+	// restarting the CantiNode process. A deployment that wants the
+	// lighter-weight "just restart the service" behavior instead should
+	// set this explicitly (e.g. "systemctl restart cantinode").
+	RestartCommand string `yaml:"restart_command,omitempty" json:"restartCommand"`
+}
+
+// UpdateCmd resolves the effective update command — UpdateCommand, or the
+// built-in default when unset.
+func (s SystemSettings) UpdateCmd() string {
+	if s.UpdateCommand != "" {
+		return s.UpdateCommand
+	}
+	return "update"
+}
+
+// RestartCmd resolves the effective restart command — RestartCommand, or
+// the built-in default when unset.
+func (s SystemSettings) RestartCmd() string {
+	if s.RestartCommand != "" {
+		return s.RestartCommand
+	}
+	return "reboot now"
+}
+
 type Config struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
@@ -520,6 +560,7 @@ type Config struct {
 	TagWrite TagWriteSettings `yaml:"tag_write,omitempty"`
 	Timings  TimingSettings   `yaml:"timings,omitempty"`
 	Plex     PlexSettings     `yaml:"plex,omitempty"`
+	System   SystemSettings   `yaml:"system,omitempty"`
 	// PathMappingList translates client-reported download paths onto this
 	// machine's filesystem (Completed Download Handling reads them).
 	PathMappingList []PathMapping `yaml:"path_mappings,omitempty"`
@@ -750,6 +791,29 @@ func (c *Config) TimingSettings() TimingSettings {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.Timings
+}
+
+// SystemSettings returns the Update/Restart buttons' own host commands
+// (empty fields = default — see SystemSettings' own doc comment).
+func (c *Config) SystemSettings() SystemSettings {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.System
+}
+
+// SetSystemSettings replaces and persists the Update/Restart commands.
+// Leading/trailing whitespace is trimmed so an accidental trailing space
+// doesn't change what a login shell resolves "update " to; otherwise
+// unvalidated — this is deliberately arbitrary host-level command text the
+// admin is trusted with, the same way a hand-edited config.yaml already
+// would be.
+func (c *Config) SetSystemSettings(s SystemSettings) error {
+	s.UpdateCommand = strings.TrimSpace(s.UpdateCommand)
+	s.RestartCommand = strings.TrimSpace(s.RestartCommand)
+	c.mu.Lock()
+	c.System = s
+	c.mu.Unlock()
+	return c.save()
 }
 
 // PathMappings returns a copy of the remote→local path mappings.
