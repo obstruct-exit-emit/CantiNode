@@ -111,9 +111,12 @@ function TrackArtistCredit({ credit, trackTitle }: { credit: string; trackTitle:
 // Full-page album detail: header with cover art, release info, and
 // album-scoped Scan/Organize/Write tags/Remove actions (unlike the artist
 // page's versions, these never touch a sibling album's files), then its
-// tracks with the file(s) matched to each — path/format/size only, no
-// per-file actions: organize/write-tags/delete are all bulk, album- or
-// artist-scoped actions now, not something to repeat per file.
+// tracks with the file(s) matched to each — path/format/size only,
+// organize/write-tags are bulk, album- or artist-scoped actions, not
+// something to repeat per file. The one exception is deleting a specific
+// file: a track stuck with more than one (a stray duplicate import) gets
+// its own per-file Delete button on each nested row, since a bulk action
+// has no way to say which of a track's several files is the one to drop.
 export default function AlbumDetailView({
   id,
   onError,
@@ -139,6 +142,7 @@ export default function AlbumDetailView({
   const [addToPlaylist, setAddToPlaylist] = useState<{ label: string; trackIds: number[] } | null>(null);
   const [playlistsForTrack, setPlaylistsForTrack] = useState<{ trackId: number; title: string } | null>(null);
   const [showWriteTags, setShowWriteTags] = useState(false);
+  const [busyFileId, setBusyFileId] = useState<number | null>(null);
 
   const reload = useCallback(() => {
     Promise.all([api.getMusicAlbum(id), api.listMusicTracks(id)])
@@ -275,6 +279,23 @@ export default function AlbumDetailView({
       })
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
       .finally(() => setHeaderBusy(false));
+  };
+
+  // Resolves a track stuck with more than one file (a stray duplicate
+  // import — most commonly a multi-disc album whose second disc ended up
+  // pointed at the same recording(s) its first disc already owns) by
+  // deleting the one the user doesn't want to keep. Deletes from disk too
+  // (api.deleteTrackFile is unconditional, see its own doc comment) — a
+  // plain confirm() rather than RemovePanel's own fuller dialog since this
+  // is a single already-identified file, not a bulk album-wide removal.
+  const deleteDuplicateFile = (f: MusicTrackFile) => {
+    if (!window.confirm(`Delete this file from disk?\n\n${f.path}`)) return;
+    setBusyFileId(f.id);
+    api
+      .deleteTrackFile(f.id)
+      .then(reload)
+      .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)))
+      .finally(() => setBusyFileId(null));
   };
 
   const confirmWriteTags = (clear: boolean) => {
@@ -541,6 +562,14 @@ export default function AlbumDetailView({
                           onClick={() => setTagsFile(f)}
                         >
                           Tags
+                        </button>
+                        <button
+                          className="toggle danger"
+                          title="Delete this file from disk — keep whichever of this track's other file(s) is correct"
+                          disabled={busyFileId === f.id}
+                          onClick={() => deleteDuplicateFile(f)}
+                        >
+                          {busyFileId === f.id ? "Deleting…" : "Delete"}
                         </button>
                       </div>
                     ))}

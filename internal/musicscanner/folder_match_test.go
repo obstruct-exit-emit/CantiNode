@@ -1270,6 +1270,95 @@ func TestResolveExpectedReleaseSkipsSearchForGrabbedFiles(t *testing.T) {
 	}
 }
 
+// TestResolveExpectedReleaseLoneDiscFolderPrefersMultiDiscVersion is the
+// regression test for a real bug found live: a lone "CD2" folder (no CD1
+// sibling present this scan — see
+// TestScanRootFolderLateArrivingDiscGetsItsOwnDiscNumberNotDisc1 above for
+// why that happens) has only its own 2 files to score cached versions by,
+// which always favors a single-disc edition with a close track count over
+// the real 2-disc edition's own much larger total — even once CD2's own
+// files are correctly disc-numbered, they still land on the SAME
+// single-disc edition CD1 already used, matching to CD1's own exact
+// recordings and leaving a track with two files pointing at the same
+// recording ("11 of its 12 tracks each have two files", confirmed live
+// against a real Avantasia 2CD release). A disc-pattern folder's own
+// inferred disc number (2 here) is reliable evidence the true release has
+// at least that many discs, independent of the folder's own file count —
+// narrowing the version pick to ones with at least that many media closes
+// the gap.
+func TestResolveExpectedReleaseLoneDiscFolderPrefersMultiDiscVersion(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.releaseLookups["rel-2cd"] = mbReleaseWithTracklist{
+		ID: "rel-2cd", Title: "A Paranormal Evening",
+		ArtistCredit: []mbArtistCredit{{Name: "Avantasia", Artist: mbArtistRef{ID: "artist-mbid", Name: "Avantasia"}}},
+		ReleaseGroup: mbReleaseGroup{ID: "rg-paranormal", Title: "A Paranormal Evening", PrimaryType: "Album"},
+		Media: []mbMedium{
+			{Format: "CD", Position: 1, TrackCount: 2, Tracks: []mbReleaseTrack{
+				{Position: 1, Title: "Overture", Recording: mbTrackRecording{ID: "rec-d1-t1", Title: "Overture"}},
+				{Position: 2, Title: "Ghost in the Moon", Recording: mbTrackRecording{ID: "rec-d1-t2", Title: "Ghost in the Moon"}},
+			}},
+			{Format: "CD", Position: 2, TrackCount: 2, Tracks: []mbReleaseTrack{
+				{Position: 1, Title: "Overture", Recording: mbTrackRecording{ID: "rec-d2-t1", Title: "Overture"}},
+				{Position: 2, Title: "Ghost in the Moon", Recording: mbTrackRecording{ID: "rec-d2-t2", Title: "Ghost in the Moon"}},
+			}},
+		},
+	}
+
+	s, rf := newFolderTestScanner(t, fs)
+	// Both editions share a release group — a single-disc one scores a
+	// near-perfect file-count match (2 files, 2 tracks) against this lone
+	// CD2 folder's own count alone, which is exactly the trap: without the
+	// disc-count-aware narrowing, this is the one picked, same as CD1 already
+	// used.
+	if err := s.db.ReplaceReleaseGroupVersions("rg-paranormal", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-paranormal", ReleaseMBID: "rel-1cd", Title: "A Paranormal Evening", TrackCount: 2, MediaSummary: "CD", IsRepresentative: true},
+		{ReleaseGroupMBID: "rg-paranormal", ReleaseMBID: "rel-2cd", Title: "A Paranormal Evening (Limited Edition)", TrackCount: 4, MediaSummary: "2×CD"},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+
+	cd2Dir := filepath.Join(rf.Path, "Avantasia", "A Paranormal Evening (2CD)", "CD2")
+	if err := os.MkdirAll(cd2Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p1 := buildFLACFile(t, cd2Dir, "01.flac", map[string]string{"ARTIST": "Avantasia", "ALBUM": "A Paranormal Evening", "TITLE": "Overture", "TRACKNUMBER": "1"})
+	p2 := buildFLACFile(t, cd2Dir, "02.flac", map[string]string{"ARTIST": "Avantasia", "ALBUM": "A Paranormal Evening", "TITLE": "Ghost in the Moon", "TRACKNUMBER": "2"})
+	for _, p := range []string{p1, p2} {
+		if err := s.db.SeedExpectedReleaseGroup(rf.ID, p, "rg-paranormal"); err != nil {
+			t.Fatalf("SeedExpectedReleaseGroup(%s): %v", p, err)
+		}
+	}
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 2 {
+		t.Fatalf("FilesMatched = %d, want 2 (result=%+v)", result.FilesMatched, result)
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil || len(albums) != 1 {
+		t.Fatalf("albums = %+v, err %v, want exactly 1", albums, err)
+	}
+	if albums[0].MBID != "rel-2cd" {
+		t.Errorf("album MBID = %q, want the 2-disc edition %q, not the single-disc one it would have picked by file count alone", albums[0].MBID, "rel-2cd")
+	}
+
+	tracks, err := s.db.ListTracksByAlbum(albums[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tr := range tracks {
+		if tr.DiscNumber != 2 {
+			t.Errorf("track %+v: disc number = %d, want 2", tr, tr.DiscNumber)
+		}
+		if tr.MBID != "rec-d2-t1" && tr.MBID != "rec-d2-t2" {
+			t.Errorf("track %+v: want one of CD2's own real recordings, not CD1's", tr)
+		}
+	}
+}
+
 // TestResolveExpectedReleaseSafetyGateRefusesMismatchedTags is the
 // regression test for the safety concern raised while designing this
 // feature: a grab whose actual content doesn't match what was searched

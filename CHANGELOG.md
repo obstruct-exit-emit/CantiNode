@@ -11,6 +11,26 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A track stuck with more than one file (most commonly the multi-disc
+  mismatch below, but any stray duplicate import) had no way to resolve
+  from the UI** — the Album page already showed both files on their own
+  nested rows, but offered only "Tags" on each, no way to say which one to
+  keep. Each duplicate row now has its own Delete button (deletes from
+  disk, same as the rest of this endpoint).
+- **A lone, unmerged disc folder (no sibling available to merge with this
+  scan) picked a single-disc edition by file count alone, even when its
+  own folder name says it's disc 2+ of a release that must have more
+  discs than that** — compounding the bug just above: once picked, every
+  file in that folder matches the exact same recordings its sibling disc
+  already owns, which is how a track ends up with two files in the first
+  place. Confirmed live on the same real Avantasia 2CD release: CD2 (no
+  CD1 sibling available to merge with) matched a single-disc 12-track
+  edition of the release by file count, landing on the exact same
+  recordings CD1 already used. A disc-pattern folder's own inferred disc
+  number (CD2 → 2) now narrows the cached-version pick to editions with
+  at least that many discs before scoring by file count, whenever that
+  evidence is available — never worse, since it only narrows when
+  something cached actually qualifies.
 - **A late-arriving disc of a multi-disc album could organize every one of
   its tracks on top of its already-owned sibling disc's own files**,
   failing each with "destination already exists" — found live against a

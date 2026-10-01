@@ -293,6 +293,28 @@ func (s *Scanner) resolveExpectedRelease(ctx context.Context, remaining []folder
 		}
 	}
 
+	// A lone disc-pattern folder's own files were already stamped with
+	// their real disc number above (inferDiscNumberForLoneDiscFolder,
+	// matchFolder's own caller) — a "CD2" folder names its disc as 2
+	// regardless of whether a sibling CD1 was available to merge with
+	// this scan. That's independent, reliable evidence the true release
+	// has AT LEAST that many discs, which file-count scoring alone can't
+	// see: a lone 12-file CD2 folder compared against each version's own
+	// TOTAL track count always favors a single-disc 12-track edition over
+	// the real 2-disc one, since nothing here otherwise knows a second
+	// disc exists on disk at all. Confirmed live: a 2CD Avantasia release
+	// matched its CD2 to the SAME single-disc edition CD1 already used,
+	// pointing both discs' files at the exact same recordings. Narrows to
+	// versions with at least that many media before the file-count pick,
+	// falling back to the unfiltered list (today's behavior) when nothing
+	// cached meets it — never worse, since a version this picky about disc
+	// count might not have ever been fetched.
+	if minDiscs := remaining[0].tags.DiscNumber; minDiscs > 1 {
+		if narrowed := filterVersionsByMinDiscs(versions, minDiscs); len(narrowed) > 0 {
+			versions = narrowed
+		}
+	}
+
 	best := pickBestVersionByFileCount(versions, len(remaining))
 	if best == nil {
 		return nil, 0, false
@@ -867,6 +889,46 @@ func inferDiscNumberForLoneDiscFolder(entries []folderEntry) []folderEntry {
 			e = folderEntry{tf: e.tf, tags: &tagsCopy}
 		}
 		out[i] = e
+	}
+	return out
+}
+
+// mediaSummaryCountPrefix matches MediaSummary's own leading "N×" multiplier
+// ("2×CD" -> 2) — see musicbrainz.ReleaseSearchResult.MediaSummary, which
+// ReleaseGroupVersion.MediaSummary is cached from.
+var mediaSummaryCountPrefix = regexp.MustCompile(`^(\d+)×`)
+
+// mediaCount reads a cached version's own disc/medium count straight back
+// out of its human-readable MediaSummary string ("2×CD" -> 2) — the
+// closest thing to a real disc count available without re-fetching the
+// release's full tracklist (which MediaSummary was itself rendered from,
+// before only the summary string was kept for caching — see
+// musicbrainz.ReleaseSearchResult.Media's own doc comment). A summary with
+// no "N×" prefix names exactly one medium ("CD", "Vinyl", "Digital
+// Media"); empty means nothing was ever recorded to judge from at all.
+func mediaCount(summary string) int {
+	if summary == "" {
+		return 0
+	}
+	if m := mediaSummaryCountPrefix.FindStringSubmatch(summary); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 1
+}
+
+// filterVersionsByMinDiscs returns the subset of versions whose own cached
+// MediaSummary shows at least minDiscs media — see resolveExpectedRelease's
+// own doc comment on why a lone disc-pattern folder's inferred disc number
+// is reliable evidence of a minimum real disc count that plain file-count
+// scoring can't see on its own.
+func filterVersionsByMinDiscs(versions []musiclibrary.ReleaseGroupVersion, minDiscs int) []musiclibrary.ReleaseGroupVersion {
+	var out []musiclibrary.ReleaseGroupVersion
+	for _, v := range versions {
+		if mediaCount(v.MediaSummary) >= minDiscs {
+			out = append(out, v)
+		}
 	}
 	return out
 }
