@@ -30,25 +30,46 @@ func fakeSystemCommand(t *testing.T) *capturedCommand {
 	return got
 }
 
+// wantSystemdRunArgs is the exact systemd-run invocation runSystemCommand
+// is expected to build around command — see its own doc comment for why
+// this specific shape (a detached transient scope, not a direct child
+// process) matters: a real production outage confirmed an "update" script
+// that stops this very service gets killed as collateral damage from its
+// own cgroup's teardown unless it's launched outside that cgroup.
+func wantSystemdRunArgs(command string) []string {
+	return []string{"--scope", "--collect", "--quiet", "--", "bash", "-lc", command}
+}
+
+func assertSystemCommand(t *testing.T, got *capturedCommand, wantCommand string) {
+	t.Helper()
+	want := wantSystemdRunArgs(wantCommand)
+	if got.name != "systemd-run" || len(got.args) != len(want) {
+		t.Fatalf("command = %q %v, want systemd-run %v", got.name, got.args, want)
+	}
+	for i := range want {
+		if got.args[i] != want[i] {
+			t.Errorf("command args = %v, want %v", got.args, want)
+			return
+		}
+	}
+}
+
 // TestSystemUpdateAndRestartRunTheExpectedCommand confirms each endpoint
 // invokes exactly the command an admin typing it into the server's own
-// console would run — "update" and "reboot now" respectively, via a login
-// shell (bash -lc) so a deployment-specific alias/script/PATH entry
-// resolves the same way it would interactively.
+// console would run — "update" and "reboot now" respectively — inside its
+// own detached systemd scope (not as a direct child process of this
+// service) so a script that stops/restarts cantinode.service itself
+// survives that service being torn down mid-script.
 func TestSystemUpdateAndRestartRunTheExpectedCommand(t *testing.T) {
 	a := newTestAPI(t)
 
 	got := fakeSystemCommand(t)
 	a.want(a.call("POST", "/api/v1/system/update", nil, nil), http.StatusAccepted)
-	if got.name != "bash" || len(got.args) != 2 || got.args[0] != "-lc" || got.args[1] != "update" {
-		t.Errorf("update command = %q %v, want bash -lc update", got.name, got.args)
-	}
+	assertSystemCommand(t, got, "update")
 
 	got = fakeSystemCommand(t)
 	a.want(a.call("POST", "/api/v1/system/restart", nil, nil), http.StatusAccepted)
-	if got.name != "bash" || len(got.args) != 2 || got.args[0] != "-lc" || got.args[1] != "reboot now" {
-		t.Errorf("restart command = %q %v, want bash -lc \"reboot now\"", got.name, got.args)
-	}
+	assertSystemCommand(t, got, "reboot now")
 }
 
 // TestSystemUpdateAndRestartUseConfiguredCommand is the regression test
@@ -77,13 +98,9 @@ func TestSystemUpdateAndRestartUseConfiguredCommand(t *testing.T) {
 
 	got := fakeSystemCommand(t)
 	a.want(a.call("POST", "/api/v1/system/update", nil, nil), http.StatusAccepted)
-	if got.name != "bash" || len(got.args) != 2 || got.args[1] != "deploy.sh" {
-		t.Errorf("update command = %q %v, want bash -lc deploy.sh (the configured override)", got.name, got.args)
-	}
+	assertSystemCommand(t, got, "deploy.sh")
 
 	got = fakeSystemCommand(t)
 	a.want(a.call("POST", "/api/v1/system/restart", nil, nil), http.StatusAccepted)
-	if got.name != "bash" || len(got.args) != 2 || got.args[1] != "systemctl reboot" {
-		t.Errorf("restart command = %q %v, want bash -lc \"systemctl reboot\" (the configured override)", got.name, got.args)
-	}
+	assertSystemCommand(t, got, "systemctl reboot")
 }

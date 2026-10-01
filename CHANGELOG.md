@@ -11,6 +11,24 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **The Update button's own command could kill itself mid-run, leaving
+  the service down for good until a human noticed and started it by
+  hand** — root-caused from a real production outage (journalctl showed
+  the service stopping, the update command dying by `signal: terminated`
+  in the same instant, then silence for over an hour): a self-update
+  script that calls `systemctl stop`/`restart` on this very service is
+  itself a child process living inside that service's own systemd cgroup,
+  so the default `KillMode=control-group` kills the script as collateral
+  damage the moment it reaches that line — before it ever reaches
+  whatever comes after (rebuilding, starting the new binary). The service
+  ends up cleanly stopped, not failed, which systemd has no reason to
+  auto-restart on its own. Both commands now run inside their own
+  detached `systemd-run --scope`, outside CantiNode's cgroup entirely, so
+  the command survives this service being stopped out from under it —
+  the same way any real self-updating service script needs to. Requires
+  either running as root (every deployment confirmed so far) or an
+  explicit polkit rule granting `org.freedesktop.systemd1.manage-units`
+  for a dedicated lower-privilege service account.
 - **The Update/Restart buttons' own "watch the console/log to see it
   finish" guidance was actively misleading for the one case it mattered
   most** — confirmed live: a real production update left the service

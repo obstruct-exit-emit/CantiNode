@@ -69,15 +69,43 @@ var systemCommandRunner = exec.Command
 // same way it would run if the admin typed it into the server's own
 // console themselves, sourcing whatever profile/PATH entry makes a bare
 // "update" (or any other deployment-specific alias/script) resolve to
-// something real, which a bare exec.Command(command) alone wouldn't. Kicks
-// it off and returns immediately rather than waiting for it to finish: the
-// whole point of "update" or "reboot now" is to stop or replace this very
-// process, so a response the caller is still waiting on can vanish along
-// with the connection mid-command — the admin watches the console/log
-// directly to see it actually happen, same as running it by hand.
+// something real, which a bare exec.Command(command) alone wouldn't.
+//
+// Launched via `systemd-run --scope`, in its own transient scope unit
+// outside CantiNode's own systemd cgroup, not as a direct child process —
+// confirmed live as the actual root cause of a real outage: an "update"
+// script that itself calls systemctl stop/restart on this very service is
+// a child process of that service's own cgroup, so systemd's default
+// KillMode=control-group kills the script itself the instant it reaches
+// that line (collateral damage from stopping its own parent), cutting it
+// off before it ever reaches whatever comes after — rebuilding, then
+// starting the new binary. That leaves the unit cleanly stopped (not
+// failed), which systemd has no reason to auto-restart, so nothing brings
+// it back until a human notices and starts it by hand. A separate scope,
+// managed directly by systemd (PID 1) rather than nested inside this
+// service's own cgroup, survives cantinode.service being stopped out from
+// under it, the same way any real "self-updating service" script needs
+// to.
+//
+// Kicks it off and returns immediately rather than waiting for it to
+// finish: the whole point of "update" or "reboot now" is to stop or
+// replace this very process, so a response the caller is still waiting on
+// can vanish along with the connection mid-command — the admin watches
+// the console/log directly to see it actually happen, same as running it
+// by hand.
+//
+// systemd-run's own transient-unit creation needs either root (bypasses
+// polkit outright — true for every deployment confirmed working so far)
+// or an explicit polkit rule granting org.freedesktop.systemd1.manage-units
+// to CantiNode's own service account when it runs as a dedicated
+// lower-privilege user (e.g. the systemd unit template's own "User=
+// cantinode" convention) — confirmed live: that exact non-root setup fails
+// with "Interactive authentication required" otherwise. A clean failure
+// (cmd.Start() itself errors, logged and returned as a 500) either way,
+// never a silent one.
 func (s *server) runSystemCommand(w http.ResponseWriter, command string) {
 	slog.Warn("api: admin triggered a system command", "command", command)
-	cmd := systemCommandRunner("bash", "-lc", command)
+	cmd := systemCommandRunner("systemd-run", "--scope", "--collect", "--quiet", "--", "bash", "-lc", command)
 	if err := cmd.Start(); err != nil {
 		slog.Error("api: system command failed to start", "command", command, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
