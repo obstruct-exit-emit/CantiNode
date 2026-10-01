@@ -417,6 +417,111 @@ func TestScanRootFolderLateArrivingDiscOfAlreadyOwnedAlbumStillMatches(t *testin
 	}
 }
 
+// TestScanRootFolderLateArrivingDiscGetsItsOwnDiscNumberNotDisc1 is the
+// regression test for a real bug found live: when CD2 arrives on a later
+// scan (CD1 already owned/matched, invisible to this scan's own
+// groupMultiDiscFolders pass — see the test above), resolveFolderRelease's
+// own lone-disc-folder special case still runs a real release search and
+// correctly resolves the whole multi-disc release — but nothing ever told
+// matchEntriesToRelease this standalone folder specifically IS disc 2:
+// every file defaults to disc 1 (slotTrack's own fallback for a missing
+// DiscNumber tag) and, with a brand new empty `used` map scoped to this
+// one matchFolder call (sharing no state at all with CD1's own, separate,
+// already-finished matchFolder call from the earlier scan), confidently
+// claims disc 1's own track slots directly via the strong track-number
+// match — the exact same slots CD1's files already own. Confirmed live:
+// organizing CD2 then failed every one of its tracks with "destination
+// already exists", since the DB ended up recording DiscNumber=1 for CD2's
+// files too. CD2's own files must be recognized as disc 2 from their
+// folder name even without a merge partner.
+func TestScanRootFolderLateArrivingDiscGetsItsOwnDiscNumberNotDisc1(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.releaseSearch = []mbReleaseSearchResult{
+		{ID: "release-mbid", Title: "Geogaddi", Score: 100, TrackCount: 4,
+			ArtistCredit: []mbArtistCredit{{Name: "Boards of Canada", Artist: mbArtistRef{ID: "artist-mbid", Name: "Boards of Canada"}}},
+			ReleaseGroup: mbReleaseGroup{ID: "rg-geogaddi", Title: "Geogaddi", PrimaryType: "Album"}},
+	}
+	// A genuine 2-medium release: disc 2 deliberately repeats disc 1's own
+	// track titles verbatim (an instrumental/alternate disc using the same
+	// song names) — the exact real-world shape a title-only signal can't
+	// disambiguate, so correctly telling the two discs apart depends
+	// entirely on the disc number, not the title.
+	fs.releaseLookups["release-mbid"] = mbReleaseWithTracklist{
+		ID: "release-mbid", Title: "Geogaddi",
+		ArtistCredit: []mbArtistCredit{{Name: "Boards of Canada", Artist: mbArtistRef{ID: "artist-mbid", Name: "Boards of Canada"}}},
+		ReleaseGroup: mbReleaseGroup{ID: "rg-geogaddi", Title: "Geogaddi", PrimaryType: "Album"},
+		Media: []mbMedium{
+			{Format: "CD", Position: 1, TrackCount: 2, Tracks: []mbReleaseTrack{
+				{Position: 1, Title: "Alpha and Omega", Recording: mbTrackRecording{ID: "rec-d1-t1", Title: "Alpha and Omega"}},
+				{Position: 2, Title: "Julie and Candy", Recording: mbTrackRecording{ID: "rec-d1-t2", Title: "Julie and Candy"}},
+			}},
+			{Format: "CD", Position: 2, TrackCount: 2, Tracks: []mbReleaseTrack{
+				{Position: 1, Title: "Alpha and Omega", Recording: mbTrackRecording{ID: "rec-d2-t1", Title: "Alpha and Omega"}},
+				{Position: 2, Title: "Julie and Candy", Recording: mbTrackRecording{ID: "rec-d2-t2", Title: "Julie and Candy"}},
+			}},
+		},
+	}
+
+	s, rf := newFolderTestScanner(t, fs)
+	albumDir := filepath.Join(rf.Path, "Boards of Canada", "Geogaddi (2CD)")
+	cd1Dir := filepath.Join(albumDir, "CD1")
+	cd2Dir := filepath.Join(albumDir, "CD2")
+
+	if err := os.MkdirAll(cd1Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildFLACFile(t, cd1Dir, "01.flac", map[string]string{
+		"ARTIST": "Boards of Canada", "ALBUM": "Geogaddi", "TITLE": "Alpha and Omega", "TRACKNUMBER": "1",
+	})
+	if _, err := s.ScanRootFolder(t.Context(), rf); err != nil {
+		t.Fatalf("scan 1: %v", err)
+	}
+
+	// CD2 arrives on a LATER scan, no embedded disc number at all — exactly
+	// the common real-world case of per-track-number-only tagging, disc
+	// identity implied purely by the folder name.
+	if err := os.MkdirAll(cd2Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildFLACFile(t, cd2Dir, "01.flac", map[string]string{
+		"ARTIST": "Boards of Canada", "ALBUM": "Geogaddi CD 2", "TITLE": "Alpha and Omega", "TRACKNUMBER": "1",
+	})
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("scan 2: %v", err)
+	}
+	if result.FilesMatched != 1 {
+		t.Fatalf("scan 2 FilesMatched = %d, want 1", result.FilesMatched)
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil || len(albums) != 1 {
+		t.Fatalf("albums = %+v, err %v, want exactly 1 (CD2 must join the already-owned album, not create a second one)", albums, err)
+	}
+	tracks, err := s.db.ListTracksByAlbum(albums[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byMBID := map[string]musiclibrary.Track{}
+	for _, tr := range tracks {
+		byMBID[tr.MBID] = tr
+	}
+	cd1Track, ok := byMBID["rec-d1-t1"]
+	if !ok {
+		t.Fatalf("tracks = %+v, want CD1's own recording (rec-d1-t1) present", tracks)
+	}
+	if cd1Track.DiscNumber != 1 {
+		t.Errorf("CD1 track disc number = %d, want 1", cd1Track.DiscNumber)
+	}
+	cd2Track, ok := byMBID["rec-d2-t1"]
+	if !ok {
+		t.Fatalf("tracks = %+v, want CD2 matched to its OWN disc-2 recording (rec-d2-t1), not CD1's rec-d1-t1", tracks)
+	}
+	if cd2Track.DiscNumber != 2 {
+		t.Errorf("CD2 track disc number = %d, want 2 (not CD1's own disc 1 — would collide on organize)", cd2Track.DiscNumber)
+	}
+}
+
 func TestScanRootFolderDirectRecordingIDBypassesFolderGrouping(t *testing.T) {
 	fs := newFolderTestServer()
 	fs.recordingLookups["direct-rec"] = sampleRecording("direct-rec", 0)

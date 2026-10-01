@@ -168,10 +168,15 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 		}
 		switch item.Status {
 		case "completed", "seeded":
-			if s.importGrab(ctx, g, item) {
+			switch s.importGrab(ctx, g, item) {
+			case importSucceeded:
 				result.Imported++
-			} else {
+			case importFailed:
 				result.Failed++
+			case importDeferred:
+				// Left exactly as "grabbed" — importGrab didn't touch its DB
+				// status, so the very next poll tries it again automatically.
+				// Not a failure worth surfacing in this pass's own result.
 			}
 		case "failed":
 			s.failGrab(g, "download client reported it failed", true)
@@ -387,6 +392,27 @@ func (s *Service) stillGrabbed(id int64) bool {
 	return g.Status == download.GrabStatusGrabbed
 }
 
+// importOutcome is importGrab's own result — more than a plain bool so
+// PollOnce can keep its PollResult.Failed count honest. Several of
+// importGrab's own early-exit paths deliberately never touch the grab's DB
+// status at all (still GrabStatusGrabbed either way): a benign race with a
+// concurrent removal, or a download client momentarily reporting
+// "completed" with no path yet (a debrid bridge race confirmed live — one
+// poll cycle later, the path is there and the identical grab imports
+// cleanly with zero user action). Those are importDeferred, not
+// importFailed — the grab is retried automatically on the very next poll.
+// Counting them as failures was actively misleading: the Activity page's
+// "Import now" button surfaces PollResult verbatim ("Checked 1, imported
+// 0, 1 failed"), reporting a real failure for what was actually a
+// transient non-event that resolved itself two minutes later.
+type importOutcome int
+
+const (
+	importDeferred  importOutcome = iota // left exactly as "grabbed" — see this type's own doc comment
+	importFailed                         // genuinely failed; see the specific failGrab call for why
+	importSucceeded
+)
+
 // importGrab copies a completed download's audio files (see copyTree —
 // everything else the download brought along is left behind, not copied
 // in) from item.Path (the download client's own local disk, translated
@@ -396,18 +422,17 @@ func (s *Service) stillGrabbed(id int64) bool {
 // other file dropped there. A copy, not a move, until the copy itself is
 // confirmed good — only once it succeeds is the source removed from the
 // download client (with its data, junk included), so a failed or partial
-// copy never loses the only remaining copy of the download. Reports
-// whether the grab ended up imported.
-func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item download.Item) bool {
+// copy never loses the only remaining copy of the download.
+func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item download.Item) importOutcome {
 	if item.Path == "" {
 		s.logger.Warn("importer: completed download reported no path, leaving it for manual import",
 			"grab_id", g.ID, "title", g.Title)
-		return false
+		return importDeferred
 	}
 	root, ok := s.targetRootFolder(g)
 	if !ok {
 		s.logger.Error("importer: no music root folder configured, leaving grab for manual import", "grab_id", g.ID)
-		return false
+		return importDeferred
 	}
 
 	// Re-check this grab's live status right before doing anything slow: a
@@ -423,7 +448,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	if !s.stillGrabbed(g.ID) {
 		s.logger.Info("importer: grab was resolved elsewhere before import started, skipping",
 			"grab_id", g.ID)
-		return false
+		return importDeferred
 	}
 
 	src := config.TranslatePath(s.cfg.PathMappings(), item.Path)
@@ -432,7 +457,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	if err != nil {
 		s.logger.Error("importer: copy failed", "grab_id", g.ID, "src", src, "dest", dest, "error", err)
 		s.failGrab(g, fmt.Sprintf("copy from download client failed: %v", err), false)
-		return false
+		return importFailed
 	}
 	if len(copiedPaths) == 0 {
 		// copyTree found nothing worth copying — a genuinely empty/wrong
@@ -448,7 +473,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		s.logger.Warn("importer: no audio files found in completed download, nothing imported",
 			"grab_id", g.ID, "src", src)
 		s.failGrab(g, "completed download contained no recognized audio files", true)
-		return false
+		return importFailed
 	}
 	if reason, ok := s.looksLikeSingleFileWholeAlbumRip(g, copiedPaths); ok {
 		// Some rips pack an entire multi-track album into one continuous
@@ -463,7 +488,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		s.logger.Warn("importer: rejecting single-file whole-album rip", "grab_id", g.ID, "reason", reason)
 		removeCopiedFiles(copiedPaths, dest, root.Path, s.logger)
 		s.failGrab(g, reason, true)
-		return false
+		return importFailed
 	}
 	// Stamps the files just copied with the release group this grab was
 	// actually for, before the scan below discovers/matches them — lets
@@ -482,7 +507,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 		// instead of resurrecting anything automatically.
 		s.logger.Info("importer: grab was resolved elsewhere mid-copy, leaving the copied files unscanned",
 			"grab_id", g.ID, "dest", dest)
-		return false
+		return importDeferred
 	}
 	// Captured before the scan (which is what actually matches the new
 	// files in) so swapUpgradedFiles below can tell which files are the
@@ -554,7 +579,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 			// unsplittable release) lets the user retry or step in and
 			// match them by hand.
 			s.failGrab(g, "copied files but none could be matched to the wanted album — check Unmatched Files", false)
-			return false
+			return importFailed
 		} else if !errors.Is(err, musiclibrary.ErrNotFound) {
 			s.logger.Error("importer: checking wanted album after scan", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
 		}
@@ -562,7 +587,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 
 	if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusImported, ""); err != nil {
 		s.logger.Error("importer: resolve imported grab", "grab_id", g.ID, "error", err)
-		return false
+		return importDeferred
 	}
 	if g.WantedAlbumID > 0 {
 		// The album is owned now — a real albums row exists for it (just
@@ -594,7 +619,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	deleteDownloadData(src, s.logger)
 
 	s.logger.Info("importer: imported completed download", "grab_id", g.ID, "title", g.Title, "dest", dest)
-	return true
+	return importSucceeded
 }
 
 // swapUpgradedFiles deletes the old, now-superseded file for each track an

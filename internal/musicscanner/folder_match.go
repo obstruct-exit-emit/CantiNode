@@ -56,6 +56,7 @@ func (s *Scanner) matchFolder(ctx context.Context, entries []folderEntry, result
 	if len(remaining) == 0 {
 		return
 	}
+	remaining = inferDiscNumberForLoneDiscFolder(remaining)
 
 	release, confidence, err := s.resolveFolderRelease(ctx, remaining)
 	if err != nil {
@@ -813,4 +814,59 @@ func inferDiscNumber(base string) int {
 		return 0
 	}
 	return n
+}
+
+// inferDiscNumberForLoneDiscFolder stamps each entry's own disc number from
+// its parent folder's name when that folder is itself a disc-pattern
+// folder (CD1, Disc 2, ...) that groupMultiDiscFolders did NOT fold into a
+// merged multi-directory group — either because there was no still-
+// unmatched sibling in this scan at all (a sibling disc already
+// matched/owned from an earlier scan is invisible to the merge — see
+// resolveFolderRelease's own comment on discFolderPattern), or because
+// folderTagConsensus disagreed between the siblings this pass. Detected by
+// checking that every entry still shares the exact same parent directory:
+// a successful merge's own entries span multiple real directories (CD1's
+// and CD2's), each already carrying the correct disc number
+// groupMultiDiscFolders itself assigned, so this is deliberately a no-op
+// whenever entries don't all agree on one directory — re-stamping them
+// here from whichever entry happened to be first would silently clobber a
+// merge's own already-correct, per-subdirectory disc numbers.
+//
+// Without this, resolveFolderRelease's own lone-disc-folder special case
+// (discFolderPattern) still runs a real release search and correctly
+// resolves the whole multi-disc release, but matchEntriesToRelease has no
+// idea this standalone folder specifically IS disc 2: every file with no
+// embedded DiscNumber tag defaults to disc 1 (slotTrack's own fallback)
+// and, matched via this call's own brand new empty `used` map — sharing no
+// state at all with whatever separate matchFolder call already matched a
+// sibling disc — can claim disc 1's own track slots directly by track
+// number, the exact same slots a sibling CD1 folder already owns for real.
+// Confirmed live: an unmerged CD2 folder organized every one of its files
+// on top of CD1's own destination paths ("destination already exists").
+// Same "tags always win when present" rule groupMultiDiscFolders already
+// applies for a successful merge.
+func inferDiscNumberForLoneDiscFolder(entries []folderEntry) []folderEntry {
+	if len(entries) == 0 {
+		return entries
+	}
+	dir := filepath.Dir(entries[0].tf.Path)
+	for _, e := range entries[1:] {
+		if filepath.Dir(e.tf.Path) != dir {
+			return entries // spans multiple directories — an already-merged group, leave its own disc numbers alone
+		}
+	}
+	disc := inferDiscNumber(filepath.Base(dir))
+	if disc <= 0 {
+		return entries
+	}
+	out := make([]folderEntry, len(entries))
+	for i, e := range entries {
+		if e.tags.DiscNumber == 0 {
+			tagsCopy := *e.tags
+			tagsCopy.DiscNumber = disc
+			e = folderEntry{tf: e.tf, tags: &tagsCopy}
+		}
+		out[i] = e
+	}
+	return out
 }

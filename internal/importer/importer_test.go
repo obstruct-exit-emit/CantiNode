@@ -637,8 +637,8 @@ func TestImportGrabSkipsWhenCanceledBeforeCopy(t *testing.T) {
 	}
 
 	item := download.Item{Client: "sabnzbd", ConfigID: 1, ID: "nzo1", Path: albumDir}
-	if imported := svc.importGrab(t.Context(), g, item); imported {
-		t.Error("importGrab should not report success for a grab that was already resolved elsewhere")
+	if outcome := svc.importGrab(t.Context(), g, item); outcome != importDeferred {
+		t.Errorf("importGrab outcome = %v, want importDeferred (a benign race with a concurrent removal, not a failure)", outcome)
 	}
 
 	destFile := filepath.Join(destRoot, "Test Album", "readme.flac")
@@ -986,6 +986,42 @@ func TestPollOnceFailsGrabPastGracePeriod(t *testing.T) {
 	}
 	if got.Status != musiclibrary.WantedStatusWanted {
 		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusWanted)
+	}
+}
+
+// TestPollOnceNoPathIsDeferredNotFailed is the regression test for a real
+// discrepancy found live: a download client (a debrid bridge in
+// particular) can momentarily report a download "completed" before its
+// own storage/content path field is populated — a one-poll-cycle race,
+// confirmed to resolve itself the very next PollOnce two minutes later
+// with zero user action. importGrab already left the grab exactly as
+// "grabbed" for this case (so it's retried automatically), but PollOnce
+// still counted it toward result.Failed — surfaced verbatim to the user on
+// the Activity page's "Import now" button ("Checked 1, imported 0, 1
+// failed") for what was never actually a failure. Must count as neither
+// imported nor failed, and the grab's own DB status must be untouched.
+func TestPollOnceNoPathIsDeferredNotFailed(t *testing.T) {
+	sab, _ := mockSab(t, "", "Completed") // no storage path at all
+	svc, dlStore, _, _, _ := setup(t, sab)
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Checked != 1 || result.Imported != 0 || result.Failed != 0 {
+		t.Errorf("PollOnce result = %+v, want 1 checked, 0 imported, 0 failed (a transient no-path race is not a failure)", result)
+	}
+
+	grabs, err := dlStore.ListGrabs(download.GrabStatusGrabbed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grabs) != 1 || grabs[0].ClientItemID != "nzo1" {
+		t.Errorf("grabs still grabbed = %+v, want the same grab left untouched for the next poll to retry", grabs)
 	}
 }
 

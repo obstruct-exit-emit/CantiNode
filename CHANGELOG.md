@@ -11,6 +11,36 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A late-arriving disc of a multi-disc album could organize every one of
+  its tracks on top of its already-owned sibling disc's own files**,
+  failing each with "destination already exists" — found live against a
+  real Avantasia limited-edition 2CD release: CD2 arrived (and was
+  scanned) after CD1 was already matched/owned, so `groupMultiDiscFolders`
+  had no still-unmatched sibling to merge it with and it was matched on
+  its own, as a standalone folder. `resolveFolderRelease`'s own
+  lone-disc-folder special case still ran a real release search and
+  correctly resolved the whole 2-disc release, but nothing told
+  `matchEntriesToRelease` this folder specifically *was* disc 2: every
+  file with no embedded `DiscNumber` tag defaulted to disc 1, and — with
+  this standalone call's own brand new, empty `used` map sharing no state
+  at all with CD1's already-finished one — confidently claimed disc 1's
+  own track slots directly by track number, the exact slots CD1's files
+  already owned for real. A disc-pattern-named standalone folder (CD1,
+  Disc 2, ...) now has its own disc number inferred from its folder name
+  before matching, the same way a successful CD1/CD2 merge already
+  infers it — regardless of whether a merge partner was available this
+  scan.
+- **A download client (a debrid bridge in particular) reporting a
+  download "completed" before its own storage/content path field was
+  populated — a one-poll-cycle race that resolves itself automatically
+  the very next poll — was counted as a real failure** in the importer's
+  own `PollResult`, surfaced verbatim to the user on the Activity page's
+  "Import now" button ("Checked 1, imported 0, 1 failed") even though
+  nothing was actually wrong and the grab stayed untouched for a clean
+  retry two minutes later. `importGrab` now reports a third outcome
+  (deferred — left exactly as "grabbed", not a failure) for every path
+  that doesn't actually change the grab's own DB status, distinct from a
+  genuine failure that does.
 - **Six download-client bugs reported live from a real failed Avantasia
   grab (TorBox/qBittorrent-bridge), all in the shared `internal/download`
   code every protocol client goes through**:
