@@ -82,6 +82,34 @@ func TestValuesAndText(t *testing.T) {
 	}
 }
 
+func TestWrapScrubsSecretFromPlainErrorText(t *testing.T) {
+	// Not a *url.Error at all — the shape a downstream service's own
+	// response-body error takes when it echoes a URL we handed it back into
+	// its own message (URLError can't reach this; it only catches a failed
+	// *outbound* request).
+	err := errors.New(`sabnzbd: could not fetch http://indexer.example/get?apikey=super-secret-value`)
+	out := Wrap(err, []string{"super-secret-value"})
+	if strings.Contains(out.Error(), "super-secret-value") {
+		t.Errorf("secret leaked through Wrap: %q", out)
+	}
+	if !strings.Contains(out.Error(), "REDACTED") {
+		t.Errorf("expected REDACTED marker in %q", out)
+	}
+}
+
+func TestWrapPassesThroughUnchangedWhenNothingToRedact(t *testing.T) {
+	err := errors.New("connection refused")
+	if out := Wrap(err, []string{"some-other-secret"}); out != err {
+		t.Errorf("Wrap with no matching secret should return the same error value, got %v", out)
+	}
+	if out := Wrap(err, nil); out != err {
+		t.Errorf("Wrap with no secrets should return the same error value, got %v", out)
+	}
+	if Wrap(nil, []string{"x"}) != nil {
+		t.Error("Wrap(nil, ...) should return nil")
+	}
+}
+
 func TestURLErrorNonURLErrorPassesThrough(t *testing.T) {
 	plain := errors.New("some other failure")
 	if got := URLError(plain); got != plain {

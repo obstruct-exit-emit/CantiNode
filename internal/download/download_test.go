@@ -2,6 +2,8 @@ package download
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -536,13 +538,19 @@ func TestServiceGrabAndQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Grabs route by protocol.
-	torrentGrab, err := svc.Grab(ctx, ProtocolTorrent, "magnet:?xt=urn:btih:abc", "Mort")
+	// Grabs route by protocol. A real-length (40 hex char) v1 btih so
+	// magnetHash actually extracts it, same as any real magnet would —
+	// Grab now treats an empty id as ErrNoTrackableID, so the id must be
+	// genuinely resolvable here, not just short test filler.
+	torrentGrab, err := svc.Grab(ctx, ProtocolTorrent, "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", "Mort")
 	if err != nil {
 		t.Fatalf("torrent grab: %v", err)
 	}
 	if torrentGrab.Client != "qbit" {
 		t.Errorf("torrent grab = %+v", torrentGrab)
+	}
+	if torrentGrab.ID != "0123456789abcdef0123456789abcdef01234567" {
+		t.Errorf("torrent grab id = %q, want the magnet's own hash", torrentGrab.ID)
 	}
 	usenetGrab, err := svc.Grab(ctx, ProtocolUsenet, sab.URL+"/get/abc.nzb", "Mort")
 	if err != nil {
@@ -571,6 +579,72 @@ func TestServiceGrabAndQueue(t *testing.T) {
 	}
 	if _, err := svc.Grab(ctx, ProtocolTorrent, "magnet:x", "y"); err != ErrNoClient {
 		t.Errorf("grab without client: err = %v, want ErrNoClient", err)
+	}
+}
+
+// TestServiceGrabReturnsErrNoTrackableID: a magnet too short for magnetHash
+// to extract a real hash from, added under a title that matches nothing in
+// the client's own torrent list, leaves Add with no id to report back
+// (empty string, no error) — Grab must turn that into ErrNoTrackableID
+// itself rather than a GrabResult with a blank id, so callers (autosearch's
+// retry loop, the manual grab handlers) can tell this release specifically
+// is untrackable and must be blocklisted, not silently recorded as a
+// healthy grab that later times out.
+func TestServiceGrabReturnsErrNoTrackableID(t *testing.T) {
+	qbit := mockQbit(t)
+	defer qbit.Close()
+	ctx := context.Background()
+
+	svc := newTestService(t)
+	if err := svc.Store().Add(qbitConfig(qbit.URL)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.Grab(ctx, ProtocolTorrent, "magnet:?xt=urn:btih:deadbeef", "Totally Unrelated Title")
+	if !errors.Is(err, ErrNoTrackableID) {
+		t.Fatalf("Grab err = %v, want ErrNoTrackableID", err)
+	}
+}
+
+// TestServiceGrabScrubsSecretEchoedInClientErrorBody is the regression test
+// for the leaked-API-key bug found live: a 502 response once carried a real
+// Prowlarr API key because it came back embedded in a download-client
+// error's own text, not as a failed *url.Error redact.URLError can catch.
+// Here a SABnzbd-compatible bridge's addurl call answers 200 OK with a JSON
+// body that quotes the exact URL it was asked to fetch (apikey and all) —
+// sabnzbd.go's own api() doesn't scrub that field at all (redact.Text is
+// only applied to the non-200 HTTP path). Grab's own secret capture, taken
+// from the release's original download URL before any client sees it, must
+// still catch it.
+func TestServiceGrabScrubsSecretEchoedInClientErrorBody(t *testing.T) {
+	sab := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/get/") {
+			w.WriteHeader(http.StatusNotFound) // force the addurl fallback
+			return
+		}
+		q := r.URL.Query()
+		switch q.Get("mode") {
+		case "addurl":
+			fmt.Fprintf(w, `{"status": false, "error": "could not fetch %s"}`, q.Get("name"))
+		default:
+			w.Write([]byte(`{"status": false, "error": "unknown mode"}`))
+		}
+	}))
+	defer sab.Close()
+
+	svc := newTestService(t)
+	if err := svc.Store().Add(sabConfig(sab.URL)); err != nil {
+		t.Fatal(err)
+	}
+
+	const secret = "super-secret-indexer-key"
+	secretURL := sab.URL + "/get/abc.nzb?apikey=" + secret
+	_, err := svc.Grab(context.Background(), ProtocolUsenet, secretURL, "Mort")
+	if err == nil {
+		t.Fatal("expected Grab to fail")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("secret leaked through Grab's error: %q", err)
 	}
 }
 

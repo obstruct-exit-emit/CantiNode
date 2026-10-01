@@ -2018,6 +2018,23 @@ func (s *server) handleSearchWantedMusicAlbum(w http.ResponseWriter, r *http.Req
 // find its way back to this wanted_albums row once the download resolves
 // — transitioning it to downloaded on success, or back to wanted on
 // failure — instead of leaving it stuck at "downloading" forever.
+// blocklistIfUntrackable records guid/title in the download blocklist when
+// err is download.ErrNoTrackableID — the one grab failure specifically
+// attributable to the release itself, not the attempt (see that error's
+// own doc comment) — so a later search doesn't keep offering the exact
+// same unusable candidate as approved. A no-op for every other kind of
+// failure (environmental: a down client, bad credentials), and
+// best-effort — a failure to record the block is logged, never treated as
+// reason to change the response already being sent for the grab itself.
+func (s *server) blocklistIfUntrackable(err error, guid, title string) {
+	if !errors.Is(err, download.ErrNoTrackableID) {
+		return
+	}
+	if blockErr := s.downloads.Store().AddBlock(guid, title, "grab reported no trackable id"); blockErr != nil {
+		slog.Error("music: blocklist untrackable release", "release", title, "error", blockErr)
+	}
+}
+
 func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -2072,6 +2089,7 @@ func (s *server) handleGrabWantedMusicAlbum(w http.ResponseWriter, r *http.Reque
 		if revertErr := s.musicStore.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusWanted); revertErr != nil {
 			slog.Error("music: revert wanted album claim after failed grab", "wanted_album_id", wanted.ID, "error", revertErr)
 		}
+		s.blocklistIfUntrackable(err, req.GUID, req.Title)
 		if errors.Is(err, download.ErrNoClient) {
 			writeError(w, http.StatusServiceUnavailable,
 				"no enabled "+req.Protocol+" download client — add one under Settings")
@@ -2242,12 +2260,13 @@ func (s *server) handleGrabAlbumUpgrade(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := s.downloadCtx()
 	defer cancel()
 	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, 0, id, "music")
-	if errors.Is(err, download.ErrNoClient) {
-		writeError(w, http.StatusServiceUnavailable,
-			"no enabled "+req.Protocol+" download client — add one under Settings")
-		return
-	}
 	if err != nil {
+		s.blocklistIfUntrackable(err, req.GUID, req.Title)
+		if errors.Is(err, download.ErrNoClient) {
+			writeError(w, http.StatusServiceUnavailable,
+				"no enabled "+req.Protocol+" download client — add one under Settings")
+			return
+		}
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}

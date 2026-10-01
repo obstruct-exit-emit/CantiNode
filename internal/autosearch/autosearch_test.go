@@ -82,10 +82,40 @@ func mockTorznabIndexer(t *testing.T, searchXML string) *httptest.Server {
 	return srv
 }
 
-// mockQbit fakes just enough of qBittorrent's Web API v2 for a grab to
-// succeed: login, category creation, and add.
-func mockQbit(t *testing.T) *httptest.Server {
+// twoApprovedXML offers two releases that both approve — used to prove the
+// retry loop moves on to the second candidate when the first's grab lands
+// with no trackable id.
+const twoApprovedXML = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+<channel>
+  <item>
+    <title>Boards of Canada - Geogaddi FLAC Best</title>
+    <guid>https://mock/torrent/best</guid>
+    <link>https://mock/dl/best.torrent</link>
+    <torznab:attr name="size" value="400000000"/>
+    <torznab:attr name="seeders" value="50"/>
+    <torznab:attr name="peers" value="10"/>
+  </item>
+  <item>
+    <title>Boards of Canada - Geogaddi FLAC Second</title>
+    <guid>https://mock/torrent/second</guid>
+    <link>https://mock/dl/second.torrent</link>
+    <torznab:attr name="size" value="400000000"/>
+    <torznab:attr name="seeders" value="20"/>
+    <torznab:attr name="peers" value="5"/>
+  </item>
+</channel>
+</rss>`
+
+// mockQbitFirstAddUntrackable behaves exactly like mockQbit (stateful,
+// reporting back whatever title the most recent add renamed to) except an
+// add whose rename title is exactly untrackableTitle never appears in
+// torrents/info afterward — simulating a debrid bridge that accepts a
+// release but can never be found again by title, so Grab can only ever
+// resolve it as download.ErrNoTrackableID.
+func mockQbitFirstAddUntrackable(t *testing.T, untrackableTitle string) *httptest.Server {
 	t.Helper()
+	var lastAdded string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/auth/login":
@@ -94,9 +124,50 @@ func mockQbit(t *testing.T) *httptest.Server {
 		case "/api/v2/torrents/createCategory":
 			w.WriteHeader(http.StatusOK)
 		case "/api/v2/torrents/add":
+			_ = r.ParseForm()
+			lastAdded = r.FormValue("rename")
 			w.Write([]byte("Ok."))
 		case "/api/v2/torrents/info":
-			w.Write([]byte(`[]`))
+			if lastAdded == "" || lastAdded == untrackableTitle {
+				w.Write([]byte(`[]`))
+				return
+			}
+			w.Write([]byte(`[{"hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"` + lastAdded + `","state":"downloading","progress":0,"category":"cantinode"}]`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// mockQbit fakes just enough of qBittorrent's Web API v2 for a grab to
+// succeed: login, category creation, and add. Stateful, like a real
+// qBittorrent: whatever title the most recent /add call asked to be
+// renamed to then shows up in /torrents/info's own list — Grab now treats
+// an empty id (nothing findHash can match) as a real failure
+// (download.ErrNoTrackableID), so a mock that never reports anything back
+// would make every grab through it fail that way.
+func mockQbit(t *testing.T) *httptest.Server {
+	t.Helper()
+	var lastAdded string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			http.SetCookie(w, &http.Cookie{Name: "SID", Value: "test"})
+			w.Write([]byte("Ok."))
+		case "/api/v2/torrents/createCategory":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/torrents/add":
+			_ = r.ParseForm()
+			lastAdded = r.FormValue("rename")
+			w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			if lastAdded == "" {
+				w.Write([]byte(`[]`))
+				return
+			}
+			w.Write([]byte(`[{"hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"` + lastAdded + `","state":"downloading","progress":0,"category":"cantinode"}]`))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -274,6 +345,59 @@ func TestPollOnceRespectsBlocklist(t *testing.T) {
 	}
 	if wanted.Status != musiclibrary.WantedStatusWanted {
 		t.Errorf("wanted album status = %q, want unchanged %q", wanted.Status, musiclibrary.WantedStatusWanted)
+	}
+}
+
+// TestPollOnceRetriesNextCandidateOnUntrackableGrab is the regression test
+// for the repeat-grab bug found live: a download client accepting a release
+// but reporting no id back used to look like a healthy grab for a full
+// grabVanishedGrace window before silently failing, without ever
+// blocklisting the release — so the exact same unusable release got grabbed
+// again on the next sweep (Avantasia albums were grabbed 3 times each).
+// Here the best-ranked candidate's grab lands with no trackable id; it must
+// be blocklisted immediately and the next candidate tried in this same
+// sweep pass, not left to fail identically again next time.
+func TestPollOnceRetriesNextCandidateOnUntrackableGrab(t *testing.T) {
+	d := newTestDeps(t)
+	d.addIndexer(t, twoApprovedXML)
+
+	srv := mockQbitFirstAddUntrackable(t, "Boards of Canada - Geogaddi FLAC Best")
+	if err := d.downloads.Store().Add(&download.ClientConfig{
+		Name: "qbit", Type: download.TypeQBittorrent, Host: srv.URL,
+		Category: "cantinode", Enabled: true, Priority: 1,
+	}); err != nil {
+		t.Fatalf("add download client: %v", err)
+	}
+
+	_, wantedID := seedWantedAlbum(t, d, "retry", true)
+
+	result := New(d.music, d.indexers, d.downloads, d.store).PollOnce(context.Background())
+	if result.Checked != 1 || result.Grabbed != 1 {
+		t.Fatalf("PollOnce result = %+v, want 1 checked, 1 grabbed (second candidate after the first's untrackable grab)", result)
+	}
+
+	wanted, err := d.music.GetWantedAlbum(wantedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wanted.Status != musiclibrary.WantedStatusDownloading {
+		t.Errorf("wanted album status = %q, want %q", wanted.Status, musiclibrary.WantedStatusDownloading)
+	}
+
+	grabs, err := d.downloads.Store().ListGrabs(download.GrabStatusGrabbed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(grabs) != 1 || grabs[0].Title != "Boards of Canada - Geogaddi FLAC Second" {
+		t.Fatalf("grabs = %+v, want exactly the second candidate grabbed", grabs)
+	}
+
+	blocked, err := d.downloads.Store().BlockedKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !blocked["https://mock/torrent/best"] {
+		t.Errorf("blocked = %v, want the untrackable first candidate's guid blocklisted", blocked)
 	}
 }
 

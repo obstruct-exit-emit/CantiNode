@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -90,12 +91,23 @@ func (s *sabnzbd) Test(ctx context.Context) error {
 // Real-Debrid usenet bridge whose cloud side can't fetch a LAN URL) — handing
 // it a URL leaves grabs stuck at 0 bytes. Uploading the content sidesteps
 // that and names the job properly. If the fetch fails (unreachable, not an
-// NZB), it falls back to handing SABnzbd the URL (addurl).
+// NZB), it falls back to handing SABnzbd the URL (addurl) — but only after
+// logging exactly why the preferred path didn't work, not silently: found
+// live, a real failure here previously left no trace at all, making it
+// impossible to tell afterward whether the fallback fired because of a
+// genuine problem (a dead link, an indexer outage) or normal operation.
 func (s *sabnzbd) Add(ctx context.Context, dlURL, title string) (string, error) {
-	if nzb, err := s.fetchNZB(ctx, dlURL); err == nil {
-		if id, err := s.addFile(ctx, nzb, title); err == nil {
+	nzb, fetchErr := s.fetchNZB(ctx, dlURL)
+	if fetchErr == nil {
+		id, addErr := s.addFile(ctx, nzb, title)
+		if addErr == nil {
 			return id, nil
 		}
+		slog.Warn("sabnzbd: uploading fetched nzb failed, falling back to addurl",
+			"title", title, "error", addErr)
+	} else {
+		slog.Warn("sabnzbd: fetching nzb failed, falling back to addurl",
+			"title", title, "error", fetchErr)
 	}
 	return s.addURL(ctx, dlURL, title)
 }

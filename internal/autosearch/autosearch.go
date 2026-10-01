@@ -14,6 +14,7 @@ package autosearch
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -143,10 +144,22 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 	return result
 }
 
+// maxGrabAttemptsPerAlbum bounds searchAndGrab's own retry loop below — a
+// real safety net, not a number expected to matter in practice: the
+// blocklist already shrinks what ScoreAndRank approves on any later call,
+// so a long run of consecutive untrackable candidates in one single pass
+// would mean something structurally wrong (a misbehaving indexer flooding
+// results, say), not routine bad luck worth chasing further.
+const maxGrabAttemptsPerAlbum = 5
+
 // searchAndGrab searches every enabled indexer for wanted, scores the
 // results against the active music quality profile exactly like the
-// manual search endpoint does, and grabs the best approved candidate if
-// one exists. Returns whether it actually grabbed something.
+// manual search endpoint does, and grabs the best approved candidate —
+// trying the next-best one immediately, in this same pass, whenever a
+// grab fails in a way that's specifically this release's own fault (see
+// download.ErrNoTrackableID) rather than leaving the identical release to
+// be picked — and fail the identical way — again next sweep. Returns
+// whether it actually grabbed something.
 func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist, wanted musiclibrary.WantedAlbum, blocked map[string]bool, prefs release.Preferences) bool {
 	sctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
@@ -165,17 +178,14 @@ func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist,
 	if len(candidates) == 0 || !candidates[0].Approved {
 		return false
 	}
-	best := candidates[0]
 
 	// Claim before grabbing, not after: this sweep runs unattended on a
 	// timer and can land at the same moment a user manually searches and
 	// grabs the same wanted album themselves. The claim is a
 	// compare-and-swap (status must still be "wanted"), so only one of the
-	// two ever actually proceeds to grab — and since it already sets
-	// status to "downloading", a successful grab needs no separate status
-	// write afterward (nothing left to fail silently and cause a
-	// duplicate re-grab next sweep, unlike the blind grab-then-set-status
-	// this replaced).
+	// two ever actually proceeds to grab — made once, up front, and held
+	// across every candidate attempt below (still the same one sweep
+	// pass, nothing has changed hands between attempts).
 	claimed, err := s.music.ClaimWantedAlbumForDownload(wanted.ID)
 	if err != nil {
 		s.logger.Error("autosearch: claim wanted album", "wanted_album_id", wanted.ID, "error", err)
@@ -187,16 +197,44 @@ func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist,
 		return false
 	}
 
-	gctx, gcancel := context.WithTimeout(ctx, grabTimeout)
-	defer gcancel()
-	_, _, err = s.downloads.GrabRelease(gctx, best.Protocol, best.DownloadURL, best.Title, best.GUID, wanted.ID, 0, "music")
-	if err != nil {
-		s.logger.Warn("autosearch: grab failed", "artist", artist.Name, "album", wanted.Title, "release", best.Title, "error", err)
-		if revertErr := s.music.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusWanted); revertErr != nil {
-			s.logger.Error("autosearch: revert wanted album claim after failed grab", "wanted_album_id", wanted.ID, "error", revertErr)
+	attempts := 0
+	for _, best := range candidates {
+		if !best.Approved || attempts >= maxGrabAttemptsPerAlbum {
+			break // candidates is ranked approved-first (release.Rank); nothing after the first unapproved one is worth trying either
 		}
-		return false
+		attempts++
+
+		gctx, gcancel := context.WithTimeout(ctx, grabTimeout)
+		_, _, err = s.downloads.GrabRelease(gctx, best.Protocol, best.DownloadURL, best.Title, best.GUID, wanted.ID, 0, "music")
+		gcancel()
+		if err == nil {
+			s.logger.Info("autosearch: grabbed", "artist", artist.Name, "album", wanted.Title, "release", best.Title, "score", best.Score)
+			return true
+		}
+
+		if errors.Is(err, download.ErrNoTrackableID) {
+			// This release specifically is the problem, not the attempt —
+			// blocklist it and try the next-best candidate immediately,
+			// rather than leaving the exact same release to be picked
+			// again next sweep.
+			s.logger.Warn("autosearch: grab landed with no trackable id, blocklisting and trying the next candidate",
+				"artist", artist.Name, "album", wanted.Title, "release", best.Title, "error", err)
+			if blockErr := s.downloads.Store().AddBlock(best.GUID, best.Title, "grab reported no trackable id"); blockErr != nil {
+				s.logger.Error("autosearch: blocklist untrackable release", "release", best.Title, "error", blockErr)
+			}
+			continue
+		}
+
+		// Any other failure (client unreachable, bad credentials, ...) is
+		// environmental, not this release's fault — stop here rather than
+		// burning through every other candidate for the same underlying
+		// reason.
+		s.logger.Warn("autosearch: grab failed", "artist", artist.Name, "album", wanted.Title, "release", best.Title, "error", err)
+		break
 	}
-	s.logger.Info("autosearch: grabbed", "artist", artist.Name, "album", wanted.Title, "release", best.Title, "score", best.Score)
-	return true
+
+	if revertErr := s.music.SetWantedAlbumStatus(wanted.ID, musiclibrary.WantedStatusWanted); revertErr != nil {
+		s.logger.Error("autosearch: revert wanted album claim after failed grab", "wanted_album_id", wanted.ID, "error", revertErr)
+	}
+	return false
 }

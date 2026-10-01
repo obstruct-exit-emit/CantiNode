@@ -149,3 +149,20 @@ func TestQBittorrentAddUsesMagnetHashDirectly(t *testing.T) {
 		t.Errorf("Add returned id %q, want the magnet's own hash %q regardless of the client's reported title", id, hash)
 	}
 }
+
+// TestQbitStatusStalled: qBittorrent's "stalledDL" state is its own
+// "downloading" state machine with no peers currently serving it — real,
+// actionable information that must survive normalization as a distinct
+// "stalled" status rather than collapsing into plain "downloading", where a
+// torrent that will never finish looks identical to one making fine
+// progress.
+func TestQbitStatusStalled(t *testing.T) {
+	if got := qbitStatus("stalledDL", 0.3); got != "stalled" {
+		t.Errorf("qbitStatus(stalledDL) = %q, want %q", got, "stalled")
+	}
+	// stalledUP (finished, stalled while seeding) is not the same thing —
+	// the file is already fully on disk, nothing to warn about.
+	if got := qbitStatus("stalledUP", 1); got != "completed" {
+		t.Errorf("qbitStatus(stalledUP) = %q, want %q", got, "completed")
+	}
+}

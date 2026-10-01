@@ -11,6 +11,56 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Six download-client bugs reported live from a real failed Avantasia
+  grab (TorBox/qBittorrent-bridge), all in the shared `internal/download`
+  code every protocol client goes through**:
+  - A `.torrent` file upload (`qbittorrent.addFile` — the path a debrid
+    bridge like TorBox uses) never derived its own identity from the file
+    itself, relying entirely on finding the torrent again afterward by
+    title. TorBox renamed "Avantasia - 2022 - A Paranormal…" to its own
+    uploader-chosen name, the title lookup missed, and the grab was saved
+    with no id — the root cause of every failure below. Fixed the same way
+    Sonarr/Radarr do it: a from-scratch, dependency-free bencode parser
+    (`torrentinfo.go`) computes the file's real BitTorrent v1 info-hash
+    (BEP 3, SHA-1 of the exact raw `info`-dict bytes) up front, used as the
+    primary id exactly like a magnet's own hash already was; title-based
+    lookup is now only the last-resort fallback for a `.torrent` this can't
+    parse.
+  - A grab whose client `Add` nominally succeeded but reported no id back
+    used to look like a perfectly healthy download for a full
+    `grabVanishedGrace` window (10 minutes) before silently failing. `Grab`
+    now fails immediately and distinguishably (new `ErrNoTrackableID`
+    sentinel) the moment that happens, instead of ever persisting a
+    trackless grab record.
+  - A vanished/untrackable grab was never blocklisted, so automatic search
+    just grabbed the identical unusable release again next sweep — the
+    user's history showed each Avantasia album grabbed 3 times, and the
+    finished-but-unmatchable download was left sitting in the download
+    client (deleted by hand). `autosearch.searchAndGrab` now blocklists an
+    `ErrNoTrackableID` release and retries the next-best approved candidate
+    immediately, in the same sweep pass (capped at 5 attempts); the two
+    manual grab endpoints (want/upgrade) blocklist the same way via a new
+    shared `blocklistIfUntrackable` helper, though they still leave the
+    retry to the user.
+  - qBittorrent's `stalledDL` state (actively "downloading" by the client's
+    own state machine, but with no peers currently serving it — it may
+    never finish) was indistinguishable from ordinary `downloading`. Now
+    normalized to its own `stalled` status and shown as a distinct warning
+    pill in Activity.
+  - A 502 response once carried a real Prowlarr API key, embedded verbatim
+    in a download-client error's own text — not a failed outbound request
+    `redact.URLError` can catch, but a downstream service's own response
+    body echoing the URL it was handed back into its error message. New
+    `redact.Wrap` scrubs any of a release's own secret-shaped download-URL
+    values out of whatever error `Grab` produces, regardless of which
+    client or layer the leak surfaces at; only SABnzbd's key was ever
+    actually hidden before this.
+  - SABnzbd's `Add` silently discarded both the NZB-fetch and the upload
+    error on its way to falling back to `addurl` — a real failure left no
+    trace at all, making it impossible to tell afterward whether the
+    fallback fired because of a genuine problem or normal operation. Both
+    are now logged (`slog.Warn`) before the fallback, already redacted via
+    each path's own existing `redact.URLError`/`redact.Text` use.
 - **A whitespace-padded subtitle separator (" - ", " : ", " – ", " — ")
   anywhere in a release title made the whole-folder MusicBrainz search
   return zero results, even with every real word present — degrading to

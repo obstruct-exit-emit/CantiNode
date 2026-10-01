@@ -20,6 +20,7 @@
   --info-soft: rgba(122, 162, 247, 0.15);
   --info-strong: rgba(122, 162, 247, 0.3);
   --warn: #c9a227;
+  --warn-soft: rgba(201, 162, 39, 0.15);
   --log-err: #e08575;
   --log-warn: #d9b26a;
   --code-bg: #22222c;
@@ -53,6 +54,7 @@
   --info-soft: rgba(58, 104, 192, 0.13);
   --info-strong: rgba(58, 104, 192, 0.28);
   --warn: #94770f;
+  --warn-soft: rgba(148, 119, 15, 0.15);
   --log-err: #a3442f;
   --log-warn: #8a6d1a;
   --code-bg: #eceae5;
@@ -865,6 +867,14 @@ button.link {
 .owned.dl {
   background: var(--info-soft);
   color: var(--accent);
+}
+
+/* Stalled download warning (Activity queue): actively "downloading" by
+   the client's own state machine, but with no peers currently serving
+   it — a real problem an ordinary "downloading" badge would hide. */
+.owned.stalled {
+  background: var(--warn-soft);
+  color: var(--warn);
 }
 
 /* --- First-run setup wizard --- */

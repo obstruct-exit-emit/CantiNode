@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cantinode/cantinode/internal/redact"
 )
 
 // sharedTransport is used by every download client's *http.Client (see
@@ -56,6 +58,23 @@ var ErrNotFound = errors.New("download client not found")
 // ErrNoClient is returned when no enabled client handles a protocol.
 var ErrNoClient = errors.New("no enabled download client for this protocol")
 
+// ErrNoTrackableID is returned by Grab when a client's Add nominally
+// succeeds (no error) but reports no id for what it just added — most
+// commonly qBittorrent given a .torrent it can't derive a hash for up
+// front and then can't find again by title afterward (a debrid bridge
+// routinely renames a torrent to the uploader's own name, ignoring our
+// rename request entirely). Without an id, CantiNode has no way to poll,
+// cancel, or recognize this grab's own completion later — importer.PollOnce
+// can never match it to anything in the live queue, so it would otherwise
+// sit as a phantom "grabbed" record for a full grabVanishedGrace window
+// before failing anyway, and — critically — an automatic retry would see
+// nothing blocking it from grabbing the exact same unusable release again
+// next sweep. Distinguished from every other Grab failure specifically so
+// a caller can treat it as release-attributable (worth blocklisting and
+// trying the next candidate immediately) rather than environmental (a
+// down client, bad credentials) — see internal/autosearch's own use.
+var ErrNoTrackableID = errors.New("download client accepted the release but reported no trackable id")
+
 // ClientConfig is one configured download client.
 type ClientConfig struct {
 	ID       int64  `json:"id"`
@@ -83,8 +102,11 @@ func (c *ClientConfig) Protocol() string {
 }
 
 // Item is one download in a client, normalized across implementations.
-// Status is one of: queued, downloading, paused, completed, seeded, failed
-// (seeded = finished torrent the client has stopped seeding — goal reached).
+// Status is one of: queued, downloading, stalled, paused, completed,
+// seeded, failed (seeded = finished torrent the client has stopped
+// seeding — goal reached; stalled = actively "downloading" by the
+// client's own state machine but making no real progress, no peers
+// currently serving it).
 type Item struct {
 	Client   string  `json:"client"`
 	ConfigID int64   `json:"clientConfigId"`
@@ -99,8 +121,12 @@ type Item struct {
 type Client interface {
 	// Test verifies connectivity and credentials.
 	Test(ctx context.Context) error
-	// Add sends a release URL for download; the returned id may be empty
-	// when the client doesn't report one (qBittorrent).
+	// Add sends a release URL for download, returning its own id for later
+	// polling/removal. An implementation may legitimately return ("", nil)
+	// when it genuinely couldn't work out an id for what it just added
+	// (qBittorrent doesn't echo one back from its own add call) — Grab
+	// itself is what turns that into ErrNoTrackableID, a real failure, not
+	// this interface's caller.
 	Add(ctx context.Context, url, title string) (string, error)
 	// List returns CantiNode's downloads (the client's category).
 	List(ctx context.Context) ([]Item, error)
@@ -328,6 +354,18 @@ func (s *Service) Grab(ctx context.Context, protocol, url, title string) (*GrabR
 		}
 		url = resolved
 	}
+	// Captured once, up front: whatever secret-shaped query values this
+	// release's own download URL carries (a Newznab/Torznab/Prowlarr
+	// apikey, most commonly) — scrubbed below from every error this call
+	// can produce, regardless of which client or downstream service
+	// echoes the URL back into its own failure message. Each client's own
+	// redact.URLError only catches a failed *outbound* request to that
+	// exact URL; this also catches, e.g., a debrid bridge's own error
+	// response body quoting back whatever we just handed it to add —
+	// confirmed live: a 502 response once carried a real Prowlarr API key
+	// this way, with only SABnzbd's own (redacted at its own client layer
+	// already) staying hidden.
+	secrets := redact.Values(url)
 	configs, err := s.store.List()
 	if err != nil {
 		return nil, err
@@ -343,7 +381,14 @@ func (s *Service) Grab(ctx context.Context, protocol, url, title string) (*GrabR
 		}
 		id, err := client.Add(ctx, url, title)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", cfg.Name, err)
+			return nil, redact.Wrap(fmt.Errorf("%s: %w", cfg.Name, err), secrets)
+		}
+		if id == "" {
+			// Add reported success but nothing to track it by — see
+			// ErrNoTrackableID's own doc comment for why this is treated
+			// as a real failure rather than the routine, silently-degraded
+			// case it used to be.
+			return nil, fmt.Errorf("%s: %w", cfg.Name, ErrNoTrackableID)
 		}
 		s.InvalidateQueue()
 		return &GrabResult{Client: cfg.Name, ClientID: cfg.ID, ID: id}, nil

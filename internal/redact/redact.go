@@ -86,3 +86,24 @@ func Text(s string, secrets []string) string {
 	}
 	return s
 }
+
+// Wrap scrubs any of secrets out of err's own message, for a failure whose
+// text might echo a secret back from somewhere URLError can't reach:
+// URLError only catches a failed *outbound* request to a URL carrying one
+// (a connection refused, a timeout) — not a downstream service's own
+// *successful* error response body quoting back whatever URL we handed it
+// (a debrid bridge's "could not fetch: <url>" failure message, say),
+// which never becomes a *url.Error at all. A nil err, or one with nothing
+// actually found to redact, passes through completely unchanged — same
+// error value, same type, so errors.Is/As against it still works exactly
+// as before for every caller that doesn't happen to trip this.
+func Wrap(err error, secrets []string) error {
+	if err == nil || len(secrets) == 0 {
+		return err
+	}
+	text := Text(err.Error(), secrets)
+	if text == err.Error() {
+		return err
+	}
+	return errors.New(text)
+}

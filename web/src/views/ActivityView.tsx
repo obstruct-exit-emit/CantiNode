@@ -205,9 +205,12 @@ export default function ActivityView({
                 </span>
                 <span className="row-actions">
                   <span className="muted">{it.client}</span>
-                  <span className={`owned ${it.status === "failed" ? "no" : "yes"}`}>
+                  <span
+                    className={`owned ${it.status === "failed" ? "no" : it.status === "stalled" ? "stalled" : "yes"}`}
+                    title={it.status === "stalled" ? "Downloading, but no peers are currently serving it" : undefined}
+                  >
                     {it.status}
-                    {it.status === "downloading" &&
+                    {(it.status === "downloading" || it.status === "stalled") &&
                       ` ${(it.progress * 100).toFixed(0)}%`}
                   </span>
                   <button

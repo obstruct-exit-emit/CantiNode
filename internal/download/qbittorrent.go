@@ -342,8 +342,17 @@ func (q *qbittorrent) resolve(ctx context.Context, dlURL string) (string, []byte
 }
 
 // addFile uploads .torrent bytes to qBittorrent (multipart torrents field), so
-// a client that can't reach our indexer still gets the file.
+// a client that can't reach our indexer still gets the file. The torrent's own
+// real info-hash (torrentInfoHash — the same BEP 3 value qBittorrent itself
+// will report back) is computed directly from these bytes before uploading
+// anything, exactly like addURLs already does for a magnet's own hash — a
+// title-based findHash lookup is only ever the last-resort fallback now, for
+// the rare .torrent this can't parse, not the primary way a grab gets an id.
 func (q *qbittorrent) addFile(ctx context.Context, torrent []byte, title string) (string, error) {
+	hash, hashErr := torrentInfoHash(torrent)
+	if hashErr != nil {
+		hash = ""
+	}
 	before := q.snapshotHashes(ctx)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
@@ -375,9 +384,15 @@ func (q *qbittorrent) addFile(ctx context.Context, torrent []byte, title string)
 	}
 	resp, err := attempt()
 	if err != nil {
-		// Slow bridge: the upload may have landed despite the timeout.
-		if hash := q.findHash(title, before); hash != "" {
+		// A debrid bridge can accept the upload yet respond too slowly,
+		// tripping our client timeout even though the torrent lands.
+		// Confirm via the list before giving up, so the grab is still
+		// recorded — same reasoning as addURLs' own hashLanded check.
+		if hash != "" && q.hashLanded(ctx, hash) {
 			return hash, nil
+		}
+		if h := q.findHash(title, before); h != "" {
+			return h, nil
 		}
 		return "", fmt.Errorf("qbittorrent: %w", err)
 	}
@@ -387,8 +402,11 @@ func (q *qbittorrent) addFile(ctx context.Context, torrent []byte, title string)
 			return "", err
 		}
 		if resp, err = attempt(); err != nil {
-			if hash := q.findHash(title, before); hash != "" {
+			if hash != "" && q.hashLanded(ctx, hash) {
 				return hash, nil
+			}
+			if h := q.findHash(title, before); h != "" {
+				return h, nil
 			}
 			return "", fmt.Errorf("qbittorrent: %w", err)
 		}
@@ -400,6 +418,9 @@ func (q *qbittorrent) addFile(ctx context.Context, torrent []byte, title string)
 	}
 	if strings.HasPrefix(string(body), "Fails") {
 		return "", fmt.Errorf("qbittorrent rejected the torrent")
+	}
+	if hash != "" {
+		return hash, nil
 	}
 	return q.findHash(title, before), nil
 }
@@ -491,6 +512,14 @@ func qbitStatus(state string, progress float64) string {
 		return "queued"
 	case "pausedUP", "stoppedUP":
 		return "seeded"
+	case "stalledDL":
+		// qBittorrent's own "downloading" state, but with no peers
+		// currently serving it — real, actionable information an ordinary
+		// "downloading" status silently throws away (a torrent that will
+		// never finish looks identical to one making fine progress).
+		// stalledUP (finished, stalled while seeding) isn't included here:
+		// the file is already on disk by then, nothing to warn about.
+		return "stalled"
 	}
 	if strings.HasSuffix(state, "UP") || progress >= 1 {
 		return "completed"
