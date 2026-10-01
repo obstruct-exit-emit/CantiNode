@@ -11,6 +11,17 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **The Update/Restart buttons' own "watch the console/log to see it
+  finish" guidance was actively misleading for the one case it mattered
+  most** — confirmed live: a real production update left the service
+  unreachable for several minutes (longer than a first guess would
+  assume), and CantiNode obviously can't show you its own log while it's
+  down. The System page now actively polls for the server coming back
+  (up to 3 minutes) after either button, reporting "back online (version
+  X)" on success or a clear "still unreachable, check the host directly"
+  if it doesn't — instead of leaving the admin to guess by refreshing.
+  Both confirm dialogs also now say "this can take a few minutes," not
+  "briefly."
 - **A grab's failure reason was recorded only in its own DB row (visible
   on the Activity page), never written to the live log stream** — found
   live chasing the bug just below: `/log` had nothing after a fresh

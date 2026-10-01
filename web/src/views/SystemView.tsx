@@ -9,6 +9,26 @@ import {
 import { formatBytes, relativeTime } from "../format";
 import { useUi } from "../ui";
 
+// waitForBackOnline polls systemStatus every intervalMs until it succeeds
+// or maxWaitMs elapses, returning the fresh status (or null on timeout).
+// Update/Restart are expected to make the server genuinely unreachable for
+// a while — an immediate single follow-up check would almost always just
+// find it still down — so every individual failure here just means "not
+// back yet," never surfaced as an error on its own; only running out of
+// time without ever succeeding is reported, by the caller.
+async function waitForBackOnline(maxWaitMs: number, intervalMs: number): Promise<SystemStatus | null> {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    try {
+      return await api.systemStatus();
+    } catch {
+      // Not back yet — keep waiting rather than giving up on the first miss.
+    }
+  }
+  return null;
+}
+
 export default function SystemView({
   onError,
 }: {
@@ -35,7 +55,24 @@ export default function SystemView({
     setSystemBusy(true);
     try {
       await action();
-      toast(`${label} started — watch the console/log to see it finish.`, "info");
+      toast(`${label} started — waiting for CantiNode to come back online…`, "info");
+      // The whole point of either command is to stop or replace this
+      // process, so it's expected to actually be unreachable for a while —
+      // found live: a real update took well over two minutes, not the
+      // handful of seconds a first guess might assume. Keep checking
+      // instead of leaving the admin to guess whether it's still working
+      // or has gotten stuck; every individual failed check here just means
+      // "not back yet", not a real error.
+      const back = await waitForBackOnline(3 * 60_000, 3_000);
+      if (back) {
+        setStatus(back);
+        toast(`✓ ${label} finished — back online (version ${back.appVersion}).`, "ok");
+      } else {
+        toast(
+          `⚠ Still unreachable 3 minutes after ${label.toLowerCase()} — check the host directly, CantiNode can't report on itself while it's down.`,
+          "bad",
+        );
+      }
     } catch (err) {
       onError(String(err instanceof Error ? err.message : err));
     } finally {
@@ -56,7 +93,7 @@ export default function SystemView({
               onClick={() =>
                 runSystemAction(
                   "Update",
-                  "Run the update command and apply it? CantiNode will be briefly unavailable while it restarts.",
+                  "Run the update command and apply it? CantiNode will be unavailable until it restarts — this can take a few minutes, not just a few seconds.",
                   "Update",
                   api.systemUpdate,
                 )
@@ -70,7 +107,7 @@ export default function SystemView({
               onClick={() =>
                 runSystemAction(
                   "Restart",
-                  "Reboot the host machine now? Everything it runs will be briefly unavailable, not just CantiNode.",
+                  "Reboot the host machine now? Everything it runs will be unavailable until it comes back up, not just CantiNode.",
                   "Reboot now",
                   api.systemRestart,
                 )
