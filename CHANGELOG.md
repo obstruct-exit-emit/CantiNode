@@ -11,6 +11,27 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A grab's failure reason was recorded only in its own DB row (visible
+  on the Activity page), never written to the live log stream** — found
+  live chasing the bug just below: `/log` had nothing after a fresh
+  restart, not even the failure itself, several call sites having never
+  logged their own reason at all. `failGrab` now logs once, centrally, for
+  every call site present and future.
+- **A well-tagged 2-disc album — correct disc number, track number, and
+  title on every file — scored confidence 0 across the board and never
+  matched**, confirmed live on a real Pink Floyd "The Wall" 2007 Remaster
+  2CD grab: each disc's own Album tag was "The Wall (1)" / "The Wall (2)"
+  — a bare bracketed disc number with no "CD"/"Disc" label word at all, a
+  real-world tagging convention `discSuffixPattern`'s own
+  cd/disc/disk/d-prefixed form never recognized. The two discs' tags read
+  as genuinely different albums, so `groupMultiDiscFolders` never merged
+  "CD 1"/"CD 2" into one release search, and matching two already-correct
+  discs independently is exactly what's known to go wrong on its own (see
+  the Avantasia-derived fixes elsewhere in this list). `stripDiscSuffix`
+  now also recognizes the bare bracketed form — "Chapter 7", "1984", a
+  real "Greatest Hits (1)" compilation volume are deliberately left alone;
+  only the bracketed form is trusted, and only once a subfolder already
+  named "CD 1"/"CD 2" earns the merge attempt in the first place.
 - **A track stuck with more than one file (most commonly the multi-disc
   mismatch below, but any stray duplicate import) had no way to resolve
   from the UI** — the Album page already showed both files on their own

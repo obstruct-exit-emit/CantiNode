@@ -218,6 +218,14 @@ func queueKey(configID int64, itemID string) string {
 // ambiguous case, just applied consistently across every failure path
 // here instead of only that one.
 func (s *Service) failGrab(g download.GrabRecord, message string, blocklist bool) {
+	// Logged here, once, regardless of which call site triggered this —
+	// several previously had no log line of their own at all, so a real
+	// failure (its reason recorded only in the grab's own DB row, visible
+	// on the Activity page but never in the live log stream) left no trace
+	// to find while tailing logs for what went wrong. Confirmed live: a
+	// well-tagged 2CD import that failed to match left nothing in /log at
+	// all, even right after a fresh restart.
+	s.logger.Warn("importer: grab failed", "grab_id", g.ID, "title", g.Title, "reason", message, "blocklist", blocklist)
 	if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, message); err != nil {
 		s.logger.Error("importer: resolve failed grab", "grab_id", g.ID, "error", err)
 		return

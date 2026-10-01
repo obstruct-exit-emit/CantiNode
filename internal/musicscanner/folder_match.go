@@ -691,6 +691,18 @@ var discFolderPattern = regexp.MustCompile(`(?i)^(?:cd|disc|disk|d)[\s_.-]*0*([0
 // merging two discs of the very album this function exists to merge.
 var discSuffixPattern = regexp.MustCompile(`(?i)[\s([-]+(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[)\]]?\s*$`)
 
+// discSuffixBareNumberPattern matches a trailing bracketed disc number with
+// no label word at all — "The Wall (1)" / "The Wall (2)" — confirmed live
+// on a well-tagged 2CD Pink Floyd "The Wall" rip: discSuffixPattern's own
+// cd/disc/disk/d-prefixed form never matched it, so the two discs' Album
+// tags read as genuinely disagreeing and groupMultiDiscFolders never
+// merged them at all. Deliberately requires the brackets themselves (not a
+// bare trailing digit): "Chapter 7", "1984", a real "Greatest Hits (1)"
+// compilation volume unrelated to any second disc, must never be stripped
+// on a guess. The bracketed form is narrower, but still real-world enough
+// to be worth it — see stripDiscSuffix's own test cases.
+var discSuffixBareNumberPattern = regexp.MustCompile(`(?i)\s+[(\[]0*([0-9]+)[)\]]\s*$`)
+
 // discPrefixPattern is discSuffixPattern's mirror for the other common
 // per-disc tagging convention — a LEADING qualifier ("CD1 - Moonglow",
 // "Disc 2: Moonglow") instead of a trailing one. Real-world rips use
@@ -699,11 +711,13 @@ var discSuffixPattern = regexp.MustCompile(`(?i)[\s([-]+(?:cd|disc|disk|d)[\s._-
 var discPrefixPattern = regexp.MustCompile(`(?i)^(?:cd|disc|disk|d)[\s._-]*0*[0-9]+[\s:.-]+`)
 
 // stripDiscSuffix removes a disc-number qualifier from album, wherever it
-// appears — trailing ("Moonglow CD 1" -> "Moonglow") or leading ("CD1 -
-// Moonglow" -> "Moonglow"); "Wish You Were Here" is unchanged either way.
+// appears — trailing ("Moonglow CD 1" -> "Moonglow"), bracketed with no
+// label word ("The Wall (2)" -> "The Wall"), or leading ("CD1 - Moonglow"
+// -> "Moonglow"); "Wish You Were Here" is unchanged either way.
 func stripDiscSuffix(album string) string {
 	album = discPrefixPattern.ReplaceAllString(album, "")
 	album = discSuffixPattern.ReplaceAllString(album, "")
+	album = discSuffixBareNumberPattern.ReplaceAllString(album, "")
 	return strings.TrimSpace(album)
 }
 

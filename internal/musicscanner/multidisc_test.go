@@ -151,6 +151,33 @@ func TestGroupMultiDiscFoldersToleratesPerDiscAlbumSuffix(t *testing.T) {
 	}
 }
 
+// TestGroupMultiDiscFoldersToleratesBareNumberAlbumSuffix is the
+// regression test for a real bug found live: a well-tagged 2CD Pink Floyd
+// "The Wall" rip (disc number, track number, and title all correctly
+// embedded) tagged each disc's own Album field "The Wall (1)" / "The Wall
+// (2)" — a bare bracketed disc number, no cd/disc/disk label word at all.
+// discSuffixPattern's own cd/disc/disk/d-prefixed form didn't recognize
+// it, so these read as two genuinely different albums and never merged —
+// all 26 files scored confidence 0 as a result, in standard "CD 1"/"CD 2"
+// (with a space) subfolders.
+func TestGroupMultiDiscFoldersToleratesBareNumberAlbumSuffix(t *testing.T) {
+	groups := map[string][]folderEntry{
+		"/music/Pink Floyd/The Wall (2007 Remaster)/CD 1": {
+			entry(1, "/music/Pink Floyd/The Wall (2007 Remaster)/CD 1/01.flac", "Pink Floyd", "The Wall (1)", 1),
+		},
+		"/music/Pink Floyd/The Wall (2007 Remaster)/CD 2": {
+			entry(2, "/music/Pink Floyd/The Wall (2007 Remaster)/CD 2/01.flac", "Pink Floyd", "The Wall (2)", 2),
+		},
+	}
+
+	got := groupMultiDiscFolders(groups, nil)
+
+	merged, ok := got["/music/Pink Floyd/The Wall (2007 Remaster)"]
+	if !ok || len(merged) != 2 {
+		t.Fatalf("got = %+v, want both discs merged under their shared parent", got)
+	}
+}
+
 func TestStripDiscSuffix(t *testing.T) {
 	cases := map[string]string{
 		"Moonglow CD 1":         "Moonglow",
@@ -164,6 +191,17 @@ func TestStripDiscSuffix(t *testing.T) {
 		"Wish You Were Here":    "Wish You Were Here",
 		"The Wall":              "The Wall",
 		"CD Player Repair Disc": "CD Player Repair Disc", // no disc-number qualifier at all
+		// Bare bracketed disc number, no cd/disc label word at all —
+		// confirmed live on a real 2CD Pink Floyd "The Wall" rip.
+		"The Wall (1)": "The Wall",
+		"The Wall (2)": "The Wall",
+		"Moonglow [2]": "Moonglow",
+		// Must NOT be stripped: a bare trailing number with no brackets at
+		// all is far too easily a real part of the title (a year, a
+		// chapter number) to guess at.
+		"1984":          "1984",
+		"Chapter 7":     "Chapter 7",
+		"Greatest Hits": "Greatest Hits",
 	}
 	for in, want := range cases {
 		if got := stripDiscSuffix(in); got != want {

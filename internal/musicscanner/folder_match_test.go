@@ -1270,6 +1270,100 @@ func TestResolveExpectedReleaseSkipsSearchForGrabbedFiles(t *testing.T) {
 	}
 }
 
+// TestScanRootFolderMergesBareNumberAlbumSuffixIntoOneReleaseSearch is the
+// end-to-end regression test for a real failed import: a well-tagged 2CD
+// Pink Floyd "The Wall" grab (every file carrying its own correct disc
+// number, track number and title) tagged "CD 1"/"CD 2" (with a space)
+// with Album "The Wall (1)"/"The Wall (2)" — a bare bracketed disc-number
+// suffix, no cd/disc label word — never merged: groupMultiDiscFolders'
+// own per-subfolder consensus read the two Album tags as genuinely
+// different albums, exactly like TestScanRootFolderMergesPerDiscAlbumSuffixIntoOneReleaseSearch's
+// own "CD 1"/"CD 2" case above but for a tagging convention
+// discSuffixPattern's cd/disc/disk/d-prefixed form didn't recognize at
+// all. Proven the same way that test is: a merged group issues exactly
+// one whole-folder release search; two unmerged disc folders issue two
+// (or, as happened live, each independently resolves/fails on its own —
+// see this package's other Avantasia-derived tests for how two separate
+// per-disc resolutions can each still go wrong in their own way).
+func TestScanRootFolderMergesBareNumberAlbumSuffixIntoOneReleaseSearch(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.releaseSearch = []mbReleaseSearchResult{
+		{ID: "rel-wall", Title: "The Wall", Score: 100, TrackCount: 4,
+			ArtistCredit: []mbArtistCredit{{Name: "Pink Floyd", Artist: mbArtistRef{ID: "artist-mbid", Name: "Pink Floyd"}}},
+			ReleaseGroup: mbReleaseGroup{ID: "rg-wall", Title: "The Wall", PrimaryType: "Album"}},
+	}
+	fs.releaseLookups["rel-wall"] = mbReleaseWithTracklist{
+		ID: "rel-wall", Title: "The Wall",
+		ArtistCredit: []mbArtistCredit{{Name: "Pink Floyd", Artist: mbArtistRef{ID: "artist-mbid", Name: "Pink Floyd"}}},
+		ReleaseGroup: mbReleaseGroup{ID: "rg-wall", Title: "The Wall", PrimaryType: "Album"},
+		Media: []mbMedium{
+			{Format: "CD", Position: 1, TrackCount: 2, Tracks: []mbReleaseTrack{
+				{Position: 1, Title: "In the Flesh?", Recording: mbTrackRecording{ID: "rec-d1-t1", Title: "In the Flesh?"}},
+				{Position: 2, Title: "The Thin Ice", Recording: mbTrackRecording{ID: "rec-d1-t2", Title: "The Thin Ice"}},
+			}},
+			{Format: "CD", Position: 2, TrackCount: 2, Tracks: []mbReleaseTrack{
+				{Position: 1, Title: "Hey You", Recording: mbTrackRecording{ID: "rec-d2-t1", Title: "Hey You"}},
+				{Position: 2, Title: "Is There Anybody Out There?", Recording: mbTrackRecording{ID: "rec-d2-t2", Title: "Is There Anybody Out There?"}},
+			}},
+		},
+	}
+
+	s, rf := newFolderTestScanner(t, fs)
+	albumDir := filepath.Join(rf.Path, "Pink Floyd", "The Wall (2007 Remaster)")
+	cd1Dir := filepath.Join(albumDir, "CD 1")
+	cd2Dir := filepath.Join(albumDir, "CD 2")
+	if err := os.MkdirAll(cd1Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cd2Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildFLACFile(t, cd1Dir, "01.flac", map[string]string{
+		"ARTIST": "Pink Floyd", "ALBUM": "The Wall (1)", "TITLE": "In the Flesh?", "TRACKNUMBER": "1", "DISCNUMBER": "1",
+	})
+	buildFLACFile(t, cd1Dir, "02.flac", map[string]string{
+		"ARTIST": "Pink Floyd", "ALBUM": "The Wall (1)", "TITLE": "The Thin Ice", "TRACKNUMBER": "2", "DISCNUMBER": "1",
+	})
+	buildFLACFile(t, cd2Dir, "01.flac", map[string]string{
+		"ARTIST": "Pink Floyd", "ALBUM": "The Wall (2)", "TITLE": "Hey You", "TRACKNUMBER": "1", "DISCNUMBER": "2",
+	})
+	buildFLACFile(t, cd2Dir, "02.flac", map[string]string{
+		"ARTIST": "Pink Floyd", "ALBUM": "The Wall (2)", "TITLE": "Is There Anybody Out There?", "TRACKNUMBER": "2", "DISCNUMBER": "2",
+	})
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 4 {
+		t.Fatalf("FilesMatched = %d, want 4 (result=%+v)", result.FilesMatched, result)
+	}
+	if fs.countOf("release-search") != 1 {
+		t.Errorf("release-search calls = %d, want exactly 1 (one whole-folder search for the merged 2-disc group, not two independent per-disc ones)", fs.countOf("release-search"))
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil || len(albums) != 1 {
+		t.Fatalf("albums = %+v, err %v, want exactly 1 (both discs must join the same album, not two)", albums, err)
+	}
+
+	tracks, err := s.db.ListTracksByAlbum(albums[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	discByTitle := map[string]int{}
+	for _, tr := range tracks {
+		discByTitle[tr.Title] = tr.DiscNumber
+	}
+	for title, wantDisc := range map[string]int{
+		"In the Flesh?": 1, "The Thin Ice": 1, "Hey You": 2, "Is There Anybody Out There?": 2,
+	} {
+		if got, ok := discByTitle[title]; !ok || got != wantDisc {
+			t.Errorf("track %q: disc number = %d (present=%v), want %d", title, got, ok, wantDisc)
+		}
+	}
+}
+
 // TestResolveExpectedReleaseLoneDiscFolderPrefersMultiDiscVersion is the
 // regression test for a real bug found live: a lone "CD2" folder (no CD1
 // sibling present this scan — see
