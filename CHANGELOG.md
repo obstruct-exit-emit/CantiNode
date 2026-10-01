@@ -256,6 +256,19 @@ in progress. Highlights from the hardening period, newest first:
   for exactly this check; it just wasn't wired up here.
 
 ### Added
+- **Update and Restart buttons on the System page**, admin-only. Update
+  runs the host's own `update` command/script/alias — whatever an admin
+  would type at the server's own console to pull and apply a new build —
+  via a login shell (`bash -lc`), so a deployment-specific PATH entry or
+  profile-sourced alias resolves the same way it would interactively.
+  Restart reboots the host machine itself (`reboot now`), not just this
+  process — confirmed as the actual intended behavior for this kind of
+  deployment. Both fire the command and return immediately (`202
+  {"status":"started"}`) rather than waiting for a response that may never
+  arrive, since the whole point is to stop or replace this very process —
+  watch the console/log directly to see it actually finish. New
+  `POST /system/update` / `POST /system/restart`, gated behind the same
+  `requireAdmin` every other server-configuration endpoint already uses.
 - **A library-wide "Refresh all metadata" button** (Music page, next to
   Scan files) — the bulk twin of each artist page's own **Refresh
   metadata**: re-syncs discography, genres/tags/rating, and bio/photo for

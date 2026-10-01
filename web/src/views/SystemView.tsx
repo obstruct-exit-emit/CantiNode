@@ -9,6 +9,8 @@ export default function SystemView({
   onError: (message: string) => void;
 }) {
   const [status, setStatus] = useState<SystemStatus | null>(null);
+  const { confirmDlg, toast } = useUi();
+  const [systemBusy, setSystemBusy] = useState(false);
 
   useEffect(() => {
     api
@@ -17,12 +19,61 @@ export default function SystemView({
       .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
   }, [onError]);
 
+  const runSystemAction = async (
+    label: string,
+    message: string,
+    confirmLabel: string,
+    action: () => Promise<{ status: string }>,
+  ) => {
+    if (!(await confirmDlg({ title: label, message, confirmLabel, danger: true }))) return;
+    setSystemBusy(true);
+    try {
+      await action();
+      toast(`${label} started — watch the console/log to see it finish.`, "info");
+    } catch (err) {
+      onError(String(err instanceof Error ? err.message : err));
+    } finally {
+      setSystemBusy(false);
+    }
+  };
+
   if (!status) return <p className="muted">Loading…</p>;
 
   return (
     <>
       <section className="card">
-        <h2>System</h2>
+        <div className="card-head">
+          <h2>System</h2>
+          <span className="row-actions">
+            <button
+              disabled={systemBusy}
+              onClick={() =>
+                runSystemAction(
+                  "Update",
+                  "Run the update command and apply it? CantiNode will be briefly unavailable while it restarts.",
+                  "Update",
+                  api.systemUpdate,
+                )
+              }
+            >
+              Update
+            </button>
+            <button
+              className="danger"
+              disabled={systemBusy}
+              onClick={() =>
+                runSystemAction(
+                  "Restart",
+                  "Reboot the host machine now? Everything it runs will be briefly unavailable, not just CantiNode.",
+                  "Reboot now",
+                  api.systemRestart,
+                )
+              }
+            >
+              Restart
+            </button>
+          </span>
+        </div>
         <dl className="status-grid">
           <dt>Version</dt>
           <dd>{status.appVersion}</dd>

@@ -2,8 +2,10 @@ package api
 
 import (
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -56,6 +58,55 @@ func (s *server) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
 		"ipAddresses": localIPs(),
 		"port":        s.cfg.Port,
 	})
+}
+
+// systemCommandRunner is exec.Command by default — swapped out in tests so
+// an admin triggering "update"/"restart" never actually shells out to a
+// real system command (or reboots the test machine) during `go test`.
+var systemCommandRunner = exec.Command
+
+// runSystemCommand runs command through a login shell (bash -lc) — the
+// same way it would run if the admin typed it into the server's own
+// console themselves, sourcing whatever profile/PATH entry makes a bare
+// "update" (or any other deployment-specific alias/script) resolve to
+// something real, which a bare exec.Command(command) alone wouldn't. Kicks
+// it off and returns immediately rather than waiting for it to finish: the
+// whole point of "update" or "reboot now" is to stop or replace this very
+// process, so a response the caller is still waiting on can vanish along
+// with the connection mid-command — the admin watches the console/log
+// directly to see it actually happen, same as running it by hand.
+func (s *server) runSystemCommand(w http.ResponseWriter, command string) {
+	slog.Warn("api: admin triggered a system command", "command", command)
+	cmd := systemCommandRunner("bash", "-lc", command)
+	if err := cmd.Start(); err != nil {
+		slog.Error("api: system command failed to start", "command", command, "error", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			slog.Warn("api: system command process ended", "command", command, "error", err)
+		}
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
+}
+
+// handleSystemUpdate runs the host's own "update" command/script/alias —
+// whatever an admin would type into the server's own console to pull and
+// apply a new build. Admin-only (requireAdmin, see router.go): this is
+// arbitrary host-level execution, not scoped to CantiNode's own data at
+// all.
+func (s *server) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
+	s.runSystemCommand(w, "update")
+}
+
+// handleSystemRestart reboots the host machine outright (not just this
+// process) — confirmed as the intended behavior, matching how this
+// deployment is actually operated (a Proxmox box, not a container where
+// restarting just the service would be the lighter-weight equivalent).
+// Admin-only, see handleSystemUpdate's own doc comment.
+func (s *server) handleSystemRestart(w http.ResponseWriter, r *http.Request) {
+	s.runSystemCommand(w, "reboot now")
 }
 
 // handleIndex serves the embedded web UI: real files directly, anything else

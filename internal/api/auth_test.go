@@ -270,6 +270,15 @@ func TestMemberRoleRestrictions(t *testing.T) {
 	if got := do(kid, "GET", "/api/v1/backup", ""); got != http.StatusForbidden {
 		t.Fatalf("member GET /backup = %d, want 403", got)
 	}
+	// System update/restart run arbitrary host-level commands — a member
+	// must never reach either, same reasoning as every other
+	// server-configuration endpoint above.
+	if got := do(kid, "POST", "/api/v1/system/update", ""); got != http.StatusForbidden {
+		t.Fatalf("member POST /system/update = %d, want 403", got)
+	}
+	if got := do(kid, "POST", "/api/v1/system/restart", ""); got != http.StatusForbidden {
+		t.Fatalf("member POST /system/restart = %d, want 403", got)
+	}
 	// An admin reaches the same endpoint fine.
 	if got := do(admin, "GET", "/api/v1/indexer", ""); got != http.StatusOK {
 		t.Fatalf("admin GET /indexer = %d, want 200", got)

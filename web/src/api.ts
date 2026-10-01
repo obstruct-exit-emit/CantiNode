@@ -820,6 +820,14 @@ const json = (body: unknown): RequestInit => ({
 
 export const api = {
   systemStatus: () => request<SystemStatus>("/api/v1/system/status"),
+  // Both run a host-level command and return (202, "started") as soon as
+  // it's launched, not once it's finished — the whole point is to stop or
+  // replace this very server, so the connection (and the server itself)
+  // can vanish mid-command. A thrown error here means the command never
+  // even started; after that, watch the console/log directly to see it
+  // actually happen.
+  systemUpdate: () => request<{ status: string }>("/api/v1/system/update", { method: "POST" }),
+  systemRestart: () => request<{ status: string }>("/api/v1/system/restart", { method: "POST" }),
   authStatus: () => request<AuthStatus>("/api/v1/auth/status"),
   // First-run wizard: only answers/claims on a fresh instance — no API key.
   setupStatus: () => request<{ needed: boolean }>("/api/v1/setup/status"),

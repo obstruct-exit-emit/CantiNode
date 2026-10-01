@@ -10,7 +10,7 @@ curl -H "X-Api-Key: <key>" http://localhost:7847/api/v1/system/status
 
 | Area | Endpoints |
 |---|---|
-| System | `GET /system/status`, `GET /ping` (no auth), `GET /health`, `POST /health/check`, `GET /log?lines=N`, `GET /image?url=` (cached provider-image proxy), `DELETE /cache` (clear the image cache) |
+| System | `GET /system/status`, `GET /ping` (no auth), `GET /health`, `POST /health/check`, `GET /log?lines=N`, `GET /image?url=` (cached provider-image proxy), `DELETE /cache` (clear the image cache), `POST /system/update` (admin-only: runs the host's own `update` command — whatever an admin would type at the server's own console — via a login shell; `202 {"status": "started"}` as soon as it launches, not once it's finished), `POST /system/restart` (admin-only: reboots the host machine itself via `reboot now`, not just this process — same `202` shape) |
 | Auth | `GET /auth/status` + `POST /auth/login` (unauthenticated), `POST /auth/logout`, `PUT /auth/credentials` (create/change one account; empty username disables all), `GET/POST /auth/users` (adds take `"role": "admin"\|"member"`, default member), `DELETE /auth/users/{username}` (not the default), `PUT /auth/users/{username}/password` (self-service: admin, or the same user), `PUT /auth/users/{username}/role` (`admin`\|`member`; the default user stays admin), `PUT /auth/users/{username}/default`, `POST /auth/apikey/regenerate` |
 | Setup | `GET /setup/status` (unauthenticated — is this a fresh instance?), `POST /auth/setup` (first-run wizard: claim a fresh instance, create the default account, no API key needed) |
 | Backups | `GET/POST /backup`, `DELETE /backup/{name}`, `POST /backup/{name}/restore`, `GET /backup/{name}/download` |
