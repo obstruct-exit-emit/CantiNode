@@ -329,6 +329,47 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
    with both fixes in place, only 12/22 (matching the user's own
    screenshot exactly) with either one missing. See
    [CHANGELOG](CHANGELOG.md).
+
+   **Follow-up (2026-10-01):** three more real bugs in this same area,
+   all found live against real Avantasia/Pink Floyd 2CD grabs. First: a
+   disc that arrives standalone (no still-unmatched sibling this scan —
+   the same "late-arriving disc" shape as the 2026-09-07 follow-up above,
+   just via a merge failure rather than an already-owned sibling) got a
+   real release search via `resolveFolderRelease`'s own lone-disc-folder
+   case, but nothing told the matcher it specifically *was* disc 2 —
+   every untagged file defaulted to disc 1 and, via that standalone
+   call's own empty `used` map, claimed disc 1's own track slots
+   directly, the same slots a sibling disc already owned for real;
+   organizing the second disc then failed every track with "destination
+   already exists". Fixed by inferring a standalone disc-pattern
+   folder's own disc number from its name before matching, the same way
+   a successful merge already does. Second, compounding the first: even
+   once CD2 correctly claimed disc-2 slots, it could still pick a
+   single-disc edition of the release by file count alone (a lone
+   12-file CD2 folder scored against each cached version's own *total*
+   track count always favors the smaller single-disc edition over the
+   real 2-disc one) — landing CD2's files on the exact same recordings
+   CD1 already used, which is how a track ends up with two files
+   pointing at one recording in the first place. A disc-pattern folder's
+   own inferred disc number now narrows the cached-version pick to
+   editions with at least that many discs first. Third, unrelated to
+   either: "The Wall (1)" / "The Wall (2)" — a bare bracketed disc-number
+   suffix with no "CD"/"Disc" label word — wasn't recognized by
+   `discSuffixPattern`'s cd/disc/disk/d-prefixed form at all, so a
+   well-tagged 2CD Pink Floyd grab (correct disc number, track number,
+   and title on every file) scored confidence 0 across the board and
+   never matched; `stripDiscSuffix` now also recognizes the bare
+   bracketed form, deliberately narrow enough to leave "1984"/"Chapter
+   7"/a real numbered compilation volume alone. A track already stuck
+   with two files (this bug's own leftover state, or any other stray
+   duplicate import) had no way to resolve from the Album page at all —
+   both files were shown, but neither had any action beyond "Tags"; each
+   now has its own Delete button. Separately, `failGrab`'s own failure
+   reason used to be recorded only in the grab's DB row, several call
+   sites never logging it at all — found chasing the bug above, since
+   `/log` had nothing to explain a real failure even right after a fresh
+   restart; it now logs once, centrally, for every call site present and
+   future. See [CHANGELOG](CHANGELOG.md).
 7. [x] **Auto-swap the old file after an "Upgrades allowed" grab** — done
    2026-08-13, delete-outright (the judgment call this item flagged):
    `grabs.upgrade_album_id` (migration 024) ties an upgrade grab to the
@@ -516,6 +557,82 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
     minutes), but a misleading, unrecoverable-looking UI state until
     then. Resolving the grab before deleting the client's data would
     close this.
+19. [x] **Six download-client bugs, reported live from a real failed
+    Avantasia grab (TorBox/qBittorrent-bridge)** — done 2026-10-01, all
+    in the shared `internal/download` code every protocol client goes
+    through. Root cause of the whole batch: a `.torrent` upload never
+    derived its own identity from the file itself, relying entirely on a
+    fragile post-add title lookup that missed once TorBox renamed it —
+    `torrentinfo.go` now computes the file's real BitTorrent v1
+    info-hash (BEP 3, Sonarr/Radarr's own approach) up front instead,
+    the same way a magnet's own hash already was. That left the grab
+    with no trackable id, which cascaded through every other symptom:
+    it looked healthy for a full 10-minute grace window before failing
+    (new `ErrNoTrackableID` sentinel makes `Grab` fail immediately
+    instead), was never blocklisted so autosearch grabbed the identical
+    release again — 3× each for two Avantasia albums — (`autosearch`
+    now blocklists an untrackable release and retries the next-best
+    candidate in the same sweep), and a 502 along the way leaked a real
+    Prowlarr API key through an error text `redact.URLError` alone
+    couldn't reach (new `redact.Wrap` scrubs a release's own
+    secret-shaped download-URL values out of any error `Grab`
+    produces, catching a downstream service echoing the URL back in its
+    own response body). Also: qBittorrent's `stalledDL` state now gets
+    its own "stalled" status (a distinct warning pill in Activity)
+    instead of collapsing into plain "downloading", and SABnzbd's own
+    NZB-fetch/upload failures are now logged before falling back to
+    `addurl` instead of silently discarded. See [CHANGELOG](CHANGELOG.md).
+20. [x] **Update and Restart buttons on the System page, admin-only** —
+    done 2026-10-01. Update runs the host's own update command (default
+    `update`, configurable — see below); Restart reboots the host
+    machine itself (default `reboot now`), not just this process. Both
+    fire-and-forget (`202 {"status":"started"}`) rather than waiting on
+    a response that may never arrive, since the whole point of either
+    is to stop or replace this very process.
+
+    **Follow-up, same day:** a `/simplify` pass (reuse, simplification,
+    efficiency, altitude) over the new feature found the plumbing itself
+    already at the right depth, but flagged one real altitude issue: the
+    exact commands were hardcoded Go string literals, baking one
+    operator's own deployment convention into source for every CantiNode
+    install. New `config.SystemSettings`
+    (`updateCommand`/`restartCommand`, empty = default) plus
+    `GET/PUT /settings/system` and an editable card on the System page
+    make it a real setting instead, following `TimingSettings`' own
+    getter/setter/yaml pattern exactly.
+
+    **Follow-up, same day:** a live incident — triggering Update on
+    production left the service unreachable for several minutes with no
+    feedback, and the old "watch the console/log to see it finish"
+    toast is actively impossible to follow for exactly that case, since
+    CantiNode obviously can't show you its own log while it's down. The
+    System page now actively polls for the server coming back (up to 3
+    minutes) after either button, reporting "back online (version X)"
+    or a clear "still unreachable, check the host directly" instead of
+    leaving the admin to guess by refreshing.
+
+    **Follow-up, same day — the actual root cause of that incident**:
+    `journalctl` showed the update command dying by `signal: terminated`
+    in the exact same instant the service itself stopped, then silence
+    for over an hour with no auto-restart, until started by hand. The
+    update script is a child process living inside `cantinode.service`'s
+    own systemd cgroup, so the moment it reaches its own `systemctl
+    stop`/`restart` line, the default `KillMode=control-group` kills the
+    script itself as collateral damage from stopping its own parent —
+    before it ever reaches whatever comes after (rebuilding, starting
+    the new binary). The unit ends up cleanly stopped, not failed, which
+    systemd has no reason to auto-restart on its own. Both commands now
+    launch inside their own detached `systemd-run --scope`, managed
+    directly by systemd (PID 1) rather than nested inside this service's
+    own cgroup, so the command survives `cantinode.service` being
+    stopped out from under it — confirmed live on the real production
+    box: the next Update completed and came back online on its own, no
+    manual restart needed. Requires either root (every deployment
+    confirmed so far) or an explicit polkit rule
+    (`org.freedesktop.systemd1.manage-units`) for a dedicated
+    lower-privilege service account — confirmed the exact "Interactive
+    authentication required" failure on the WSL test instance's own
+    non-root `cantinode` user. See [CHANGELOG](CHANGELOG.md).
 
 ## Future 💡
 
