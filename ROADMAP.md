@@ -557,6 +557,24 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
     minutes), but a misleading, unrecoverable-looking UI state until
     then. Resolving the grab before deleting the client's data would
     close this.
+
+    **Follow-up (2026-10-04): the second race (`handleRemoveQueueItem`)
+    is now closed, as a side effect of item 19 below rather than a
+    direct fix.** `GrabRelease` records `ClientItemID: result.ID`
+    straight from `Grab`'s own return value, and every client's `Add`
+    (`qbittorrent.go`, `sabnzbd.go`, `direct.go`) now always resolves a
+    real trackable id before returning — a magnet's info hash
+    extracted directly, a `.torrent` upload's own BEP-3 hash computed
+    up front with a `hashLanded`/`findHash` fallback chain if the
+    client's own response is slow or ambiguous — and `Grab` itself
+    fails the whole call outright via `ErrNoTrackableID` rather than
+    recording a grab with nothing to track it by. A `GrabRecord` with
+    an empty `ClientItemID` can no longer exist, so
+    `handleRemoveQueueItem`'s own `ClientItemID`-equality fallback can
+    no longer miss for that reason; the UI's own primary match key
+    (`grabId`, passed from the queue item's own enrichment) makes the
+    common case even more direct. The first race above
+    (`handleGrabAlbumUpgrade`) is unrelated and still open.
 19. [x] **Six download-client bugs, reported live from a real failed
     Avantasia grab (TorBox/qBittorrent-bridge)** — done 2026-10-01, all
     in the shared `internal/download` code every protocol client goes
