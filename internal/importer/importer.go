@@ -240,6 +240,13 @@ func (s *Service) failGrab(g download.GrabRecord, message string, blocklist bool
 			s.logger.Error("importer: revert wanted album status", "grab_id", g.ID, "wanted_album_id", g.WantedAlbumID, "error", err)
 		}
 	}
+	if g.UpgradeAlbumID > 0 {
+		// Releases handleGrabAlbumUpgrade's own claim (see its comment) —
+		// this grab is the only thing that was holding it.
+		if err := s.music.ClearAlbumUpgradePending(g.UpgradeAlbumID); err != nil {
+			s.logger.Error("importer: clear album upgrade claim", "grab_id", g.ID, "upgrade_album_id", g.UpgradeAlbumID, "error", err)
+		}
+	}
 }
 
 // targetRootFolder picks which music root folder a completed grab's files
@@ -610,6 +617,12 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 	}
 	if g.UpgradeAlbumID > 0 {
 		s.swapUpgradedFiles(g.UpgradeAlbumID, beforeUpgrade)
+		// Releases handleGrabAlbumUpgrade's own claim (see its comment) —
+		// the swap above is done with the old files, so a new upgrade
+		// request for this album can proceed again.
+		if err := s.music.ClearAlbumUpgradePending(g.UpgradeAlbumID); err != nil {
+			s.logger.Error("importer: clear album upgrade claim", "grab_id", g.ID, "upgrade_album_id", g.UpgradeAlbumID, "error", err)
+		}
 	}
 	// The copy is safely in the library now — remove the download from its
 	// client, deleting its own data too, so a finished grab doesn't sit

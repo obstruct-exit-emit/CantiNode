@@ -175,7 +175,14 @@ were allowed to try. An **upgrade** grab
 (`GrabRecord.UpgradeAlbumID`, not `WantedAlbumID` — the album is already
 owned) additionally runs `swapUpgradedFiles` afterward: deletes the old
 file for each track actually superseded, track-by-track, never wiping
-anything the new release didn't end up matching. Matches primarily by
+anything the new release didn't end up matching. Starting the grab itself
+claims the album first (`ClaimAlbumForUpgrade`/`albums.upgrade_pending`,
+the same compare-and-swap shape `ClaimWantedAlbumForDownload` gives a
+wanted album) — a second concurrent upgrade request for the same album
+gets a clean 409 rather than reaching `GrabRelease` at all, which matters
+because two independent `GrabRecord`s for the same album would otherwise
+race each other's `swapUpgradedFiles` "before" snapshot. `PollOnce`
+releases the claim once the grab resolves either way. Matches primarily by
 MusicBrainz recording ID (`musiclibrary.GetOrCreateTrack` is keyed by
 `(albumID, recording MBID)`), with a same-disc/track-position +
 title-similarity fallback (`swapByPosition`, using

@@ -188,6 +188,38 @@ func (s *Store) ReapOrphanedAlbum(albumID int64) error {
 	return s.DeleteAlbum(albumID)
 }
 
+// ClaimAlbumForUpgrade atomically marks id as having an upgrade grab in
+// flight, the same compare-and-swap shape ClaimWantedAlbumForDownload
+// gives a wanted album — only one caller's claim can ever succeed while
+// the flag is set, closing the real race where two rapid/duplicate
+// upgrade requests for the same album could otherwise both reach
+// GrabRelease and create two independent GrabRecords whose
+// swapUpgradedFiles "before" snapshots can interleave. Call before the
+// download client submission, not after; release with
+// ClearAlbumUpgradePending once the grab resolves (success or failure) or
+// fails synchronously before a GrabRecord ever existed.
+func (s *Store) ClaimAlbumForUpgrade(id int64) (claimed bool, err error) {
+	res, err := s.db.Exec(`UPDATE albums SET upgrade_pending = 1 WHERE id = ? AND upgrade_pending = 0`, id)
+	if err != nil {
+		return false, fmt.Errorf("claim album for upgrade: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("claim album for upgrade: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ClearAlbumUpgradePending releases the claim ClaimAlbumForUpgrade took —
+// unconditional, not a compare-and-swap, since whoever holds the claim is
+// always the one releasing it.
+func (s *Store) ClearAlbumUpgradePending(id int64) error {
+	if _, err := s.db.Exec(`UPDATE albums SET upgrade_pending = 0 WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("clear album upgrade pending: %w", err)
+	}
+	return nil
+}
+
 const albumSelect = `SELECT id, artist_id, mbid, release_group_mbid, title, release_date, primary_type, description, mood, description_fetched_at, created_at, updated_at FROM albums`
 
 // GetAlbum returns a single album by ID, or ErrNotFound.

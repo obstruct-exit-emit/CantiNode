@@ -2257,10 +2257,35 @@ func (s *server) handleGrabAlbumUpgrade(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Claim before grabbing, not after: a blind grab-then-go let this same
+	// album be upgrade-grabbed twice by two callers racing on the same
+	// "not already upgrading" read — a double-click, or a retried request
+	// — each creating its own GrabRecord with the same UpgradeAlbumID,
+	// whose swapUpgradedFiles "before" snapshots can then interleave and
+	// misidentify which old files were actually superseded. The claim is a
+	// compare-and-swap (upgrade_pending must still be unset), so only one
+	// caller ever proceeds past this point; internal/importer releases it
+	// once the grab resolves, success or failure.
+	claimed, err := s.musicStore.ClaimAlbumForUpgrade(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !claimed {
+		writeError(w, http.StatusConflict, "this album is already upgrading")
+		return
+	}
+
 	ctx, cancel := s.downloadCtx()
 	defer cancel()
 	result, _, err := s.downloads.GrabRelease(ctx, req.Protocol, req.DownloadURL, req.Title, req.GUID, 0, id, "music")
 	if err != nil {
+		// The claim already set upgrade_pending — release it so this isn't
+		// stuck un-upgradable after a failed grab attempt that never
+		// produced a GrabRecord for internal/importer to resolve later.
+		if revertErr := s.musicStore.ClearAlbumUpgradePending(id); revertErr != nil {
+			slog.Error("music: revert album upgrade claim after failed grab", "album_id", id, "error", revertErr)
+		}
 		s.blocklistIfUntrackable(err, req.GUID, req.Title)
 		if errors.Is(err, download.ErrNoClient) {
 			writeError(w, http.StatusServiceUnavailable,

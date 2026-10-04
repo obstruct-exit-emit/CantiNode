@@ -158,3 +158,60 @@ func TestListAlbumsByArtistEmptyIsNotNil(t *testing.T) {
 		t.Error("ListAlbumsByArtist returned nil for an empty result, want a non-nil empty slice")
 	}
 }
+
+// TestClaimAlbumForUpgradeIsCompareAndSwap is the regression case for the
+// race ROADMAP.md's item 18 flagged and deliberately left unfixed:
+// handleGrabAlbumUpgrade had no equivalent to
+// ClaimWantedAlbumForDownload's own compare-and-swap, so two rapid/
+// duplicate upgrade requests for the same album could both reach
+// GrabRelease and create two independent GrabRecords whose
+// swapUpgradedFiles "before" snapshots can interleave.
+func TestClaimAlbumForUpgradeIsCompareAndSwap(t *testing.T) {
+	db := newTestStore(t)
+	artist, err := db.GetOrCreateArtist("a-mbid", "Artist", "Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := db.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Geogaddi", "2002", "Album")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := db.ClaimAlbumForUpgrade(album.ID)
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if !first {
+		t.Fatal("first claim should succeed on an album with no upgrade in flight")
+	}
+
+	second, err := db.ClaimAlbumForUpgrade(album.ID)
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	if second {
+		t.Error("second claim while the first is still pending should fail")
+	}
+
+	if err := db.ClearAlbumUpgradePending(album.ID); err != nil {
+		t.Fatal(err)
+	}
+	third, err := db.ClaimAlbumForUpgrade(album.ID)
+	if err != nil {
+		t.Fatalf("third claim: %v", err)
+	}
+	if !third {
+		t.Error("claim should succeed again once cleared")
+	}
+}
+
+func TestClaimAlbumForUpgradeNonexistentRow(t *testing.T) {
+	db := newTestStore(t)
+	claimed, err := db.ClaimAlbumForUpgrade(999)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if claimed {
+		t.Error("claiming a nonexistent album should never succeed")
+	}
+}

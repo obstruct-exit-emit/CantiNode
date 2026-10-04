@@ -11,6 +11,21 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A double-click or retried request on an album's "Search upgrade" grab
+  button could create two independent downloads for the same upgrade**,
+  each tied to the same album via its own `GrabRecord`, racing each
+  other's `swapUpgradedFiles` "before" snapshot and risking the wrong old
+  file getting identified as superseded — a real gap flagged and
+  deliberately left unfixed in an earlier code review specifically
+  because the obvious fix (a unique constraint on insert) would make
+  things worse: `GrabRelease` submits to the real download client before
+  its own DB insert, so a unique-constraint rejection would still leave a
+  real, untracked second download running invisibly in the client. New
+  `albums.upgrade_pending` plus an atomic claim/release pair
+  (`ClaimAlbumForUpgrade`/`ClearAlbumUpgradePending`) give an owned album
+  the same compare-and-swap protection a wanted album's own grab already
+  had — a second concurrent request now gets a clean 409 instead of ever
+  reaching the download client.
 - **A badly mistagged file with a right-looking track number could still
   silently claim a real track slot under a completely unrelated song,
   landing with high confidence** — found live in a fan-compiled Weezer

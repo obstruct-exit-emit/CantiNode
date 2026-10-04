@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+
+	"github.com/cantinode/cantinode/internal/musiclibrary"
 )
 
 // seedOwnedAlbum inserts an artist, an owned album, one track, and one
@@ -180,5 +182,40 @@ func TestGrabAlbumUpgradeRejectsWhenUpgradesDisabled(t *testing.T) {
 	}, nil)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (upgrades not allowed) — grab must not bypass the eligibility gate", resp.StatusCode)
+	}
+}
+
+// TestGrabAlbumUpgradeRejectsDuplicateInFlightRequest is the regression
+// test for the race ROADMAP.md's item 18 flagged and deliberately left
+// unfixed: handleGrabAlbumUpgrade had no equivalent to
+// handleGrabWantedMusicAlbum's own ClaimWantedAlbumForDownload
+// compare-and-swap, so two rapid/duplicate upgrade requests for the same
+// album — a double-click, a retried request — could both reach
+// GrabRelease and create two independent GrabRecords, whose
+// swapUpgradedFiles "before" snapshots can then interleave and
+// misidentify which old files were actually superseded. Simulates the
+// second request's own view of the world directly (the album already has
+// an upgrade claimed) rather than racing two real HTTP calls, which would
+// only prove timing, not the guard itself.
+func TestGrabAlbumUpgradeRejectsDuplicateInFlightRequest(t *testing.T) {
+	a := newTestAPI(t)
+	setUpgradesAllowed(t, a, true, "")
+	albumID := seedOwnedAlbum(t, a, "mp3")
+
+	musicStore := musiclibrary.NewStore(a.db)
+	claimed, err := musicStore.ClaimAlbumForUpgrade(albumID)
+	if err != nil {
+		t.Fatalf("ClaimAlbumForUpgrade: %v", err)
+	}
+	if !claimed {
+		t.Fatal("first claim should succeed on a freshly-seeded album")
+	}
+
+	resp := a.call("POST", fmt.Sprintf("/api/v1/music/album/%d/upgrade/grab", albumID), map[string]any{
+		"title": "Boards of Canada - Geogaddi FLAC", "downloadUrl": "https://mock/dl/good.torrent",
+		"protocol": "torrent", "guid": "https://mock/torrent/good",
+	}, nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (already upgrading) — a second request must not reach GrabRelease", resp.StatusCode)
 	}
 }

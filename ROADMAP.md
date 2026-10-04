@@ -520,7 +520,7 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
     tool that preserves/displays a file's exact original key casing would
     ever notice the difference.
 
-18. [ ] **Two grab-path races found in an overnight code review
+18. [x] **Two grab-path races found in an overnight code review
     (2026-08-30), deliberately left unfixed**: `handleGrabAlbumUpgrade`
     (unlike its sibling `handleGrabWantedMusicAlbum`, which claims the
     wanted album via a compare-and-swap on its `status` column before
@@ -575,6 +575,25 @@ delete-files, Activity page lag) — concrete and prioritized, unlike
     (`grabId`, passed from the queue item's own enrichment) makes the
     common case even more direct. The first race above
     (`handleGrabAlbumUpgrade`) is unrelated and still open.
+
+    **Follow-up (2026-10-04): the first race is now fixed too**, with the
+    deliberate design this item's own text called for. New
+    `albums.upgrade_pending` (migration 039) plus
+    `ClaimAlbumForUpgrade`/`ClearAlbumUpgradePending`
+    (`internal/musiclibrary/album.go`) give an owned album the same
+    atomic compare-and-swap shape `ClaimWantedAlbumForDownload` already
+    gives a wanted one — `handleGrabAlbumUpgrade` claims before calling
+    `GrabRelease`, a second concurrent request gets a clean 409 instead
+    of reaching the download client at all, and `internal/importer`
+    releases the claim once the grab resolves either way (success, right
+    after `swapUpgradedFiles`; failure, alongside the existing wanted-
+    album revert in `failGrab`) — plus the same synchronous-failure
+    release `handleGrabWantedMusicAlbum` already does for the case
+    `GrabRelease` itself errors before a `GrabRecord` ever exists. New
+    regression tests at both layers (the store's own CAS contract, and
+    the handler's 409 against an already-claimed album), the latter
+    confirmed to fail with the right 503 instead of 409 when the guard
+    is disabled.
 19. [x] **Six download-client bugs, reported live from a real failed
     Avantasia grab (TorBox/qBittorrent-bridge)** — done 2026-10-01, all
     in the shared `internal/download` code every protocol client goes
