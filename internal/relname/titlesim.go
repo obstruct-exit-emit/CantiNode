@@ -27,6 +27,27 @@ func TitleSimilarity(a, b string) float64 {
 	return 1 - float64(dist)/float64(maxLen)
 }
 
+// TitleIsPrefixOf reports whether one of a/b, once normalized, is a leading
+// prefix of the other — true for "Spectres" vs "Spectres (Instrumental
+// Version)" or "Layla" vs "Layla (Acoustic)": a file's title tag missing
+// the edition/version qualifier the release's own title carries (or vice
+// versa), the single most common reason a real, correct title legitimately
+// fails to clear TitleSimilarity's own threshold. Deliberately a separate
+// signal rather than folded into TitleSimilarity itself: a long qualifier
+// appended to a short base title scores low on raw edit-distance ratio by
+// pure length coincidence, indistinguishable there from two genuinely
+// unrelated titles that happen to land in a similar length/distance range —
+// confirmed live, where "Spectres" vs "Spectres (instrumental version)"
+// (0.276) and a real mismatch, "The Christmas Song" vs "The Weight"
+// (0.278), scored within 0.002 of each other on TitleSimilarity alone.
+func TitleIsPrefixOf(a, b string) bool {
+	na, nb := normalizeTitle(a), normalizeTitle(b)
+	if na == "" || nb == "" {
+		return false
+	}
+	return strings.HasPrefix(na, nb) || strings.HasPrefix(nb, na)
+}
+
 // normalizeTitle lowercases and strips everything but letters/digits/
 // spaces, collapsing runs of whitespace — punctuation/case differences
 // between a file's own tag and MusicBrainz's title shouldn't count against

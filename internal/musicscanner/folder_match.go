@@ -730,14 +730,33 @@ func recordingForReleaseTrack(ft flatTrack, release *musicbrainz.ReleaseWithTrac
 	}
 }
 
+// trackNumberSanityThreshold guards slotTrack's disc+track-number fast
+// path against a badly mistagged file: a right-looking track number
+// alongside a title for a completely unrelated song — confirmed live in a
+// fan-compiled discography torrent bundling a second, differently-sourced
+// copy of an album whose files carried another album's own titles
+// entirely ("1.11 - The Weight.flac" tagged with the title and album of a
+// real, different song years apart). Deliberately far looser than
+// titleMatchThreshold's own 0.6 below — this only needs to catch a
+// flagrant mismatch, not stand in for a real title match, so ordinary tag
+// noise (missing diacritics, a parenthetical remix note) never rejects a
+// genuinely correct track-number match. Checked alongside
+// relname.TitleIsPrefixOf, not instead of it — a missing/extra edition
+// qualifier ("Spectres" vs "Spectres (Instrumental Version)") scores
+// almost identically low on this ratio to a real mismatch purely by length
+// coincidence (confirmed live: 0.276 vs 0.278), so the ratio alone can't
+// carry this check on its own.
+const trackNumberSanityThreshold = 0.3
+
 // slotTrack picks which of tracks (not yet claimed by an earlier file
 // this pass — see used) a local file's tags most likely correspond to:
 // first an in-range disc+track number match (cheap, reliable whenever a
-// ripper/tagger already numbered files correctly), falling back to the
-// file's own title scored against each remaining candidate's title — no
-// further network call, since the full tracklist is already in hand.
-// Returns ok=false if neither signal produces a confident, unclaimed
-// candidate.
+// ripper/tagger already numbered files correctly, and sanity-checked
+// against the title when one is present — see trackNumberSanityThreshold),
+// falling back to the file's own title scored against each remaining
+// candidate's title — no further network call, since the full tracklist is
+// already in hand. Returns ok=false if neither signal produces a
+// confident, unclaimed candidate.
 func slotTrack(tags *tagreader.Tags, tracks []flatTrack, used map[int]bool) (int, flatTrack, bool) {
 	if tags.TrackNumber > 0 {
 		disc := tags.DiscNumber
@@ -746,6 +765,11 @@ func slotTrack(tags *tagreader.Tags, tracks []flatTrack, used map[int]bool) (int
 		}
 		for i, t := range tracks {
 			if !used[i] && t.disc == disc && t.Position == tags.TrackNumber {
+				if tags.Title != "" &&
+					relname.TitleSimilarity(tags.Title, t.Title) < trackNumberSanityThreshold &&
+					!relname.TitleIsPrefixOf(tags.Title, t.Title) {
+					continue
+				}
 				return i, t, true
 			}
 		}

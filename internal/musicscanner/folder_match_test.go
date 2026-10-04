@@ -15,6 +15,7 @@ import (
 	"github.com/cantinode/cantinode/internal/database"
 	"github.com/cantinode/cantinode/internal/musicbrainz"
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagreader"
 	"github.com/cantinode/cantinode/internal/tagwriter"
 )
 
@@ -1786,4 +1787,45 @@ func TestRecordingForReleaseTrackPreservesRelations(t *testing.T) {
 	if got.Composer() != "Leonard Cohen" {
 		t.Errorf("recordingForReleaseTrack(...).Composer() = %q, want %q — Relations must survive the synthesized Recording", got.Composer(), "Leonard Cohen")
 	}
+}
+
+// TestSlotTrackRejectsTrackNumberMatchWithWrongTitle is the regression case
+// for a real bug found live in a fan-compiled Weezer discography torrent
+// that happened to bundle two independently-sourced copies of the same
+// album: one file's correct-looking track number (11) pointed at the right
+// slot, but its own title tag — "The Christmas Song" — was actually a
+// completely different song, copied in from some other album's own file
+// during whoever compiled the torrent's own mistagging. slotTrack's
+// disc+track-number fast path trusted the number alone and slotted it in
+// anyway, landing a wrong song under a real track position with high
+// confidence — exactly what "never worse than not matching" exists to
+// prevent. A genuinely correct, if noisily-tagged, title must still pass
+// (the sanity check is deliberately far looser than a real title match).
+func TestSlotTrackRejectsTrackNumberMatchWithWrongTitle(t *testing.T) {
+	tracks := []flatTrack{
+		{disc: 1, ReleaseTrack: musicbrainz.ReleaseTrack{Position: 11, Title: "Miss Sweeney"}},
+	}
+
+	t.Run("flagrantly wrong title rejects the track-number match", func(t *testing.T) {
+		tags := &tagreader.Tags{TrackNumber: 11, Title: "The Christmas Song"}
+		if _, _, ok := slotTrack(tags, tracks, map[int]bool{}); ok {
+			t.Error("slotTrack matched a right-looking track number despite a title for a completely different song")
+		}
+	})
+
+	t.Run("noisy but genuinely matching title still accepts it", func(t *testing.T) {
+		tags := &tagreader.Tags{TrackNumber: 11, Title: "miss sweeney"}
+		idx, _, ok := slotTrack(tags, tracks, map[int]bool{})
+		if !ok || idx != 0 {
+			t.Errorf("slotTrack(...) = idx %d, ok %v, want idx 0, ok true — case/punctuation noise must not sink a real match", idx, ok)
+		}
+	})
+
+	t.Run("no title tag at all still trusts the track number", func(t *testing.T) {
+		tags := &tagreader.Tags{TrackNumber: 11}
+		idx, _, ok := slotTrack(tags, tracks, map[int]bool{})
+		if !ok || idx != 0 {
+			t.Errorf("slotTrack(...) = idx %d, ok %v, want idx 0, ok true — no title tag means nothing to sanity-check against", idx, ok)
+		}
+	})
 }

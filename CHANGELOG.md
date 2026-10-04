@@ -11,6 +11,25 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A badly mistagged file with a right-looking track number could still
+  silently claim a real track slot under a completely unrelated song,
+  landing with high confidence** — found live in a fan-compiled Weezer
+  discography torrent that happened to bundle two independently-sourced
+  copies of the same album: one file named `1.11 - The Weight.flac`
+  carried embedded tags for an entirely different song ("The Christmas
+  Song", a different album, a different year). `slotTrack`'s disc+track-
+  number fast path trusted the number alone with no title check at all,
+  so the file took the real "The Weight" slot outright — the same album
+  ended up with two different tracks both claiming track 11, and two both
+  claiming track 12, directly against the "never worse than not matching"
+  principle the rest of the matching pipeline holds to. A straight
+  `TitleSimilarity` check turned out not to be enough on its own: a file
+  correctly missing an edition qualifier ("Spectres" vs "Spectres
+  (Instrumental Version)") scores almost identically low to the real
+  mismatch above purely by length coincidence (0.276 vs 0.278) — so new
+  `relname.TitleIsPrefixOf` catches the legitimate "same song, qualifier
+  only on one side" case specifically, checked alongside the existing
+  similarity ratio rather than instead of it.
 - **Two cached editions tied on the exact same track count got picked
   between arbitrarily, landing on the wrong one** — the other half of the
   same live Hozier "Deluxe Edition" test below: after the edition-suffix
