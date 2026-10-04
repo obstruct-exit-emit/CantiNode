@@ -84,7 +84,19 @@ release MBID, then grab-provenance fast path via
 `ExpectedReleaseGroupMBID`, then a real MusicBrainz release search) and
 slots each file into a track (`matchEntriesToRelease`/`slotTrack`), falling
 back to independent per-file fuzzy search only when a group can't be
-resolved with confidence. **Non-obvious gotcha**: a per-disc Album-tag
+resolved with confidence. Within the grab-provenance fast path,
+`pickBestVersionByFileCount` picks the cached version closest to the
+group's own file count by `|TrackCount - fileCount|` alone — when two or
+more cached versions land on the exact same count (confirmed live: a
+Hozier "Deluxe Edition" with a BBC-covers bonus disc and a genuinely
+different "Deluxe Edition" with real bonus tracks, both cached at 17
+tracks), that distance metric can't tell them apart at all, so
+`resolveVersionTieByTitles` fetches each exact-tied candidate's own real
+tracklist and picks whichever one's titles actually match the local
+files — reusing whichever fetch wins rather than re-fetching it, and
+never triggered outside that specific exact-count-tie case, so the
+ordinary single-best-by-count pick pays no extra MusicBrainz round trips.
+**Non-obvious gotcha**: a per-disc Album-tag
 suffix ("Album CD 1" vs "Album CD 2" — genuinely common) has to be stripped
 consistently everywhere a merged group's tags get compared —
 `folderTagConsensus` and `albumTagsDisagree` both do this now — or the
@@ -121,6 +133,27 @@ an optional `?minTracks=N` specifically so the unmatched-files page can
 force a fresh look when nothing cached is a plausible match for its own
 known file count, rather than silently offering a stale, wrong-track-count
 edition as the default pick.
+
+**A fourth gotcha**: `slotTrack`'s disc+track-number fast path used to
+trust a file's embedded `TrackNumber` tag alone, with no title check at
+all, on the reasoning that a ripper/tagger's own numbering is normally
+reliable — confirmed live against a fan-compiled discography torrent that
+happened to bundle two independently-sourced copies of the same album: a
+file in the second copy had a correct-looking track number but an
+embedded title for a *completely different song*, and the fast path
+slotted it into a real track's position anyway, with high confidence,
+leaving that album with two different tracks both claiming the same
+position. `slotTrack` now also requires the title to at least clear
+`trackNumberSanityThreshold` (`folder_match.go`) — deliberately far looser
+than the real title-match threshold below it, since this is a sanity
+check against a flagrant mismatch, not a second title match. A plain
+`relname.TitleSimilarity` ratio alone isn't enough for that sanity check,
+though: a file correctly missing an edition/version qualifier ("Spectres"
+vs "Spectres (Instrumental Version)") scores almost identically low to a
+real mismatch purely by string-length coincidence (confirmed live: 0.276
+vs 0.278) — `relname.TitleIsPrefixOf` catches that specific "same song,
+qualifier only on one side" case as a second, independent signal, checked
+alongside the ratio rather than instead of it.
 
 **Acquisition** (`internal/candidatesearch` → `internal/download` →
 `internal/importer`): a search (manual, or `internal/autosearch`'s
