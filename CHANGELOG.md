@@ -11,6 +11,21 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Every single completed grab ran a full library-wide scan, re-examining
+  every already-matched file in the whole library regardless of how much
+  was actually new** — found live, digging into a burn-in session's own
+  "is this actually stuck, or just slow?" uncertainty: `internal/importer`
+  called `Scanner.ScanAll` after every import instead of scanning just the
+  release's own freshly-copied folder, so an already-settled file paid a
+  real `stat()` + indexed lookup cost (cheap per file, but real) on every
+  single future import regardless of relevance. Confirmed live against a
+  real 944-file library on likely network-mounted storage: ~190ms/file,
+  roughly 3 minutes of pure overhead per import unrelated to what was
+  actually being imported — a cost that scales with total library size,
+  not import size, and only gets worse as a real collection grows. New
+  `Scanner.ScanFolder`, scoped to exactly the grab's own destination
+  directory, closes it — an import now costs what it should: the size of
+  what it imported.
 - **Removing a stuck download from Activity, or cancelling a stuck grab
   directly, could leave an album permanently unable to upgrade-grab again**
   — found live, immediately after the album-upgrade claim fix below shipped:

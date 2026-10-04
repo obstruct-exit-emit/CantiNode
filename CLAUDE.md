@@ -162,8 +162,13 @@ the native `prowlarr` source), scores results (`internal/release`), and a
 grab hands off to a qBittorrent/SABnzbd/direct client
 (`internal/download`). `internal/importer.PollOnce` (its own 2-minute
 timer, or the "Import now" button) polls in-flight grabs, and once one
-completes, copies its audio files into a root folder and runs the same
-scanner scan above to match them in — but first,
+completes, copies its audio files into a root folder and matches them in
+via `Scanner.ScanFolder`, scoped to exactly that destination directory —
+deliberately not the library-wide `ScanAll` above, which used to run here
+and re-examine every already-matched file in the whole library on every
+single import (confirmed live: ~190ms/file on real, likely
+network-mounted storage — minutes of pure overhead unrelated to what was
+actually new). But first,
 `looksLikeSingleFileWholeAlbumRip` rejects (deletes + blocklists +
 reverts to wanted) a completed download that copied exactly one audio
 file for a release group whose cached versions (`ListReleaseGroupVersions`,

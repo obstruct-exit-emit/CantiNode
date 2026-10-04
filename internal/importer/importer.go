@@ -537,7 +537,7 @@ func (s *Service) importGrab(ctx context.Context, g download.GrabRecord, item do
 				"grab_id", g.ID, "upgrade_album_id", g.UpgradeAlbumID, "error", err)
 		}
 	}
-	if _, err := s.scanner.ScanAll(ctx); err != nil {
+	if _, err := s.scanner.ScanFolder(ctx, root, dest); err != nil {
 		s.logger.Warn("importer: post-import scan failed, the next scan will still pick these files up",
 			"grab_id", g.ID, "error", err)
 	}

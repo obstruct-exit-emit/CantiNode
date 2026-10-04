@@ -285,6 +285,83 @@ func TestPollOnceImportsCompletedDownload(t *testing.T) {
 	}
 }
 
+// TestImportGrabScanIsScopedToItsOwnFolder is the regression test for a
+// real performance bug: importGrab used to run scanner.ScanAll after every
+// completed grab — a full walk of every root folder, re-stat-ing and
+// re-querying every already-matched file in the entire library, not just
+// the handful of genuinely new ones. Confirmed live against a real
+// 944-file library (likely network-mounted storage, ~190ms/file): a
+// multi-minute tax on every single import, completely unrelated to how
+// much was actually being imported. scanner.ScanFolder, scoped to exactly
+// the grab's own destination directory, must leave an unrelated file
+// elsewhere under the same root folder completely untouched — no new
+// track_files row, proving the scan never walked out there at all.
+func TestImportGrabScanIsScopedToItsOwnFolder(t *testing.T) {
+	src := t.TempDir()
+	albumDir := filepath.Join(src, "Test Album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "readme.flac"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sab, _ := mockSab(t, albumDir, "Completed")
+	svc, dlStore, musicStore, destRoot, _ := setup(t, sab)
+
+	// Pre-existing, unrelated to this grab — sits under the same root
+	// folder, not under the destination directory this grab's own files
+	// will be copied into. Genuinely tag-readable (not just an
+	// audio-extension file with garbage content): upsertFile only creates
+	// a track_files row after a successful tag read, so garbage content
+	// would never produce a row regardless of whether the scan walked out
+	// here or not — a real minimal FLAC is what lets "a row now exists"
+	// actually distinguish "this file was visited" from "it wasn't."
+	elsewhereDir := filepath.Join(destRoot, "Unrelated Artist", "Unrelated Album")
+	if err := os.MkdirAll(elsewhereDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	elsewherePath := filepath.Join(elsewhereDir, "01 - Old Song.flac")
+	if err := os.WriteFile(elsewherePath, minimalFLACBytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dlStore.AddGrab(&download.GrabRecord{
+		ClientConfigID: 1, ClientItemID: "nzo1", Title: "Test Album",
+		Protocol: download.ProtocolUsenet, MediaType: "music",
+	}); err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+
+	result := svc.PollOnce(t.Context())
+	if result.Checked != 1 || result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("PollOnce result = %+v, want 1 checked, 1 imported, 0 failed", result)
+	}
+
+	if _, err := musicStore.GetTrackFileByPath(elsewherePath); err == nil {
+		t.Error("importing one release touched a file elsewhere in the library — the post-import scan must be scoped to just the new release's own folder")
+	}
+}
+
+// minimalFLACBytes builds the smallest real FLAC file tagreader.Read can
+// parse (a bare "fLaC" marker plus one empty Vorbis comment block, no
+// actual audio frames) — mirrors internal/tagreader's own buildFLACFile
+// test fixture, duplicated here rather than shared since Go test files
+// aren't importable across packages.
+func minimalFLACBytes() []byte {
+	var block bytes.Buffer
+	binary.Write(&block, binary.LittleEndian, uint32(0)) // vendor length
+	binary.Write(&block, binary.LittleEndian, uint32(0)) // comment count
+
+	var file bytes.Buffer
+	file.WriteString("fLaC")
+	file.WriteByte(0x80 | 4) // last block, vorbis comment block type
+	n := block.Len()
+	file.Write([]byte{byte(n >> 16), byte(n >> 8), byte(n)}) // 24-bit big-endian length
+	file.Write(block.Bytes())
+	return file.Bytes()
+}
+
 // TestPollOnceRevertsWantedAlbumWhenNothingMatches is the regression test
 // for a real gap found live: a whole-disc rip (one giant file per CD side,
 // never split into individual tracks) copies real audio data successfully,

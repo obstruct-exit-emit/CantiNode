@@ -348,6 +348,77 @@ func (s *Scanner) ScanRootFolder(ctx context.Context, rf musiclibrary.RootFolder
 	return result, nil
 }
 
+// ScanFolder scans dir (and everything beneath it) for audio files and
+// matches them in, touching nothing outside dir at all — no walk, no
+// prune, no re-examining a single already-settled file anywhere else in
+// the library. This is what a freshly-completed grab needs:
+// internal/importer already knows exactly where it just copied the
+// release's files to (dest), but unlike ScanAlbumFolder there's no
+// existing album row yet to derive that path from on a brand-new
+// artist/album's very first import, so dir is taken directly instead.
+//
+// Found live: internal/importer used to call ScanAll here instead —
+// correct, but it re-stats and re-queries every already-matched file in
+// the entire library on every single import, not just the handful of
+// genuinely new ones. Cheap per file (upsertFile's own fast path skips
+// the tag re-read for an unchanged match), but it's still a real
+// per-file cost that scales with total library size, not with import
+// size — confirmed live at ~190ms/file against a real 944-file library
+// (likely network-mounted storage), making every import pay a steadily
+// growing, multi-minute tax completely unrelated to what it actually
+// needed to do. Scoped to exactly the one folder that's new closes that
+// — an import now costs what it should: the size of what it imported.
+//
+// rf must be the root folder dir lives under, for upsertFile's own
+// RootFolderID stamping — the caller already knows this, since dir is
+// wherever it just copied the grab's files to under that same root.
+// Serialized via scanMu against ScanAll/ScanAlbumFolder and against
+// itself, same as every other entry point here.
+func (s *Scanner) ScanFolder(ctx context.Context, rf musiclibrary.RootFolder, dir string) (*ScanResult, error) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+
+	result := &ScanResult{Errors: []string{}}
+	groups := map[string][]folderEntry{}
+
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("walk %s: %v", path, err))
+			return nil
+		}
+		if d.IsDir() || !tagreader.IsAudioFile(path) {
+			return nil
+		}
+		tf, tags, err := s.upsertFile(rf, path, result)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", path, err))
+			return nil
+		}
+		if tf.MatchStatus != musiclibrary.StatusUnmatched {
+			return nil
+		}
+		fdir := filepath.Dir(path)
+		groups[fdir] = append(groups[fdir], folderEntry{tf: tf, tags: tags})
+		return nil
+	})
+	if err != nil {
+		return result, fmt.Errorf("walk %s: %w", dir, err)
+	}
+
+	groups = groupMultiDiscFolders(groups, s.resolveArtistAlbumFallback)
+
+	dirs := make([]string, 0, len(groups))
+	for d := range groups {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	for _, d := range dirs {
+		s.matchFolder(ctx, groups[d], result)
+	}
+	s.notifyPlexPaths(result.organizedPaths...)
+	return result, nil
+}
+
 // ScanAlbumFolder rescans a single album's own folder for new or changed
 // audio files and matches them against this album's own tracks — the album
 // page's "Scan files" action, scoped to just this album's directory rather
