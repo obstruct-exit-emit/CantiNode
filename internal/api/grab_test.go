@@ -49,6 +49,74 @@ func TestCancelGrabNotFound(t *testing.T) {
 	a.want(resp, http.StatusNotFound)
 }
 
+// TestCancelGrabReleasesWantedAndUpgradeClaims is the regression case for
+// a gap in handleCancelGrab found live alongside the same one just fixed in
+// handleRemoveQueueItem: cancelling a grab only ever resolved the grab's
+// own status, never released the claim it was holding — a wanted album
+// left stuck at "downloading" forever, or (for an upgrade grab) an owned
+// album's own upgrade_pending left set forever, with no way to try again
+// short of a full server restart either way.
+func TestCancelGrabReleasesWantedAndUpgradeClaims(t *testing.T) {
+	a := newTestAPI(t)
+	musicStore := musiclibrary.NewStore(a.db)
+	store := download.NewStore(a.db)
+
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+
+	t.Run("wanted album", func(t *testing.T) {
+		wanted, err := musicStore.GetOrCreateWantedAlbum(artist.ID, "rg-wanted-mbid", "Wanted Album", "Album", "2020")
+		if err != nil {
+			t.Fatalf("seed wanted album: %v", err)
+		}
+		claimed, err := musicStore.ClaimWantedAlbumForDownload(wanted.ID)
+		if err != nil || !claimed {
+			t.Fatalf("claim should succeed on a freshly-seeded wanted album: claimed=%v err=%v", claimed, err)
+		}
+		grab := &download.GrabRecord{WantedAlbumID: wanted.ID, Title: "Wanted Album", Protocol: "torrent", MediaType: "music"}
+		if err := store.AddGrab(grab); err != nil {
+			t.Fatalf("AddGrab: %v", err)
+		}
+
+		a.want(a.call("POST", "/api/v1/grab/"+strconv.FormatInt(grab.ID, 10)+"/cancel", nil, nil), http.StatusOK)
+
+		got, err := musicStore.GetWantedAlbum(wanted.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != musiclibrary.WantedStatusWanted {
+			t.Errorf("wanted album status = %q, want %q (reverted after cancel)", got.Status, musiclibrary.WantedStatusWanted)
+		}
+	})
+
+	t.Run("upgrade album", func(t *testing.T) {
+		album, err := musicStore.GetOrCreateAlbum(artist.ID, "al-upgrade-mbid", "rg-upgrade-mbid", "Upgrade Album", "2020", "Album")
+		if err != nil {
+			t.Fatalf("seed album: %v", err)
+		}
+		claimed, err := musicStore.ClaimAlbumForUpgrade(album.ID)
+		if err != nil || !claimed {
+			t.Fatalf("claim should succeed on a freshly-seeded album: claimed=%v err=%v", claimed, err)
+		}
+		grab := &download.GrabRecord{UpgradeAlbumID: album.ID, Title: "Upgrade Album", Protocol: "torrent", MediaType: "music"}
+		if err := store.AddGrab(grab); err != nil {
+			t.Fatalf("AddGrab: %v", err)
+		}
+
+		a.want(a.call("POST", "/api/v1/grab/"+strconv.FormatInt(grab.ID, 10)+"/cancel", nil, nil), http.StatusOK)
+
+		stillClaimed, err := musicStore.ClaimAlbumForUpgrade(album.ID)
+		if err != nil {
+			t.Fatalf("ClaimAlbumForUpgrade after cancel: %v", err)
+		}
+		if !stillClaimed {
+			t.Error("claim should succeed again after cancel — upgrade_pending was left set")
+		}
+	})
+}
+
 // TestTriggerImportRunsAndReportsResult covers the Activity page's "Import
 // now" button: it should run the importer's poll immediately rather than
 // waiting out its own periodic interval, and report back what it found.
@@ -201,5 +269,59 @@ func TestRemoveQueueItemMatchesItemIDCaseInsensitivelyAndRevertsWanted(t *testin
 	}
 	if got.Status != musiclibrary.WantedStatusWanted {
 		t.Errorf("wanted album status = %q, want %q (reverted after the grab was removed)", got.Status, musiclibrary.WantedStatusWanted)
+	}
+}
+
+// TestRemoveQueueItemReleasesUpgradeClaim is the regression case for a gap
+// in the handleGrabAlbumUpgrade claim fix itself (see ROADMAP.md item 18's
+// own follow-up): handleRemoveQueueItem only ever reverted a WantedAlbumID
+// grab, never an UpgradeAlbumID one — found live, removing a stuck upgrade
+// download from Activity left albums.upgrade_pending set forever, since
+// internal/importer's own release only fires from a grab it actually gets
+// to resolve itself, not one removed out from under it. Without this, the
+// album could never be upgrade-grabbed again until a full server restart.
+func TestRemoveQueueItemReleasesUpgradeClaim(t *testing.T) {
+	a := newTestAPI(t)
+	sab := mockSabForRemove(t)
+
+	a.want(a.call("POST", "/api/v1/downloadclient", map[string]any{
+		"name": "Sabnzb", "type": "sabnzbd", "host": sab.URL, "apiKey": "key", "enabled": true,
+	}, nil), http.StatusCreated)
+
+	musicStore := musiclibrary.NewStore(a.db)
+	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	album, err := musicStore.GetOrCreateAlbum(artist.ID, "al-mbid", "rg-mbid", "Test Album", "2020", "Album")
+	if err != nil {
+		t.Fatalf("seed album: %v", err)
+	}
+	claimed, err := musicStore.ClaimAlbumForUpgrade(album.ID)
+	if err != nil {
+		t.Fatalf("ClaimAlbumForUpgrade: %v", err)
+	}
+	if !claimed {
+		t.Fatal("claim should succeed on a freshly-seeded album")
+	}
+
+	store := download.NewStore(a.db)
+	grab := &download.GrabRecord{
+		UpgradeAlbumID: album.ID, ClientConfigID: 1, ClientItemID: "XYZ789",
+		Title: "Test Album", Protocol: "usenet", MediaType: "music",
+	}
+	if err := store.AddGrab(grab); err != nil {
+		t.Fatalf("AddGrab: %v", err)
+	}
+
+	resp := a.call("DELETE", fmt.Sprintf("/api/v1/queue/1/%s", "XYZ789"), nil, nil)
+	a.want(resp, http.StatusOK)
+
+	stillClaimed, err := musicStore.ClaimAlbumForUpgrade(album.ID)
+	if err != nil {
+		t.Fatalf("ClaimAlbumForUpgrade after removal: %v", err)
+	}
+	if !stillClaimed {
+		t.Error("claim should succeed again after the stuck upgrade grab was removed — upgrade_pending was left set")
 	}
 }

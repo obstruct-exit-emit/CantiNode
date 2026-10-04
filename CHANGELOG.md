@@ -11,6 +11,16 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Removing a stuck download from Activity, or cancelling a stuck grab
+  directly, could leave an album permanently unable to upgrade-grab again**
+  — found live, immediately after the album-upgrade claim fix below shipped:
+  both `handleRemoveQueueItem` and `handleCancelGrab` only ever reverted a
+  *wanted*-album grab's own claim back to "wanted", never released an
+  *upgrade*-album grab's `upgrade_pending` claim — and `handleCancelGrab`
+  didn't revert the wanted-album case either, a separate pre-existing gap
+  found alongside it. With no path left to release it, the only recovery
+  was a full server restart. Both handlers now release whichever claim the
+  grab was actually holding before resolving it.
 - **A double-click or retried request on an album's "Search upgrade" grab
   button could create two independent downloads for the same upgrade**,
   each tied to the same album via its own `GrabRecord`, racing each

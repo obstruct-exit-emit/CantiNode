@@ -211,6 +211,20 @@ func (s *server) handleCancelGrab(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid grab id")
 		return
 	}
+	// Fetched before resolving so its WantedAlbumID/UpgradeAlbumID are still
+	// in hand afterward — same gap as handleRemoveQueueItem's own fix:
+	// neither claim a grab holds (a wanted album's status, an owned album's
+	// upgrade_pending) was ever released by this path, leaving it stuck
+	// until a full server restart.
+	grab, err := s.downloads.Store().GetGrab(id)
+	if err != nil {
+		if errors.Is(err, download.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "grab not found")
+			return
+		}
+		writeDownloadError(w, err)
+		return
+	}
 	if err := s.downloads.Store().ResolveGrab(id, download.GrabStatusFailed, "manually cancelled"); err != nil {
 		if errors.Is(err, download.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "grab not found")
@@ -218,6 +232,12 @@ func (s *server) handleCancelGrab(w http.ResponseWriter, r *http.Request) {
 		}
 		writeDownloadError(w, err)
 		return
+	}
+	if grab.WantedAlbumID > 0 {
+		_ = s.musicStore.SetWantedAlbumStatus(grab.WantedAlbumID, musiclibrary.WantedStatusWanted)
+	}
+	if grab.UpgradeAlbumID > 0 {
+		_ = s.musicStore.ClearAlbumUpgradePending(grab.UpgradeAlbumID)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cancelled": id})
 }
@@ -406,6 +426,14 @@ func (s *server) handleRemoveQueueItem(w http.ResponseWriter, r *http.Request) {
 				// gives an automatically-detected failure.
 				if g.WantedAlbumID > 0 {
 					_ = s.musicStore.SetWantedAlbumStatus(g.WantedAlbumID, musiclibrary.WantedStatusWanted)
+				}
+				// Same recovery for an upgrade grab's own claim (see
+				// handleGrabAlbumUpgrade's comment) — without this, removing
+				// a stuck upgrade from Activity leaves albums.upgrade_pending
+				// set forever, since internal/importer's own release only
+				// ever fires from a grab it actually got to resolve itself.
+				if g.UpgradeAlbumID > 0 {
+					_ = s.musicStore.ClearAlbumUpgradePending(g.UpgradeAlbumID)
 				}
 				break
 			}
