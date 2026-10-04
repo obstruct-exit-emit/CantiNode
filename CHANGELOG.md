@@ -11,6 +11,21 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Two cached editions tied on the exact same track count got picked
+  between arbitrarily, landing on the wrong one** — the other half of the
+  same live Hozier "Deluxe Edition" test below: after the edition-suffix
+  fix, 13 of 17 tracks matched automatically, but the 4 bonus tracks
+  stayed unmatched because the edition actually picked (an exact 17-track
+  tie against a 2×CD edition with BBC live covers as its bonus disc) was
+  the wrong one — the right edition (17 tracks on one medium, the real
+  matching B-sides) was sitting in the same cache the whole time.
+  `pickBestVersionByFileCount` alone can't tell two exact-count ties
+  apart. New `resolveVersionTieByTitles` only runs for that specific tied
+  case — never for an ordinary single-best-by-count pick, so the common
+  case pays no extra MusicBrainz round trips — fetching each tied
+  candidate's own tracklist and picking whichever one's titles actually
+  match the local files, reusing whichever fetch wins rather than
+  re-fetching it a second time.
 - **A real "Deluxe Edition" grab scored confidence 0 across the board and
   landed every file in Unmatched**, confirmed live against a real 17-track
   Hozier grab, well-tagged (Album: "Hozier (Deluxe Edition)" on every

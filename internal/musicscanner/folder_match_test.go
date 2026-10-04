@@ -1270,6 +1270,77 @@ func TestResolveExpectedReleaseSkipsSearchForGrabbedFiles(t *testing.T) {
 	}
 }
 
+// TestResolveExpectedReleaseBreaksFileCountTieByTitle is the regression
+// test for a real gap found live, testing the full add/grab/import
+// pipeline end to end against production: two differently-sourced
+// "Hozier (Deluxe Edition)" cached versions both have exactly 17 tracks,
+// but with entirely different bonus content — BBC live covers on one,
+// the real matching B-sides on the other. pickBestVersionByFileCount
+// alone can't tell them apart (both score an exact 0 diff against a
+// 17-file folder), so picking by count alone is a coin flip; it landed
+// on the wrong edition, leaving 4 of 17 genuinely mismatched bonus
+// tracks correctly unmatched (never worse than not matching) rather than
+// wrongly matched, but needlessly — the right edition was sitting in the
+// same cache the whole time. resolveVersionTieByTitles must fetch both
+// tied candidates and pick the one whose own tracklist actually matches
+// the local files' titles.
+func TestResolveExpectedReleaseBreaksFileCountTieByTitle(t *testing.T) {
+	fs := newFolderTestServer()
+	// Wrong edition: same track count, completely different bonus
+	// content (mirrors the real BBC-live-covers disc found live).
+	fs.releaseLookups["rel-wrong"] = newTestAlbumRelease("rel-wrong", "Hozier",
+		"Take Me to Church", "Jackie and Wilson", "Problem/Regulate (BBC Live Version)", "Whole Lotta Love (BBC Live Version)")
+	// Right edition: same track count, matches the local files exactly.
+	fs.releaseLookups["rel-right"] = newTestAlbumRelease("rel-right", "Hozier",
+		"Take Me to Church", "Jackie and Wilson", "In the Woods Somewhere", "My Love Will Never Die")
+
+	s, rf := newFolderTestScanner(t, fs)
+	if err := s.db.ReplaceReleaseGroupVersions("rg-hozier", []musiclibrary.ReleaseGroupVersion{
+		{ReleaseGroupMBID: "rg-hozier", ReleaseMBID: "rel-wrong", Title: "Hozier", TrackCount: 4, MediaSummary: "2×CD"},
+		{ReleaseGroupMBID: "rg-hozier", ReleaseMBID: "rel-right", Title: "Hozier", TrackCount: 4, MediaSummary: "Digital Media"},
+	}); err != nil {
+		t.Fatalf("ReplaceReleaseGroupVersions: %v", err)
+	}
+
+	files := []struct{ name, title, num string }{
+		{"01.flac", "Take Me to Church", "1"},
+		{"02.flac", "Jackie and Wilson", "2"},
+		{"03.flac", "In the Woods Somewhere", "3"},
+		{"04.flac", "My Love Will Never Die", "4"},
+	}
+	var paths []string
+	for _, f := range files {
+		p := buildFLACFile(t, rf.Path, f.name, map[string]string{
+			"ARTIST": "Hozier", "ALBUM": "Hozier (Deluxe Edition)", "TITLE": f.title, "TRACKNUMBER": f.num,
+		})
+		paths = append(paths, p)
+	}
+	for _, p := range paths {
+		if err := s.db.SeedExpectedReleaseGroup(rf.ID, p, "rg-hozier"); err != nil {
+			t.Fatalf("SeedExpectedReleaseGroup(%s): %v", p, err)
+		}
+	}
+
+	result, err := s.ScanRootFolder(t.Context(), rf)
+	if err != nil {
+		t.Fatalf("ScanRootFolder: %v", err)
+	}
+	if result.FilesMatched != 4 {
+		t.Fatalf("FilesMatched = %d, want 4 (result=%+v)", result.FilesMatched, result)
+	}
+	if fs.countOf("release-lookup") != 2 {
+		t.Errorf("release-lookup count = %d, want exactly 2 (both tied candidates fetched once each, the winner never re-fetched)", fs.countOf("release-lookup"))
+	}
+
+	albums, err := s.db.ListAlbumsByArtist(mustArtistID(t, s, "artist-mbid"))
+	if err != nil || len(albums) != 1 {
+		t.Fatalf("albums = %+v, err %v, want exactly 1", albums, err)
+	}
+	if albums[0].MBID != "rel-right" {
+		t.Errorf("album MBID = %q, want %q (the title-verified correct edition, not the wrong one that merely tied on count)", albums[0].MBID, "rel-right")
+	}
+}
+
 // TestScanRootFolderMergesBareNumberAlbumSuffixIntoOneReleaseSearch is the
 // end-to-end regression test for a real failed import: a well-tagged 2CD
 // Pink Floyd "The Wall" grab (every file carrying its own correct disc

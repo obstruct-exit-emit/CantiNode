@@ -319,6 +319,43 @@ func (s *Scanner) resolveExpectedRelease(ctx context.Context, remaining []folder
 	if best == nil {
 		return nil, 0, false
 	}
+	// An EXACT file-count match is the strongest signal pickBestVersionByFileCount
+	// has, but when two or more cached versions tie on it, picking between
+	// them by count alone is a coin flip — confirmed live as a real gap:
+	// two differently-sourced "Hozier (Deluxe Edition)" editions both
+	// cache at exactly 17 tracks, but with entirely different bonus
+	// content (BBC live covers on one, the real matching B-sides on the
+	// other). Picking the wrong one left every one of its own genuinely
+	// mismatched bonus tracks correctly unmatched rather than wrongly
+	// matched (never worse than not matching), but needlessly, since the
+	// right edition was sitting in the very same cache the whole time.
+	// resolveVersionTieByTitles only ever runs for this specific tied
+	// case — never for an ordinary single-best-by-count pick, or a
+	// near-tie that isn't an exact count match — so the overwhelmingly
+	// common case pays no extra MusicBrainz round trips at all.
+	if best.TrackCount == len(remaining) {
+		var tied []musiclibrary.ReleaseGroupVersion
+		for _, v := range versions {
+			if v.TrackCount == best.TrackCount {
+				tied = append(tied, v)
+			}
+		}
+		if len(tied) > 1 {
+			localTitles := make([]string, 0, len(remaining))
+			for _, e := range remaining {
+				if e.tags.Title != "" {
+					localTitles = append(localTitles, e.tags.Title)
+				}
+			}
+			if release, ok := s.resolveVersionTieByTitles(ctx, tied, localTitles); ok {
+				return release, 0.95, true
+			}
+			// Every tied candidate failed to fetch (or none could be
+			// scored) — fall through to the plain best-by-count pick
+			// below rather than giving up, same as any other lookup
+			// failure already does.
+		}
+	}
 	release, err := s.mb.LookupReleaseWithTracklist(ctx, best.ReleaseMBID)
 	if err != nil {
 		return nil, 0, false
@@ -328,6 +365,57 @@ func (s *Scanner) resolveExpectedRelease(ctx context.Context, remaining []folder
 	// this one is one step more inferred (a release group plus a
 	// file-count-based edition guess), even though both skip the search.
 	return release, 0.95, true
+}
+
+// versionTitleMatchThreshold mirrors slotTrack's own 0.6 threshold for
+// "this looks like the same track" — reused by resolveVersionTieByTitles
+// to decide whether a tied candidate's own track actually corresponds to
+// one of the local files, not just a coincidentally similar title.
+const versionTitleMatchThreshold = 0.6
+
+// resolveVersionTieByTitles, given candidates all tied on the exact same
+// track count (resolveExpectedRelease's own caller), fetches each one's
+// real tracklist and counts how many of localTitles it can confidently
+// match — breaking the tie by actual content agreement instead of an
+// arbitrary pick among equally-plausible-by-count candidates. Reuses
+// whichever fetched release actually wins, rather than discarding it and
+// re-fetching the same release group a second time. Returns ok=false only
+// if every tied candidate failed to fetch at all (a transient MusicBrainz
+// problem, not a real disagreement) — the caller falls back to its own
+// plain best-by-count pick in that case, same as any other lookup
+// failure already does.
+func (s *Scanner) resolveVersionTieByTitles(ctx context.Context, tied []musiclibrary.ReleaseGroupVersion, localTitles []string) (*musicbrainz.ReleaseWithTracklist, bool) {
+	if len(localTitles) == 0 {
+		return nil, false
+	}
+	var bestRelease *musicbrainz.ReleaseWithTracklist
+	bestScore := -1
+	for _, v := range tied {
+		release, err := s.mb.LookupReleaseWithTracklist(ctx, v.ReleaseMBID)
+		if err != nil {
+			continue
+		}
+		score := 0
+		for _, lt := range localTitles {
+			for _, m := range release.Media {
+				matched := false
+				for _, t := range m.Tracks {
+					if relname.TitleSimilarity(lt, t.Title) >= versionTitleMatchThreshold {
+						matched = true
+						break
+					}
+				}
+				if matched {
+					score++
+					break
+				}
+			}
+		}
+		if score > bestScore {
+			bestScore, bestRelease = score, release
+		}
+	}
+	return bestRelease, bestRelease != nil
 }
 
 // embeddedReleaseMBID returns the one release MBID entries agree on, if
