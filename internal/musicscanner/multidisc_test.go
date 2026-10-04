@@ -210,6 +210,41 @@ func TestStripDiscSuffix(t *testing.T) {
 	}
 }
 
+// TestStripEditionQualifier is the regression test for a real bug found
+// live: a real Hozier "Deluxe Edition" grab (17 well-tagged files — Album
+// "Hozier (Deluxe Edition)" on every one) scored confidence 0 across the
+// board. MusicBrainz's own release-group title is just "Hozier" (every
+// one of its cached versions, regardless of edition, shares that one
+// title), so "Hozier (Deluxe Edition)" scored 0.29 on TitleSimilarity —
+// under even resolveExpectedRelease's own 0.5 safety-gate threshold,
+// whose own comment already explicitly names "(Deluxe)"/"(Remastered)" as
+// exactly what it's supposed to tolerate.
+func TestStripEditionQualifier(t *testing.T) {
+	cases := map[string]string{
+		"Hozier (Deluxe Edition)":               "Hozier",
+		"Hozier (Deluxe)":                       "Hozier",
+		"The Wall (2007 Remaster)":              "The Wall",
+		"The Wall (Remastered)":                 "The Wall",
+		"Abbey Road (50th Anniversary Edition)": "Abbey Road",
+		"Moonglow (Special Edition)":            "Moonglow",
+		"Moonglow (Super Deluxe Edition)":       "Moonglow",
+		"Moonglow [Expanded Edition]":           "Moonglow",
+		"Moonglow (Bonus Track Version)":        "Moonglow",
+		"Wish You Were Here":                    "Wish You Were Here",
+		"The Wall":                              "The Wall",
+		// Must NOT be stripped: a real title that happens to end in an
+		// unrelated parenthetical, or a bare year/number with no edition
+		// word at all, must never be guessed at.
+		"Sgt. Pepper's Lonely Hearts Club Band (It Was 20 Years Ago Today)": "Sgt. Pepper's Lonely Hearts Club Band (It Was 20 Years Ago Today)",
+		"1984": "1984",
+	}
+	for in, want := range cases {
+		if got := stripEditionQualifier(in); got != want {
+			t.Errorf("stripEditionQualifier(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // entryWithAlbumArtist is entry's sibling for cases that need to control
 // AlbumArtist separately from Artist — folderTagConsensus prefers
 // AlbumArtist when present, exactly the distinction the Various Artists

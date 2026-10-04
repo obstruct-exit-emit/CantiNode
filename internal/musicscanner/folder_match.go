@@ -366,7 +366,7 @@ func embeddedReleaseMBID(entries []folderEntry) string {
 func albumTagsDisagree(entries []folderEntry) bool {
 	album := ""
 	for _, e := range entries {
-		a := stripDiscSuffix(strings.TrimSpace(e.tags.Album))
+		a := stripEditionQualifier(stripDiscSuffix(strings.TrimSpace(e.tags.Album)))
 		if a == "" {
 			continue
 		}
@@ -420,7 +420,14 @@ func folderTagConsensus(entries []folderEntry, fallback func(*musiclibrary.Track
 		// on an already-stripped or never-suffixed album, so this is safe
 		// for every other caller too (groupMultiDiscFolders' own
 		// per-subfolder consensus check, single-disc folders, ...).
-		a := stripDiscSuffix(strings.TrimSpace(e.tags.Album))
+		//
+		// stripEditionQualifier alongside it for the same reason, a
+		// different real-world tagging pattern: "Hozier (Deluxe Edition)"
+		// against MusicBrainz's own plain release-group title "Hozier"
+		// scored well under resolveExpectedRelease's own safety-gate
+		// threshold, confirmed live — every file in a real 17-track Deluxe
+		// Edition grab scored confidence 0 and landed in Unmatched Files.
+		a := stripEditionQualifier(stripDiscSuffix(strings.TrimSpace(e.tags.Album)))
 		aa := strings.TrimSpace(e.tags.AlbumArtist)
 		ar := aa
 		if ar == "" {
@@ -719,6 +726,32 @@ func stripDiscSuffix(album string) string {
 	album = discSuffixPattern.ReplaceAllString(album, "")
 	album = discSuffixBareNumberPattern.ReplaceAllString(album, "")
 	return strings.TrimSpace(album)
+}
+
+// editionQualifierPattern matches a trailing parenthesized/bracketed
+// edition qualifier commonly present in a file's own Album tag but absent
+// from MusicBrainz's own release-group title — unlike a specific
+// release's own title, a release GROUP's title normally carries no
+// edition info at all; every one of its own cached versions shares one
+// plain title regardless of how many editions exist (confirmed live: a
+// real Hozier "Deluxe Edition" grab's every cached version is titled
+// just "Hozier", no edition text anywhere in it). Confirmed live as a
+// real gap: "Hozier (Deluxe Edition)" against the plain "Hozier" scores
+// 0.29 on TitleSimilarity — under even resolveExpectedRelease's own
+// 0.5 threshold, whose own comment already explicitly names
+// "(Deluxe)"/"(Remastered)" as exactly what it's supposed to tolerate.
+// Anchored at the string's own end and limited to a known, closed set of
+// edition words, so a genuinely different album whose real title happens
+// to end in an unrelated parenthetical is never touched ("Sgt. Pepper's
+// Lonely Hearts Club Band (It Was 20 Years Ago Today)" isn't an edition
+// qualifier, and matches none of these words).
+var editionQualifierPattern = regexp.MustCompile(`(?i)\s+[(\[](?:(?:\d{4}|\d+(?:st|nd|rd|th))\s+)?(?:super\s+)?(?:deluxe|special|expanded|anniversary|collector'?s?|limited|platinum|legacy|remaster(?:ed)?|bonus\s*tracks?|explicit|clean)(?:\s+(?:edition|version))?[)\]]\s*$`)
+
+// stripEditionQualifier removes a trailing edition/remaster qualifier from
+// album — "Hozier (Deluxe Edition)" -> "Hozier", "The Wall (2007
+// Remaster)" -> "The Wall"; "Wish You Were Here" is unchanged either way.
+func stripEditionQualifier(album string) string {
+	return strings.TrimSpace(editionQualifierPattern.ReplaceAllString(album, ""))
 }
 
 // groupMultiDiscFolders re-groups per-directory folder groups (as built by

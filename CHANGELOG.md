@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A real "Deluxe Edition" grab scored confidence 0 across the board and
+  landed every file in Unmatched**, confirmed live against a real 17-track
+  Hozier grab, well-tagged (Album: "Hozier (Deluxe Edition)" on every
+  file): MusicBrainz's own release-group title is just "Hozier" — every
+  one of its cached versions, regardless of edition, shares that one
+  plain title — so the tagged album scored 0.29 on `TitleSimilarity`
+  against it, under even `resolveExpectedRelease`'s own 0.5 safety-gate
+  threshold, whose own comment already explicitly named
+  "(Deluxe)"/"(Remastered)" as exactly what it's supposed to tolerate.
+  New `stripEditionQualifier` (same pattern as `stripDiscSuffix`) strips a
+  trailing edition/remaster qualifier — "(Deluxe Edition)", "(Special
+  Edition)", "(2007 Remaster)", etc. — from an album tag before every
+  comparison that matters: the safety-gate title check, the internal
+  cross-file consistency check, and the fallback MusicBrainz search query.
+  A real title that happens to end in an unrelated parenthetical, or a
+  bare year/number with no edition word at all, is left untouched.
 - **The Update button's own command could kill itself mid-run, leaving
   the service down for good until a human noticed and started it by
   hand** — root-caused from a real production outage (journalctl showed
