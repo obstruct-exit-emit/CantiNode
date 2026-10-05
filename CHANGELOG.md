@@ -11,6 +11,95 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A systematic audit pass (2026-10-04) across background loops, the
+  search→score→grab pipeline, the remaining REST API surface, and the
+  frontend** found and fixed eight further real issues, none previously
+  reported live:
+  - **Nothing waited for a background loop before the process exited on
+    shutdown.** A SIGTERM/container-stop arriving while the importer was
+    mid-copy of a finished grab's audio files (`copyTree`/`copyFile`, which
+    have no cancellation of their own) raced the process exit against that
+    write — a truncated file could be left in the library with no record it
+    never finished. `cmd/cantinode/main.go`'s 7 background loops are now
+    joined on a `sync.WaitGroup`, given a 30s grace period to finish their
+    current pass before shutdown proceeds.
+  - **No panic recovery existed anywhere in the codebase.** Grepping the
+    whole production tree turned up zero `recover()` calls — a panic
+    anywhere in a background loop's own call chain (release parsing,
+    scoring, an indexer response, a download client) would crash the
+    *entire* process, including the HTTP server and every unrelated loop,
+    over one bad release title. Each background loop now recovers, logs
+    with a stack trace, and restarts itself after a short backoff instead.
+  - **The image proxy (`GET /api/v1/image?url=`) was an open redirect.** Any
+    fetch failure — not just a bad scheme — fell back to
+    `http.Redirect`-ing the caller straight to the attacker-chosen `url`,
+    defeating the handler's own stated purpose ("the browser never talks to
+    arbitrary third-party hosts directly") for exactly the case where it
+    mattered. A failed fetch is now a plain `502`, never a redirect.
+  - **A corrupted or truncated backup could leave the instance refusing to
+    start with no usable database at all.** `handleRestoreBackup` only ever
+    validated the surrounding zip container, never the database file
+    inside it; a bad `cantinode.db.restore` got swapped into place
+    unconditionally, and if the swap's own second rename failed partway
+    (e.g. a transient external lock), the live database was left moved
+    aside with nothing to replace it — no automatic recovery short of an
+    admin finding `*.pre-restore` and renaming it back by hand.
+    `applyPendingRestore` now validates the staged database (a real
+    open+migrate, not just a header sniff) before touching the live file
+    at all, discards an invalid staged restore outright instead of
+    retrying it forever, and automatically rolls back if the swap's own
+    rename still fails.
+  - **An artist whose MusicBrainz ID was later merged or deleted was
+    re-queried forever.** `internal/metadatabackfill`'s 15-minute sweep
+    only ever checked `MetadataFetchedAt == nil` for "needs backfill",
+    which a failed lookup never set — so an artist with a now-dead mbid
+    (only reachable via a scan's own implicit artist creation, which never
+    had a human confirm the MBID) burned one MusicBrainz request every
+    single sweep, indefinitely, against the same shared ~1 req/sec client
+    every other subsystem depends on. New `musicbrainz.ErrNotFound`
+    distinguishes this permanent case from an ordinary transient failure;
+    `RefreshArtist` now stamps `MetadataFetchedAt` on a confirmed-gone
+    artist the same way a definitive "nothing found" TheAudioDB miss
+    already does, so it's never retried again.
+  - **Release-title parsing misread common English words as language
+    tags, and stripped them out of the title.** `"it"`/`"de"`/`"es"`/
+    `"en"`/`"fr"`/`"nl"` are all real 2-letter ISO language codes *and*
+    ordinary English words — the loose word-by-word scan over a release
+    title (as opposed to a bracketed `[TAG]`, where the convention is
+    unambiguous) absorbed any of them with no length or ambiguity guard
+    at all. `Parse("Say It Ain't So [FLAC]")` came back as
+    `Language: "italian"` with "It" silently gone from the title — wrongly
+    rejecting a plainly-English release under a language-restricted
+    quality profile, and corrupting the displayed title regardless of
+    whether language filtering was even in use. The 2-letter forms are now
+    only trusted inside a bracket tag; the full word and 3-letter forms
+    ("German", "ger") still match either way.
+  - Four frontend gaps, each matching a pattern already applied
+    consistently everywhere else in the app: the System page's
+    Update/Restart busy state was local component state, reset by
+    navigating away and back mid-poll — an admin could fire a second
+    Update/Restart while the first was still genuinely in flight on the
+    host, the exact duplicate-request race the backend's upgrade-claim
+    compare-and-swap exists to prevent, just via navigation instead of a
+    double-click (now a module-level flag that survives the page's own
+    remount). Unmatched Files' per-file "delete" button had no
+    confirmation step at all, unlike every other destructive action in the
+    app, despite permanently deleting the file from disk on a single
+    click. A failed owned-track search silently rendered "nothing matches"
+    instead of surfacing the real error. The Blocklist "remove" button had
+    no disabled-while-pending state, allowing a double-submit.
+  - Also found, deliberately **not** changed — product judgment calls on
+    auto-grab behavior, not clear-cut bugs: an upgrade search's
+    format-less-release baseline score (30) can exceed a quality profile's
+    worst-ranked format score (floored at 20 for a 5-format profile),
+    letting an unlabeled release auto-approve as an "upgrade" purely by
+    that coincidence rather than real evidence; and a release with no
+    reported size skips the quality profile's min/max size gate entirely
+    rather than being evaluated against it. Both mirror the same
+    deliberate "unknown data doesn't fail the check" permissiveness this
+    scorer already applies to an unstated format, so changing them is a
+    product decision about how permissive upgrade-search/size-gating
+    should be, not an obvious correctness fix.
 - **Every single completed grab ran a full library-wide scan, re-examining
   every already-matched file in the whole library regardless of how much
   was actually new** — found live, digging into a burn-in session's own

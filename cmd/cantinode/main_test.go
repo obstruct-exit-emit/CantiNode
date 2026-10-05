@@ -250,3 +250,58 @@ func TestRestoreOntoLiveMachineIgnoresStaleWAL(t *testing.T) {
 		t.Errorf("restored artists = %v, want only [Boards of Canada] — a stale WAL from the pre-restore session replayed post-backup writes onto the restored snapshot", names)
 	}
 }
+
+// TestCorruptedRestoreDiscardedWithoutTouchingLiveMachine covers a backup
+// corrupted after the fact (bit rot in long-term storage, a disk fault
+// VACUUM INTO didn't catch) — handleRestoreBackup only ever checks the
+// surrounding zip container's integrity, never the database file inside it,
+// so a staged cantinode.db.restore that's just garbage bytes is a real,
+// reachable state. Before the validation fix, applyPendingRestore moved the
+// still-good live database aside and swapped the garbage in unconditionally,
+// so database.Open (in run(), right after this call) then failed and left
+// the instance refusing to start with no usable database at all until an
+// admin noticed cantinode.db.pre-restore and renamed it back by hand. The
+// live database must now survive completely untouched, and the broken
+// staged file must be discarded rather than retried forever on every future
+// startup.
+func TestCorruptedRestoreDiscardedWithoutTouchingLiveMachine(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "cantinode.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open live db: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO artists (mbid, name, sort_name) VALUES ('mbid-1', 'Boards of Canada', 'Boards of Canada')`,
+	); err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	db.Close()
+
+	if err := os.WriteFile(dbPath+".restore", []byte("not a sqlite database, just garbage bytes"), 0o644); err != nil {
+		t.Fatalf("stage corrupted restore: %v", err)
+	}
+
+	if err := applyPendingRestore(dir); err == nil {
+		t.Fatal("applyPendingRestore: want an error for a corrupted staged database, got nil")
+	}
+
+	for _, leftover := range []string{"cantinode.db.restore", "cantinode.db.pre-restore"} {
+		if _, err := os.Stat(filepath.Join(dir, leftover)); err == nil {
+			t.Errorf("%s should have been discarded/never created, but still exists", leftover)
+		}
+	}
+
+	live, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("live database no longer opens after a rejected restore: %v", err)
+	}
+	defer live.Close()
+	var name string
+	if err := live.QueryRow(`SELECT name FROM artists WHERE mbid = 'mbid-1'`).Scan(&name); err != nil {
+		t.Fatalf("live artist lookup after rejected restore: %v", err)
+	}
+	if name != "Boards of Canada" {
+		t.Errorf("live artist name = %q, want untouched Boards of Canada", name)
+	}
+}

@@ -29,6 +29,35 @@ async function waitForBackOnline(maxWaitMs: number, intervalMs: number): Promise
   return null;
 }
 
+// Module-level, not component state: SystemView unmounts the instant the
+// admin navigates to another page (App.tsx only renders it while
+// page.name === "system"), but an in-flight Update/Restart's 3-minute
+// wait-for-back-online poll keeps running regardless. Found live: without
+// this, navigating away and back resets the button to enabled on the fresh
+// mount, letting the admin fire a second Update/Restart while the first is
+// still genuinely in flight on the host — the same duplicate-request
+// problem the backend's upgrade-claim compare-and-swap exists to prevent,
+// just via navigation instead of a double-click. Surviving as a plain
+// module variable (not sessionStorage) is enough — it only needs to
+// outlive a SystemView remount, not a full page reload, and a page reload
+// already drops the in-browser poll itself either way.
+let systemActionBusy = false;
+const systemActionListeners = new Set<(busy: boolean) => void>();
+function setSystemActionBusy(busy: boolean) {
+  systemActionBusy = busy;
+  systemActionListeners.forEach((listen) => listen(busy));
+}
+function useSystemActionBusy(): boolean {
+  const [busy, setBusy] = useState(systemActionBusy);
+  useEffect(() => {
+    systemActionListeners.add(setBusy);
+    return () => {
+      systemActionListeners.delete(setBusy);
+    };
+  }, []);
+  return busy;
+}
+
 export default function SystemView({
   onError,
 }: {
@@ -36,7 +65,7 @@ export default function SystemView({
 }) {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const { confirmDlg, toast } = useUi();
-  const [systemBusy, setSystemBusy] = useState(false);
+  const systemBusy = useSystemActionBusy();
 
   useEffect(() => {
     api
@@ -52,7 +81,7 @@ export default function SystemView({
     action: () => Promise<{ status: string }>,
   ) => {
     if (!(await confirmDlg({ title: label, message, confirmLabel, danger: true }))) return;
-    setSystemBusy(true);
+    setSystemActionBusy(true);
     try {
       await action();
       toast(`${label} started — waiting for CantiNode to come back online…`, "info");
@@ -76,7 +105,7 @@ export default function SystemView({
     } catch (err) {
       onError(String(err instanceof Error ? err.message : err));
     } finally {
-      setSystemBusy(false);
+      setSystemActionBusy(false);
     }
   };
 

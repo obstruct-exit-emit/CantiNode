@@ -205,4 +205,11 @@ a wrong artist/album/track.
 authoritative list of what actually runs on a timer versus what's
 manual-trigger-only (e.g. quality-profile upgrades are deliberately
 manual-only, not swept; see `internal/importer`'s doc comment and
-`docs/acquisition.md`).
+`docs/acquisition.md`). Each is launched through `runBG`, not a bare `go`
+statement: it joins a `sync.WaitGroup` that shutdown waits on (with a grace
+period) before the process exits, so an in-flight pass — e.g. the importer
+mid-copy of a finished grab's files — gets a real chance to finish rather
+than racing process exit; and it recovers a panic anywhere in that loop's
+own call chain, logging and restarting the loop rather than taking down the
+whole process (including the HTTP server and every *other* loop) over one
+bad input. A new loop should go through `runBG` too, not `go` directly.

@@ -40,10 +40,13 @@ export default function SearchView({
       return;
     }
     const t = window.setTimeout(() => {
-      api.searchOwnedTracks(q).then(setTracks).catch(() => setTracks([]));
+      api
+        .searchOwnedTracks(q)
+        .then(setTracks)
+        .catch((err: unknown) => onError(String(err instanceof Error ? err.message : err)));
     }, 250);
     return () => window.clearTimeout(t);
-  }, [q]);
+  }, [q, onError]);
 
   const qLower = q.toLowerCase();
   const hits = useMemo(() => {

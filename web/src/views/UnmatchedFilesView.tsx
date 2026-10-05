@@ -999,6 +999,7 @@ function UnmatchedFileRow({
     tagArtist || tags.album || tags.title
       ? [tagArtist, tags.album, tags.title].filter(Boolean).join(" – ")
       : name;
+  const { confirmDlg } = useUi();
 
   const [open, setOpen] = useState(false);
   const [artist, setArtist] = useState(tagArtist);
@@ -1042,7 +1043,22 @@ function UnmatchedFileRow({
           <span className="muted">
             {file.format} · {formatBytes(file.sizeBytes)}
           </span>
-          <button className="danger" disabled={busy} onClick={onRemove}>
+          <button
+            className="danger"
+            disabled={busy}
+            onClick={async () => {
+              if (
+                await confirmDlg({
+                  title: "Delete file",
+                  message: `Delete ${label} from disk?\n\nThis removes the actual file — there's no undo.`,
+                  confirmLabel: "Delete",
+                  danger: true,
+                })
+              ) {
+                onRemove();
+              }
+            }}
+          >
             delete
           </button>
         </span>

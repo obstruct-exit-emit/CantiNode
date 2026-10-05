@@ -156,9 +156,27 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 // CacheFullArtistMetadata for the rest; a caller that already looked the
 // artist up itself (internal/api's handleMonitorMusicArtist) should call
 // CacheFullArtistMetadata directly instead, to skip repeating that lookup.
+//
+// A musicbrainz.ErrNotFound here is permanent, not transient — the mbid
+// itself has been merged or deleted on MusicBrainz, so no later retry can
+// ever succeed. Found live as a real gap: PollOnce's own "needs backfill"
+// check is just MetadataFetchedAt == nil, which this error path never sets,
+// so an artist with a now-dead mbid (implicitly created by a scan match,
+// which is the one path here that never had a human confirm the MBID) got
+// re-queried against MusicBrainz's shared ~1/sec-throttled client every
+// single PollInterval, forever, with no backoff or give-up. Stamping
+// MetadataFetchedAt here reuses the exact same "definitive answer, not a
+// failure" treatment CacheFullArtistMetadata's own TheAudioDB branch
+// already gives a confirmed miss, rather than adding a new column/retry-
+// count just for this.
 func (s *Service) RefreshArtist(ctx context.Context, artistID int64, mbid string) error {
 	mbArtist, err := s.mb.LookupArtist(ctx, mbid)
 	if err != nil {
+		if errors.Is(err, musicbrainz.ErrNotFound) {
+			if serr := s.music.SetArtistMetadata(artistID, "", "", time.Now().UTC()); serr != nil {
+				s.logger.Warn("metadatabackfill: stamping gone artist as checked", "artist", artistID, "error", serr)
+			}
+		}
 		return err
 	}
 	return s.CacheFullArtistMetadata(ctx, artistID, mbArtist)

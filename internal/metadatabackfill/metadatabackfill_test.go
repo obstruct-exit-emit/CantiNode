@@ -103,6 +103,50 @@ func TestPollOnceCachesArtistMissingMetadata(t *testing.T) {
 	}
 }
 
+// TestPollOnceGivesUpOnPermanentlyGoneArtist is the regression test for a
+// real retry-forever gap: an artist's mbid can be merged or deleted on
+// MusicBrainz after CantiNode first cached it (implicit-add-via-scan-match
+// artists never had a human confirm the mbid in the first place), and
+// LookupArtist then fails with musicbrainz.ErrNotFound forever — a
+// permanent failure, not a transient one. Before this fix, "needs
+// backfill" was purely MetadataFetchedAt == nil, which a failed
+// RefreshArtist never set, so this one artist got re-queried against
+// MusicBrainz's shared ~1/sec-throttled client every single PollInterval,
+// indefinitely. A failed poll must now still stamp MetadataFetchedAt so a
+// later sweep leaves it alone, the same "definitive answer, not a
+// failure" treatment a confirmed TheAudioDB miss already gets.
+func TestPollOnceGivesUpOnPermanentlyGoneArtist(t *testing.T) {
+	s, store := newTestDeps(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	artist, err := store.GetOrCreateArtist("gone-mbid", "Gone Artist", "Gone Artist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetArtistMonitored(artist.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	result := s.PollOnce(context.Background())
+	if result.Checked != 1 || result.Cached != 0 {
+		t.Fatalf("result = %+v, want 1 checked, 0 cached (the lookup failed)", result)
+	}
+
+	after, err := store.GetArtist(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.MetadataFetchedAt == nil {
+		t.Fatal("MetadataFetchedAt should be stamped even though the artist is permanently gone, so it isn't retried forever")
+	}
+
+	// A second sweep must not even attempt the lookup again.
+	result2 := s.PollOnce(context.Background())
+	if result2.Checked != 0 {
+		t.Errorf("second poll result = %+v, want 0 checked — a gone artist must not be retried", result2)
+	}
+}
+
 // TestCacheReleaseGroupVersionsSkipsAlreadyCached is the regression test
 // for a real hammering bug: CacheReleaseGroupVersions used to call
 // BrowseReleaseGroupReleases unconditionally, even for a release group

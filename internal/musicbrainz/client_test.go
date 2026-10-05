@@ -596,6 +596,27 @@ func TestGetDoesNotRetryNonTransientStatus(t *testing.T) {
 	}
 }
 
+// TestGetWrapsNotFoundStatus is the regression test for a caller-visible
+// distinction a plain status-code error couldn't give: internal/metadatabackfill
+// needs to tell a permanently-gone mbid (merged/deleted on MusicBrainz — no
+// retry will ever help) apart from a transient failure (network blip, 5xx —
+// where retrying later is exactly the right thing to do), so it stops
+// re-querying the former on every future sweep without also giving up on the
+// latter.
+func TestGetWrapsNotFoundStatus(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	_, err := c.LookupArtist(t.Context(), "some-mbid")
+	if err == nil {
+		t.Fatal("expected an error on 404")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want it to wrap ErrNotFound", err)
+	}
+}
+
 // TestGetRetriesTransportErrorThenSucceeds is the regression test for a
 // real bug found live: get's retry loop only ever re-examined
 // retryableStatus, so a transport-level failure (doGet returning a

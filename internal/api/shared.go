@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/library"
@@ -81,14 +80,16 @@ func (s *server) handleImage(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	data, contentType, err := s.images.Fetch(ctx, url)
 	if err != nil {
-		// Fall back to the origin only for real web URLs — never reflect an
-		// arbitrary scheme into a Location header.
-		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			writeError(w, http.StatusBadRequest, "url must be http(s)")
-			return
-		}
-		slog.Debug("image proxy fetch failed, redirecting to origin", "url", url, "error", err)
-		http.Redirect(w, r, url, http.StatusFound)
+		// Found live: this used to redirect the browser straight to the
+		// origin URL on any fetch failure (non-image content included) —
+		// an open redirect, since an authenticated caller could pass any
+		// http(s) URL as ?url= and have CantiNode's own origin 302 them to
+		// it. That also defeated this handler's entire stated purpose
+		// ("the browser never talks to arbitrary third-party hosts
+		// directly") for exactly the case — a failure — where the
+		// guarantee mattered most. A failed fetch is just a failure now.
+		slog.Debug("image proxy fetch failed", "url", url, "error", err)
+		writeError(w, http.StatusBadGateway, "fetching image failed")
 		return
 	}
 	w.Header().Set("Content-Type", contentType)

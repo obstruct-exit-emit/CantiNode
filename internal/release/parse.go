@@ -117,7 +117,7 @@ func Parse(title string) Parsed {
 		for _, tok := range strings.FieldsFunc(inner, func(r rune) bool {
 			return r == ' ' || r == ',' || r == '/' || r == '|' || r == '+'
 		}) {
-			p.absorbToken(tok)
+			p.absorbTokenCtx(tok, true)
 		}
 		return " "
 	})
@@ -147,8 +147,29 @@ func Parse(title string) Parsed {
 	return p
 }
 
-// absorbToken records a metadata token, reporting whether it was one.
+// absorbToken records a metadata token, reporting whether it was one. Only
+// trusts a bare word outside a bracket tag (see absorbTokenCtx) — equivalent
+// to calling it with bracketed=false.
 func (p *Parsed) absorbToken(tok string) bool {
+	return p.absorbTokenCtx(tok, false)
+}
+
+// absorbTokenCtx is absorbToken's real implementation. bracketed reports
+// whether tok came from inside a conventionally-delimited tag ("[FLAC][EN]")
+// rather than a loose word floating in ordinary title text — language's
+// 2-letter ISO codes ("it", "de", "es", "en", "fr", "nl") are only
+// unambiguous in that delimited context. Found live: "Say It Ain't So
+// [FLAC]" parsed as Language: "italian" with "It" silently dropped from the
+// title — "it"/"de"/"es"/"en"/"fr"/"nl" are all ordinary, common English
+// words, and the loose word-scan (parse's own second pass over every
+// remaining title word, not just bracketed ones) absorbed one as a language
+// tag with no minimum-length or ambiguity guard at all. A real language tag
+// floating free in title text is near-universally the full word
+// ("German", "Italian") or the standard 3-letter code ("ger", "ita") —
+// neither of those collides with ordinary English the way the 2-letter
+// forms do, so this only narrows the loose-word case, not the bracketed one
+// (where "[EN]" unambiguously means English).
+func (p *Parsed) absorbTokenCtx(tok string, bracketed bool) bool {
 	t := strings.ToLower(strings.TrimSpace(tok))
 	switch {
 	case t == "":
@@ -192,6 +213,9 @@ func (p *Parsed) absorbToken(tok string) bool {
 		return true
 	}
 	if lang, ok := languages[t]; ok {
+		if len(t) <= 2 && !bracketed {
+			return false
+		}
 		if p.Language == "" {
 			p.Language = lang
 		}

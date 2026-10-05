@@ -35,6 +35,21 @@ func TestParse(t *testing.T) {
 			"Some Linux ISO x264-GRP",
 			Parsed{Title: "Some Linux ISO x264-GRP"},
 		},
+		// Found live: the loose word-scan absorbed a bare "It" as the
+		// 2-letter Italian code with no ambiguity guard at all, both
+		// mistagging the language and stripping the word out of the title.
+		// "it"/"de"/"es"/"en"/"fr"/"nl" are all ordinary English words —
+		// only trustworthy as a language code inside a delimited tag.
+		{
+			"Say It Ain't So [FLAC]",
+			Parsed{Title: "Say It Ain't So", Formats: []string{"flac"}},
+		},
+		// The bracketed form must still work — "[EN]" unambiguously means
+		// English there, unlike a bare "En" floating in title text.
+		{
+			"Geogaddi [EN][FLAC]",
+			Parsed{Title: "Geogaddi", Formats: []string{"flac"}, Language: "english"},
+		},
 	}
 	for _, c := range cases {
 		got := Parse(c.in)

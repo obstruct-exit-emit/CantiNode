@@ -25,6 +25,7 @@ export default function ActivityView({
   // the three.
   const [itemsLoading, setItemsLoading] = useState(true);
   const [removing, setRemoving] = useState("");
+  const [unblocking, setUnblocking] = useState<number | null>(null);
   const [retryGrabId, setRetryGrabId] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [importNotice, setImportNotice] = useState("");
@@ -258,14 +259,17 @@ export default function ActivityView({
                       </span>
                       <button
                         className="toggle"
-                        onClick={() =>
+                        disabled={unblocking === b.id}
+                        onClick={() => {
+                          setUnblocking(b.id);
                           api
                             .unblock(b.id)
                             .then(reload)
                             .catch((err: unknown) =>
                               onError(String(err instanceof Error ? err.message : err)),
                             )
-                        }
+                            .finally(() => setUnblocking(null));
+                        }}
                       >
                         remove
                       </button>

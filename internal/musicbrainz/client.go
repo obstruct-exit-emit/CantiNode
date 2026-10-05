@@ -20,6 +20,17 @@ import (
 
 const defaultBaseURL = "https://musicbrainz.org/ws/2"
 
+// ErrNotFound wraps a 404 response — an MBID that doesn't exist (anymore).
+// Unlike a transient failure (a network blip, a 5xx), this is permanent: the
+// exact same request will never succeed, no matter how many times or how
+// much later it's retried. A caller that retries on any failure
+// indiscriminately (internal/metadatabackfill's periodic sweep, before this
+// existed) can't tell this case apart from "haven't gotten to it yet" and
+// ends up re-querying it forever — found live as a real, not hypothetical,
+// case: an artist MBID merged or deleted on MusicBrainz after CantiNode
+// first cached it.
+var ErrNotFound = errors.New("musicbrainz: not found")
+
 // VariousArtistsMBID is MusicBrainz's own special-purpose "Various Artists"
 // artist — the credited artist on any release whose actual performers vary
 // by track (most compilations), the same universal ID on every MusicBrainz
@@ -596,6 +607,9 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 			return body, nil
 		}
 		lastErr = fmt.Errorf("musicbrainz %s: status %d: %s", path, status, truncate(string(body), 300))
+		if status == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: %s", ErrNotFound, lastErr)
+		}
 		if !retryableStatus(status) {
 			return nil, lastErr
 		}
