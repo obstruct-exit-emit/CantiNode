@@ -61,13 +61,20 @@ const retryBaseDelay = 500 * time.Millisecond
 // concurrent use — every request goes through the same throttle.
 type Client struct {
 	httpClient     *http.Client
-	baseURL        string
-	userAgent      string
 	minInterval    time.Duration
 	retryBaseDelay time.Duration
 
 	mu          sync.Mutex
 	lastRequest time.Time
+
+	// baseURL/userAgent are mutated by UpdateSettings (Settings → Music →
+	// MusicBrainz server URL, applied live, no restart) — guarded
+	// separately from mu/lastRequest above since that one is held for the
+	// full throttle sleep on every request and these two are only ever
+	// touched by a rare admin settings save.
+	settingsMu sync.RWMutex
+	baseURL    string
+	userAgent  string
 }
 
 // NewClient returns a Client identifying itself with a User-Agent built
@@ -86,17 +93,61 @@ func NewClient(appVersion, contactEmail string) *Client {
 // not send every scanned filename to musicbrainz.org, or (the same knob)
 // a test server.
 func NewClientWithBaseURL(appVersion, contactEmail, baseURL string) *Client {
-	ua := fmt.Sprintf("CantiNode/%s ( https://github.com/obstruct-exit-emit/CantiNode )", appVersion)
-	if contactEmail != "" {
-		ua = fmt.Sprintf("CantiNode/%s ( %s )", appVersion, contactEmail)
-	}
 	return &Client{
 		httpClient:     &http.Client{Timeout: 15 * time.Second},
 		baseURL:        baseURL,
-		userAgent:      ua,
+		userAgent:      buildUserAgent(appVersion, contactEmail),
 		minInterval:    minRequestInterval,
 		retryBaseDelay: retryBaseDelay,
 	}
+}
+
+// buildUserAgent is the User-Agent construction NewClientWithBaseURL and
+// UpdateSettings both need — MusicBrainz's usage policy requires a
+// well-formed, identifiable one (see NewClient's own doc comment).
+func buildUserAgent(appVersion, contactEmail string) string {
+	if contactEmail != "" {
+		return fmt.Sprintf("CantiNode/%s ( %s )", appVersion, contactEmail)
+	}
+	return fmt.Sprintf("CantiNode/%s ( https://github.com/obstruct-exit-emit/CantiNode )", appVersion)
+}
+
+// NormalizeBaseURL trims raw the same way NewRouter's own construction
+// already did inline, falling back to the real musicbrainz.org when blank
+// — shared by that construction and UpdateSettings so a settings save
+// can't drift from how startup resolves the same setting.
+func NormalizeBaseURL(raw string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if trimmed == "" {
+		return defaultBaseURL
+	}
+	return trimmed
+}
+
+// UpdateSettings applies a changed MusicBrainz server URL/contact email
+// live, with no restart — found live: Settings → Music saved these to
+// config.yaml already, but this Client (constructed once at startup) kept
+// using whatever it was built with until the process restarted, silently.
+// baseURL is normalized the same way startup construction already is (see
+// NormalizeBaseURL); appVersion should be the same value NewClient/
+// NewClientWithBaseURL was originally given.
+func (c *Client) UpdateSettings(appVersion, contactEmail, baseURL string) {
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
+	c.baseURL = NormalizeBaseURL(baseURL)
+	c.userAgent = buildUserAgent(appVersion, contactEmail)
+}
+
+func (c *Client) getBaseURL() string {
+	c.settingsMu.RLock()
+	defer c.settingsMu.RUnlock()
+	return c.baseURL
+}
+
+func (c *Client) getUserAgent() string {
+	c.settingsMu.RLock()
+	defer c.settingsMu.RUnlock()
+	return c.userAgent
 }
 
 // LookupRecording fetches a single recording by MBID, with its artist
@@ -574,7 +625,7 @@ const maxRetries = 2
 // higher the odds any single one hits a transient blip, which is exactly
 // backwards from where retry coverage matters most.
 func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte, error) {
-	u := c.baseURL + path + "?" + query.Encode()
+	u := c.getBaseURL() + path + "?" + query.Encode()
 
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -635,7 +686,7 @@ func (c *Client) doGet(ctx context.Context, u, path string) (body []byte, status
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("User-Agent", c.getUserAgent())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.httpClient.Do(req)

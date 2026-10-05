@@ -2316,5 +2316,13 @@ func (s *server) handlePutMusicSettings(w http.ResponseWriter, r *http.Request) 
 	}
 	ns := s.cfg.NamingSettings()
 	s.musicScanner.UpdateSettings(ns.MusicFile, m.MinMatchConfidence, m.OrganizeOnMatch, tagWriteToggles(s.cfg.TagWriteSettings()), ns.DisableDiscNumberForSingleDisc)
+	// Found live: s.mb/s.audiodb/s.lastfm are each constructed once at
+	// startup (see NewRouter) baked with whatever these settings were
+	// then — a saved change here used to only ever reach config.yaml, with
+	// every live artist search/lookup/discography-refresh/cover-art fetch
+	// silently still hitting the old URL/key until the next restart.
+	s.mb.UpdateSettings(s.version, m.MusicBrainzContactEmail, m.MusicBrainzBaseURL)
+	s.audiodb.UpdateAPIKey(m.AudioDBAPIKey)
+	s.lastfm.UpdateAPIKey(m.LastFMAPIKey)
 	writeJSON(w, http.StatusOK, s.cfg.MusicSettings())
 }

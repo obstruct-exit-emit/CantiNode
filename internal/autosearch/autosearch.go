@@ -48,6 +48,22 @@ type Service struct {
 	downloads *download.Service
 	store     *library.Store
 	logger    *slog.Logger
+
+	// InterAlbumDelay paces consecutive per-album searches within one
+	// sweep — zero (the default every test gets, unchanged) means no
+	// pacing at all; cmd/cantinode/main.go sets this to a real delay for
+	// the production service. Found live: each wanted album's own
+	// searchAndGrab fans out to every enabled indexer with zero delay to
+	// the next album, so a large backlog (e.g. right after a big
+	// import-list add, since RunPeriodic sweeps immediately on every
+	// startup) drove continuous rapid-fire queries at every configured
+	// indexer/Prowlarr for the whole sweep's duration — each indexer's own
+	// backoff (internal/indexer) only engages after 3 *consecutive*
+	// failures, so nothing here protected against a real indexer that
+	// rate-limits per-minute rather than per-request. Only ever set once
+	// at startup, before RunPeriodic's own goroutine starts reading it, so
+	// no synchronization is needed for the field itself.
+	InterAlbumDelay time.Duration
 }
 
 func New(music *musiclibrary.Store, indexers *indexer.Service, downloads *download.Service, store *library.Store) *Service {
@@ -138,6 +154,13 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 			result.Checked++
 			if s.searchAndGrab(ctx, artist, w, blocked, prefs) {
 				result.Grabbed++
+			}
+			if s.InterAlbumDelay > 0 {
+				select {
+				case <-ctx.Done():
+					return result
+				case <-time.After(s.InterAlbumDelay):
+				}
 			}
 		}
 	}

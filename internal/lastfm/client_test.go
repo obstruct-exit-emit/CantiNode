@@ -95,3 +95,31 @@ func TestTopArtistsRequiresAPIKey(t *testing.T) {
 		t.Fatal("expected an error for a missing API key")
 	}
 }
+
+// TestUpdateAPIKeyTakesEffectImmediately is the regression test for a real
+// "saved but not applied" bug: Settings → Music saves a changed Last.fm
+// API key to config.yaml, but the already-running Client (built once at
+// startup) kept using whatever key it was constructed with — or, worse,
+// kept treating itself as entirely unconfigured if it started out blank —
+// until the process restarted, silently.
+func TestUpdateAPIKeyTakesEffectImmediately(t *testing.T) {
+	var gotKey string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.URL.Query().Get("api_key")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"topartists":{"artist":[]}}`))
+	})
+	c.apiKey = "" // simulate starting out unconfigured, same as NewClient("")
+
+	if _, err := c.TopArtistsForUser(t.Context(), "danpa", 10); err == nil {
+		t.Fatal("expected an error before UpdateAPIKey — no key configured yet")
+	}
+
+	c.UpdateAPIKey("a-new-key")
+	if _, err := c.TopArtistsForUser(t.Context(), "danpa", 10); err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != "a-new-key" {
+		t.Errorf("request used api_key=%q, want the updated key a-new-key", gotKey)
+	}
+}

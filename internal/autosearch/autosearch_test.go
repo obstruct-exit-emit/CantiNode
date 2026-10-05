@@ -401,6 +401,63 @@ func TestPollOnceRetriesNextCandidateOnUntrackableGrab(t *testing.T) {
 	}
 }
 
+// TestPollOnceInterAlbumDelayPacesConsecutiveSearches is the regression
+// test for a real gap: nothing paced consecutive per-album searches within
+// one sweep, so a large wanted backlog drove continuous rapid-fire queries
+// at every configured indexer with no breathing room — risking a real 429
+// from an indexer that rate-limits per-minute rather than per-request.
+// InterAlbumDelay is zero by default (every other test in this file relies
+// on that for speed); set explicitly, it must actually separate the two
+// albums' own searches in time.
+func TestPollOnceInterAlbumDelayPacesConsecutiveSearches(t *testing.T) {
+	d := newTestDeps(t)
+	d.addIndexer(t, noApprovedXML)
+	seedWantedAlbum(t, d, "1", true)
+	seedWantedAlbum(t, d, "2", true)
+
+	s := New(d.music, d.indexers, d.downloads, d.store)
+	s.InterAlbumDelay = 30 * time.Millisecond
+
+	start := time.Now()
+	result := s.PollOnce(context.Background())
+	elapsed := time.Since(start)
+
+	if result.Checked != 2 {
+		t.Fatalf("Checked = %d, want 2", result.Checked)
+	}
+	if elapsed < s.InterAlbumDelay {
+		t.Errorf("elapsed = %v, want at least %v (the delay between the two albums' searches)", elapsed, s.InterAlbumDelay)
+	}
+}
+
+// TestPollOnceInterAlbumDelayStopsPromptlyOnCancel confirms the pacing
+// delay is itself ctx-aware — a shutdown mid-sweep must not be made to
+// wait out the full delay.
+func TestPollOnceInterAlbumDelayStopsPromptlyOnCancel(t *testing.T) {
+	d := newTestDeps(t)
+	d.addIndexer(t, noApprovedXML)
+	seedWantedAlbum(t, d, "1", true)
+	seedWantedAlbum(t, d, "2", true)
+
+	s := New(d.music, d.indexers, d.downloads, d.store)
+	s.InterAlbumDelay = 10 * time.Second // long enough that only cancellation explains a fast return
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.PollOnce(ctx)
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond) // let the first album's own search finish and enter the delay
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PollOnce did not stop promptly after ctx was canceled during the inter-album delay")
+	}
+}
+
 // TestRunPeriodicRepeatsUntilCanceled proves RunPeriodic actually loops
 // (calling the schedule function fresh each time, per the config-driven
 // "daily" mode's own self-correcting design) rather than firing once and

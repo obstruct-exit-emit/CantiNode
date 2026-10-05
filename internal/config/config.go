@@ -439,12 +439,15 @@ type MusicSettings struct {
 	// get free speed from someone else's infrastructure: CantiNode has no
 	// bundled or recommended mirror to point this at, this is purely the
 	// knob for an operator who's stood up their own. Optional — empty (the
-	// default) uses the real musicbrainz.org. Applied at startup only
-	// (internal/api/router.go's own construction of the musicbrainz.Client)
-	// — unlike MinMatchConfidence/OrganizeOnMatch, changing it needs a
-	// restart, the same as MusicBrainzContactEmail/AudioDBAPIKey right
-	// above, since none of these reach into an already-constructed
-	// client's own live state the way Scanner.UpdateSettings does.
+	// default) uses the real musicbrainz.org. Applied live: handlePutMusicSettings
+	// calls musicbrainz.Client.UpdateSettings (and the AudioDBAPIKey/
+	// LastFMAPIKey siblings above their own UpdateAPIKey) on the already-
+	// running client right after saving, the same "reach into the live
+	// client's own state" treatment Scanner.UpdateSettings already gives
+	// MinMatchConfidence/OrganizeOnMatch — found live: before that existed,
+	// a changed value here saved to config.yaml just fine, but every live
+	// search/lookup/discography-refresh silently kept hitting whatever the
+	// client was built with at startup until the next restart.
 	MusicBrainzBaseURL string `yaml:"musicbrainz_base_url" json:"musicbrainzBaseUrl"`
 }
 

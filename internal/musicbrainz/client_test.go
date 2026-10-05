@@ -596,6 +596,58 @@ func TestGetDoesNotRetryNonTransientStatus(t *testing.T) {
 	}
 }
 
+// TestUpdateSettingsTakesEffectImmediately is the regression test for a
+// real "saved but not applied" bug: Settings → Music saves a changed
+// MusicBrainz server URL/contact email to config.yaml, but the
+// already-running Client (built once at startup) kept using whatever it
+// was constructed with until the process restarted, silently — every live
+// artist search, lookup, and discography refresh kept hitting the OLD
+// server/User-Agent.
+func TestUpdateSettingsTakesEffectImmediately(t *testing.T) {
+	var gotUA string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleRecordingJSON))
+	})
+	originalBaseURL := c.baseURL
+
+	altSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleRecordingJSON))
+	}))
+	defer altSrv.Close()
+
+	c.UpdateSettings("9.9.9", "new-contact@example.com", altSrv.URL)
+	if c.getBaseURL() != altSrv.URL {
+		t.Errorf("baseURL after UpdateSettings = %q, want %q", c.getBaseURL(), altSrv.URL)
+	}
+	if c.getBaseURL() == originalBaseURL {
+		t.Fatal("baseURL did not change at all")
+	}
+
+	if _, err := c.LookupRecording(t.Context(), "some-mbid"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "CantiNode/9.9.9 ( new-contact@example.com )"; gotUA != want {
+		t.Errorf("User-Agent = %q, want %q — request must have hit the new server with the new User-Agent", gotUA, want)
+	}
+}
+
+// TestNormalizeBaseURLFallsBackWhenBlank confirms UpdateSettings (and
+// NewRouter's own construction) can't be pointed at an empty base URL by a
+// cleared Settings field — it must fall back to the real musicbrainz.org,
+// same as leaving the field untouched.
+func TestNormalizeBaseURLFallsBackWhenBlank(t *testing.T) {
+	if got := NormalizeBaseURL("   "); got != defaultBaseURL {
+		t.Errorf("NormalizeBaseURL(blank) = %q, want %q", got, defaultBaseURL)
+	}
+	if got := NormalizeBaseURL("https://mirror.example/ws/2/"); got != "https://mirror.example/ws/2" {
+		t.Errorf("NormalizeBaseURL should trim a trailing slash, got %q", got)
+	}
+}
+
 // TestGetWrapsNotFoundStatus is the regression test for a caller-visible
 // distinction a plain status-code error couldn't give: internal/metadatabackfill
 // needs to tell a permanently-gone mbid (merged/deleted on MusicBrainz — no

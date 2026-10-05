@@ -3,6 +3,7 @@ package audiodb
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -195,5 +196,43 @@ func TestNewClientUsesProvidedKey(t *testing.T) {
 	c := NewClient("my-real-key")
 	if c.apiKey != "my-real-key" {
 		t.Errorf("apiKey = %q, want my-real-key", c.apiKey)
+	}
+}
+
+// TestUpdateAPIKeyTakesEffectImmediately is the regression test for a real
+// "saved but not applied" bug: Settings → Music saves a changed AudioDB
+// API key to config.yaml, but the already-running Client (built once at
+// startup) kept using whatever key it was constructed with until the
+// process restarted, silently, since nothing ever reached into its own
+// live state the way Scanner.UpdateSettings already does for the scanner.
+func TestUpdateAPIKeyTakesEffectImmediately(t *testing.T) {
+	var gotKey string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		// baseURL + "/" + apiKey + path — the key rides in the path itself.
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) > 0 {
+			gotKey = parts[0]
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"artists": null}`))
+	})
+
+	c.UpdateAPIKey("a-new-key")
+	if _, err := c.LookupArtistByMBID(t.Context(), "some-mbid"); err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != "a-new-key" {
+		t.Errorf("request used key %q, want the updated key a-new-key", gotKey)
+	}
+}
+
+// TestUpdateAPIKeyEmptyFallsBackToPublicTestKey mirrors NewClient's own
+// empty-key fallback — UpdateAPIKey must not let a cleared Settings field
+// silently turn into an unauthenticated (always-failing) request.
+func TestUpdateAPIKeyEmptyFallsBackToPublicTestKey(t *testing.T) {
+	c := NewClient("a-real-key")
+	c.UpdateAPIKey("")
+	if c.apiKey != publicTestKey {
+		t.Errorf("apiKey after UpdateAPIKey(\"\") = %q, want the public test key %q", c.apiKey, publicTestKey)
 	}
 }

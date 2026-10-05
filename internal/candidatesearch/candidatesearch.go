@@ -12,6 +12,7 @@ package candidatesearch
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cantinode/cantinode/internal/download"
 	"github.com/cantinode/cantinode/internal/indexer"
@@ -51,12 +52,41 @@ func Search(
 // every single search.
 func ScoreAndRank(found []indexer.Release, blocked map[string]bool, prefs release.Preferences, wantedArtist string) []release.Candidate {
 	candidates := make([]release.Candidate, 0, len(found))
+	// Found live: the same real release routinely comes back more than
+	// once in found — cross-posted on two configured indexers, or
+	// Prowlarr fanning one torrent out from two of its own sub-indexers —
+	// with nothing here ever collapsing them. Manual search showed
+	// visibly duplicated rows, and in autosearch's own retry loop
+	// (maxGrabAttemptsPerAlbum), near-duplicate top candidates could burn
+	// retry budget before ever reaching a genuinely different release.
+	// Dropped by the same "same release" rule IsBlocked already applies
+	// for blocklisting (an exact GUID match, or the same title ignoring
+	// case/whitespace) rather than a new, separate notion of duplicate —
+	// first occurrence in found's own order wins.
+	seenGUIDs := make(map[string]bool, len(found))
+	seenTitles := make(map[string]bool, len(found))
 	for _, rel := range found {
 		if download.IsBlocked(blocked, rel.GUID, rel.Title) {
 			continue
 		}
+		titleKey := dedupeTitleKey(rel.Title)
+		if (rel.GUID != "" && seenGUIDs[rel.GUID]) || seenTitles[titleKey] {
+			continue
+		}
+		if rel.GUID != "" {
+			seenGUIDs[rel.GUID] = true
+		}
+		seenTitles[titleKey] = true
 		candidates = append(candidates, release.Score(rel, prefs, wantedArtist))
 	}
 	release.Rank(candidates)
 	return candidates
+}
+
+// dedupeTitleKey matches download's own normalizeBlockKey (unexported
+// there) — lowercased, whitespace-collapsed — so two releases already
+// treated as "the same" for blocklisting purposes are treated the same
+// way here too.
+func dedupeTitleKey(title string) string {
+	return strings.Join(strings.Fields(strings.ToLower(title)), " ")
 }

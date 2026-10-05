@@ -30,11 +30,17 @@ const minRequestInterval = 250 * time.Millisecond
 type Client struct {
 	httpClient  *http.Client
 	baseURL     string
-	apiKey      string
 	minInterval time.Duration
 
 	mu          sync.Mutex
 	lastRequest time.Time
+
+	// apiKey is mutated by UpdateAPIKey (Settings → Music, applied live, no
+	// restart) — guarded separately from mu/lastRequest above since that
+	// one is held for the full throttle sleep on every request and this is
+	// only ever touched by a rare admin settings save.
+	settingsMu sync.RWMutex
+	apiKey     string
 }
 
 // NewClient returns a Client authenticated with apiKey. Unlike
@@ -56,6 +62,22 @@ func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 		apiKey:      apiKey,
 		minInterval: minRequestInterval,
 	}
+}
+
+// UpdateAPIKey applies a changed Last.fm API key live, with no restart —
+// found live: Settings → Music saved a changed key to config.yaml already,
+// but this Client (constructed once at startup) kept using whatever it was
+// built with until the process restarted, silently.
+func (c *Client) UpdateAPIKey(apiKey string) {
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
+	c.apiKey = apiKey
+}
+
+func (c *Client) getAPIKey() string {
+	c.settingsMu.RLock()
+	defer c.settingsMu.RUnlock()
+	return c.apiKey
 }
 
 // TopArtist is one entry of a "top artists" response. MBID is often empty —
@@ -101,13 +123,14 @@ func (c *Client) TopArtistsForTag(ctx context.Context, tag string, limit int) ([
 }
 
 func (c *Client) topArtists(ctx context.Context, query url.Values, limit int) ([]TopArtist, error) {
-	if c.apiKey == "" {
+	apiKey := c.getAPIKey()
+	if apiKey == "" {
 		return nil, fmt.Errorf("lastfm: no API key configured")
 	}
 	if limit <= 0 {
 		limit = 50
 	}
-	query.Set("api_key", c.apiKey)
+	query.Set("api_key", apiKey)
 	query.Set("format", "json")
 	query.Set("limit", fmt.Sprint(limit))
 

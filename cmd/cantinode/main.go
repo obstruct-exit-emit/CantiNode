@@ -219,6 +219,11 @@ func run(dataDir string) error {
 			}
 		}()
 	}
+	// Paces autosearch's own per-album searches within one sweep — see
+	// Service.InterAlbumDelay's own doc comment. Set once here, before
+	// RunPeriodic's goroutine (below) ever starts reading it.
+	bg.Autosearch.InterAlbumDelay = autosearchInterAlbumDelay
+
 	runBG("health", func(ctx context.Context) { bg.Health.RunPeriodic(ctx, timings.HealthInterval()) })
 	runBG("importer", func(ctx context.Context) { bg.Importer.RunPeriodic(ctx, importer.PollInterval) })
 	runBG("autosearch", func(ctx context.Context) { bg.Autosearch.RunPeriodic(ctx, timings.WantedSearchNextRun) })
@@ -285,6 +290,14 @@ func run(dataDir string) error {
 // pass (e.g. the importer mid-copy of a finished grab's files) to finish on
 // its own before giving up and exiting anyway.
 const bgShutdownGrace = 30 * time.Second
+
+// autosearchInterAlbumDelay paces the wanted-list sweep's own per-album
+// searches — see autosearch.Service.InterAlbumDelay's own doc comment for
+// why. A couple of seconds is cheap against PollInterval's 24h default and
+// comfortably bounds even a large backlog (a few hundred albums adds under
+// ten minutes total, once, not on any user-visible path) while giving a
+// per-minute-limited indexer real breathing room between requests.
+const autosearchInterAlbumDelay = 2 * time.Second
 
 // applyPendingRestore swaps staged *.restore files (written by the backup
 // restore endpoint) into place, keeping the replaced files as *.pre-restore.

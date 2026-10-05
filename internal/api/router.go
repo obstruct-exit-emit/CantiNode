@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +55,7 @@ type server struct {
 	musicScanner     *musicscanner.Scanner
 	mb               *musicbrainz.Client
 	audiodb          *audiodb.Client
+	lastfm           *lastfm.Client
 	coverart         *coverart.Client
 	discography      *discography.Service
 	metadataBackfill *metadatabackfill.Service
@@ -102,10 +102,8 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 
 	musicSettings := cfg.MusicSettings()
 	musicStore := musiclibrary.NewStore(db)
-	mb := musicbrainz.NewClient(version, musicSettings.MusicBrainzContactEmail)
-	if base := strings.TrimRight(strings.TrimSpace(musicSettings.MusicBrainzBaseURL), "/"); base != "" {
-		mb = musicbrainz.NewClientWithBaseURL(version, musicSettings.MusicBrainzContactEmail, base)
-	}
+	mb := musicbrainz.NewClientWithBaseURL(version, musicSettings.MusicBrainzContactEmail,
+		musicbrainz.NormalizeBaseURL(musicSettings.MusicBrainzBaseURL))
 	// One shared client for both artist metadata and cover art — two
 	// independent clients would each keep their own throttle state,
 	// doubling the effective request rate against TheAudioDB.
@@ -139,6 +137,7 @@ func NewRouter(cfg *config.Config, db *sql.DB, version string) (http.Handler, *B
 		musicScanner:     musicScanner,
 		mb:               mb,
 		audiodb:          audiodbClient,
+		lastfm:           lastfmClient,
 		coverart:         coverartClient,
 		discography:      discographySvc,
 		metadataBackfill: metadataBackfillSvc,

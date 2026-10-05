@@ -38,12 +38,18 @@ const minRequestInterval = time.Second
 type Client struct {
 	httpClient  *http.Client
 	baseURL     string
-	apiKey      string
 	userAgent   string
 	minInterval time.Duration
 
 	mu          sync.Mutex
 	lastRequest time.Time
+
+	// apiKey is mutated by UpdateAPIKey (Settings → Music, applied live, no
+	// restart) — guarded separately from mu/lastRequest above since that
+	// one is held for the full throttle sleep on every request and this is
+	// only ever touched by a rare admin settings save.
+	settingsMu sync.RWMutex
+	apiKey     string
 }
 
 // NewClient returns a Client authenticated with apiKey, falling back to
@@ -71,6 +77,26 @@ func NewClientWithBaseURL(apiKey, baseURL string) *Client {
 		userAgent:   "CantiNode ( https://github.com/obstruct-exit-emit/CantiNode )",
 		minInterval: minRequestInterval,
 	}
+}
+
+// UpdateAPIKey applies a changed TheAudioDB API key live, with no restart —
+// found live: Settings → Music saved a changed key to config.yaml already,
+// but this Client (constructed once at startup) kept using whatever it was
+// built with until the process restarted, silently. An empty key falls
+// back to publicTestKey, same as NewClient.
+func (c *Client) UpdateAPIKey(apiKey string) {
+	if apiKey == "" {
+		apiKey = publicTestKey
+	}
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
+	c.apiKey = apiKey
+}
+
+func (c *Client) getAPIKey() string {
+	c.settingsMu.RLock()
+	defer c.settingsMu.RUnlock()
+	return c.apiKey
 }
 
 // ArtistMeta is what CantiNode uses from TheAudioDB for an artist:
@@ -197,7 +223,7 @@ func (c *Client) get(ctx context.Context, path string, query url.Values) ([]byte
 		return nil, err
 	}
 
-	u := c.baseURL + "/" + c.apiKey + path + "?" + query.Encode()
+	u := c.baseURL + "/" + c.getAPIKey() + path + "?" + query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)

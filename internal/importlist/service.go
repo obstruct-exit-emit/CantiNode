@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cantinode/cantinode/internal/discography"
@@ -98,6 +99,18 @@ type PollResult struct {
 // once per pass rather than re-fetched from MusicBrainz per list, so a
 // popular Last.fm list mostly full of artists the user already owns costs
 // one cheap DB read, not fifty redundant lookups.
+//
+// Every enabled list resolves in its own goroutine rather than one after
+// another — found live: a list with a few hundred lines (a plausible
+// "pasted a big artist list" case) can take several minutes to resolve,
+// one MusicBrainz round trip per unresolved line/artist against the
+// client's own shared ~1.1s throttle, and that time used to delay every
+// other enabled list in the same sweep by the same amount — even an
+// otherwise-instant one positioned after it in the list. The shared
+// throttle still serializes the real network requests either way, so this
+// doesn't change the sweep's total work, only which list's turn is next:
+// a small list is no longer stuck behind a big one. mu guards the shared
+// monitored map and result, both read/written from every list's goroutine.
 func (s *Service) PollOnce(ctx context.Context) PollResult {
 	var result PollResult
 
@@ -112,6 +125,7 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 		s.logger.Error("importlist: list artists", "error", err)
 		return result
 	}
+	var mu sync.Mutex
 	monitored := make(map[string]bool, len(existing))
 	for _, a := range existing {
 		if a.IsMonitored {
@@ -119,43 +133,75 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 		}
 	}
 
+	var wg sync.WaitGroup
 	for _, il := range lists {
 		if !il.Enabled {
 			continue
 		}
 		if ctx.Err() != nil {
-			return result
+			break
 		}
+		mu.Lock()
 		result.Checked++
+		mu.Unlock()
 
-		mbids, err := s.resolve(ctx, il)
-		if err != nil {
-			s.logger.Warn("importlist: resolve failed", "list", il.Name, "error", err)
-			if serr := s.store.SetSyncResult(il.ID, time.Now().UTC().Format(time.RFC3339), err.Error()); serr != nil {
-				s.logger.Warn("importlist: record sync failure", "list", il.Name, "error", serr)
-			}
+		wg.Add(1)
+		go func(il ImportList) {
+			defer wg.Done()
+			s.syncOneList(ctx, il, &mu, monitored, &result)
+		}(il)
+	}
+	wg.Wait()
+	return result
+}
+
+// syncOneList is PollOnce's own per-list body, run concurrently with every
+// other enabled list's — see PollOnce's own doc comment for why.
+func (s *Service) syncOneList(ctx context.Context, il ImportList, mu *sync.Mutex, monitored map[string]bool, result *PollResult) {
+	mbids, err := s.resolve(ctx, il)
+	if err != nil {
+		s.logger.Warn("importlist: resolve failed", "list", il.Name, "error", err)
+		if serr := s.store.SetSyncResult(il.ID, time.Now().UTC().Format(time.RFC3339), err.Error()); serr != nil {
+			s.logger.Warn("importlist: record sync failure", "list", il.Name, "error", serr)
+		}
+		return
+	}
+
+	for _, mbid := range mbids {
+		// Claimed before releasing the lock, not after addArtist succeeds —
+		// two lists can share the same not-yet-monitored artist (a popular
+		// one on both a Last.fm list and a plain list, say) and now run
+		// concurrently, so claiming only on success would let both call
+		// addArtist for the same mbid at once, double-counting Added (the
+		// end library state would still be correct either way — GetOrCreateArtist/
+		// SetArtistMonitored/RefreshArtist are all idempotent — but the
+		// reported count wouldn't be). The cost: if the claiming list's own
+		// addArtist then fails, a sibling list sharing that mbid no longer
+		// gets a same-sweep retry the way sequential PollOnce once allowed —
+		// acceptable, since the next sweep (24h later) tries it again either way.
+		mu.Lock()
+		already := monitored[mbid]
+		if !already {
+			monitored[mbid] = true
+		}
+		mu.Unlock()
+		if already {
 			continue
 		}
-
-		for _, mbid := range mbids {
-			if monitored[mbid] {
-				continue
-			}
-			if ctx.Err() != nil {
-				break
-			}
-			if err := s.addArtist(ctx, mbid); err != nil {
-				s.logger.Warn("importlist: add artist", "list", il.Name, "mbid", mbid, "error", err)
-				continue
-			}
-			monitored[mbid] = true
-			result.Added++
+		if ctx.Err() != nil {
+			break
 		}
-		if serr := s.store.SetSyncResult(il.ID, time.Now().UTC().Format(time.RFC3339), ""); serr != nil {
-			s.logger.Warn("importlist: record sync result", "list", il.Name, "error", serr)
+		if err := s.addArtist(ctx, mbid); err != nil {
+			s.logger.Warn("importlist: add artist", "list", il.Name, "mbid", mbid, "error", err)
+			continue
 		}
+		mu.Lock()
+		result.Added++
+		mu.Unlock()
 	}
-	return result
+	if serr := s.store.SetSyncResult(il.ID, time.Now().UTC().Format(time.RFC3339), ""); serr != nil {
+		s.logger.Warn("importlist: record sync result", "list", il.Name, "error", serr)
+	}
 }
 
 // Resolve is PollOnce's own per-list resolution step, exported so

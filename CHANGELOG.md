@@ -11,6 +11,50 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **The four remaining items from the 2026-10-04 audit pass below**, all
+  previously flagged but deliberately deferred:
+  - **Settings → Music changes to the MusicBrainz server URL, TheAudioDB
+    key, or Last.fm key saved to config.yaml but never reached the
+    already-running clients** — `s.mb`/`s.audiodb`/`s.lastfm` are each
+    constructed once at startup (`NewRouter`); every live artist search,
+    lookup, discography refresh, or cover-art fetch silently kept using
+    the old value until the next restart. New `UpdateSettings`/
+    `UpdateAPIKey` methods on each client (guarded by their own mutex,
+    separate from the existing request-throttle lock) apply a change
+    live, the same "reach into the already-running client's state"
+    treatment `Scanner.UpdateSettings` already gave naming/match-confidence
+    settings; `handlePutMusicSettings` now calls all three after saving.
+  - **Autosearch's wanted-list sweep had no pacing between consecutive
+    per-album searches** — a large backlog (e.g. right after a big
+    import-list add) drove continuous rapid-fire queries at every
+    configured indexer with no breathing room, risking a real 429 from an
+    indexer that rate-limits per-minute rather than per-request. New
+    `Service.InterAlbumDelay` (set to 2s for the production service in
+    `cmd/cantinode/main.go`, zero/no-op everywhere else including every
+    existing test) paces the sweep without changing its own total work,
+    since the shared MusicBrainz-style throttle a real indexer enforces
+    was never the bottleneck pacing was missing for.
+  - **The same release surfacing from two indexers (or two of Prowlarr's
+    own sub-indexers) was never deduplicated** — manual search showed
+    visibly duplicated rows, and autosearch's own retry loop
+    (`maxGrabAttemptsPerAlbum`) could burn retry budget on near-duplicate
+    top candidates before ever reaching a genuinely different release.
+    `candidatesearch.ScoreAndRank` now drops a repeat before scoring,
+    using the exact same "same release" rule `download.IsBlocked` already
+    applies for blocklisting (an exact GUID match, or the same title
+    ignoring case/whitespace) rather than inventing a second definition.
+  - **Import-list sync resolved every enabled list one after another,
+    so one slow list (hundreds of pasted lines, each a MusicBrainz round
+    trip) delayed every other list in the same sweep by the same amount**
+    — even an otherwise-instant one positioned after it. Every enabled
+    list now resolves in its own goroutine; the shared MusicBrainz
+    throttle still serializes the actual network requests either way (no
+    change to the sweep's total work), so this only changes which list's
+    turn is next. The shared "already monitored this sweep" map is now
+    mutex-guarded, claimed before a matching artist is added (not after)
+    so two lists sharing the same not-yet-monitored artist can't
+    double-add or double-count it now that neither is serialized ahead of
+    the other.
 - **A systematic audit pass (2026-10-04) across background loops, the
   search→score→grab pipeline, the remaining REST API surface, and the
   frontend** found and fixed eight further real issues, none previously

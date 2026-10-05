@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -280,6 +281,66 @@ func TestPollOnceSkipsAlreadyMonitoredArtist(t *testing.T) {
 	}
 	if lookupArtistCalls != 0 {
 		t.Errorf("LookupArtist called %d times, want 0 for an already-monitored artist", lookupArtistCalls)
+	}
+}
+
+// TestPollOnceConcurrentListsDedupeSharedArtist is the regression/safety
+// test for PollOnce's own switch to resolving every enabled list
+// concurrently (see its own doc comment): two lists sharing the same
+// not-yet-monitored artist must still add it exactly once, never twice,
+// now that nothing serializes which list reaches it first.
+func TestPollOnceConcurrentListsDedupeSharedArtist(t *testing.T) {
+	var lookupArtistCalls int32
+	s, music, store := newTestService(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/series/series-a" || r.URL.Path == "/series/series-b":
+			seriesID := strings.TrimPrefix(r.URL.Path, "/series/")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": seriesID, "name": "Series",
+				"relations": []map[string]any{
+					{
+						"target-type": "release_group", "ordering-key": 1,
+						"release_group": map[string]any{
+							"id": "rg-1", "title": "Album", "primary-type": "Album",
+							"artist-credit": []map[string]any{{"name": "Boards of Canada", "artist": map[string]any{"id": "artist-1", "name": "Boards of Canada"}}},
+						},
+					},
+				},
+			})
+		case r.URL.Path == "/artist/artist-1":
+			atomic.AddInt32(&lookupArtistCalls, 1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "artist-1", "name": "Boards of Canada", "sort-name": "Boards of Canada"})
+		case r.URL.Path == "/release-group/":
+			_ = json.NewEncoder(w).Encode(map[string]any{"release-group-count": 0, "release-groups": []any{}})
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+	}, nil)
+
+	a := &ImportList{Name: "A", Type: TypeMusicBrainzSeries, SeriesMBID: "series-a", Enabled: true}
+	b := &ImportList{Name: "B", Type: TypeMusicBrainzSeries, SeriesMBID: "series-b", Enabled: true}
+	if err := store.Add(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Add(b); err != nil {
+		t.Fatal(err)
+	}
+
+	result := s.PollOnce(context.Background())
+	if result.Checked != 2 {
+		t.Fatalf("Checked = %d, want 2", result.Checked)
+	}
+	if result.Added != 1 {
+		t.Errorf("Added = %d, want exactly 1 — two concurrently-resolving lists sharing the same not-yet-monitored artist must not double-count it", result.Added)
+	}
+
+	artists, err := music.ListArtists()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artists) != 1 {
+		t.Errorf("artists = %+v, want exactly one row, not a duplicate per list", artists)
 	}
 }
 
