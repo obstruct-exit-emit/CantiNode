@@ -148,6 +148,30 @@ func TestScoreUpgradeRejectsFormatLessRelease(t *testing.T) {
 	}
 }
 
+// TestScoreUpgradeRejectsFormatLessReleaseAtFloor is the regression test
+// for a gap the original fix above missed: the rejection used to only fire
+// when the fixed unknownFormatScore baseline (30) didn't clear
+// MinFormatScore, which stopped protecting anything once MinFormatScore
+// itself dropped below 30 — the case for whoever owns the worst-ranked
+// format in a full 5-format profile (scored 100/80/60/40/20 by list
+// position, floored at 20). 30 > 20 let a format-less release auto-approve
+// as a "genuine upgrade" there purely from that coincidence, never from
+// real evidence the release was actually better.
+func TestScoreUpgradeRejectsFormatLessReleaseAtFloor(t *testing.T) {
+	prefs := Preferences{
+		FormatScores:       map[string]int{"flac": 100, "wav": 80, "mp3": 60, "m4a": 40, "opus": 20},
+		AllowUnknownFormat: true,
+		MinFormatScore:     20, // owned format is opus, the worst-ranked
+		MinSize:            1 << 20,
+		MaxSize:            4 << 30,
+	}
+
+	c := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")
+	if c.Approved {
+		t.Errorf("format-less release must not approve as an upgrade just because the owned format is the profile's worst-ranked: %+v", c)
+	}
+}
+
 func TestScoreRejectsSpamNamedExecutable(t *testing.T) {
 	prefs := DefaultMusicPreferences()
 	spam := Score(rel("Geogaddi FLAC Setup.exe", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")

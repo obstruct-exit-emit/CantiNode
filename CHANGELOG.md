@@ -88,18 +88,30 @@ in progress. Highlights from the hardening period, newest first:
     click. A failed owned-track search silently rendered "nothing matches"
     instead of surfacing the real error. The Blocklist "remove" button had
     no disabled-while-pending state, allowing a double-submit.
-  - Also found, deliberately **not** changed — product judgment calls on
-    auto-grab behavior, not clear-cut bugs: an upgrade search's
-    format-less-release baseline score (30) can exceed a quality profile's
-    worst-ranked format score (floored at 20 for a 5-format profile),
-    letting an unlabeled release auto-approve as an "upgrade" purely by
-    that coincidence rather than real evidence; and a release with no
-    reported size skips the quality profile's min/max size gate entirely
-    rather than being evaluated against it. Both mirror the same
-    deliberate "unknown data doesn't fail the check" permissiveness this
-    scorer already applies to an unstated format, so changing them is a
-    product decision about how permissive upgrade-search/size-gating
-    should be, not an obvious correctness fix.
+  - **An upgrade search could auto-approve a format-less release as a
+    "genuine upgrade" with zero real evidence it actually was one**,
+    whenever the owned format happened to sit at the bottom of a quality
+    profile's own ranking. The format-less baseline score (a fixed 30,
+    representing "assume it's decent, we just don't know the codec") only
+    got rejected when it failed to clear the owned format's own score —
+    which stopped protecting anything once that score dropped below 30,
+    exactly the case for whoever owns the worst-ranked format in a full
+    5-format profile (scored 100/80/60/40/20 by list position, floored at
+    20): 30 > 20 silently let every format-less release through as a
+    "upgrade" there, purely by coincidence. An upgrade search now rejects
+    every format-less release outright, regardless of where the owned
+    format ranks — consistent with the rejection's own existing reasoning
+    ("we don't know is not evidence of it's better"), which this case had
+    quietly stopped actually enforcing.
+  - Also found, and after review **deliberately left as-is**: a release
+    with no reported size skips the quality profile's min/max size gate
+    entirely rather than being evaluated against it. Many indexers
+    legitimately omit size (a metadata gap, not a false claim) — the
+    size value isn't something a release's title can lie about, unlike
+    the format case above, so this is a defensible, deliberate "unknown
+    data doesn't fail the check" exemption rather than a bug, and changing
+    it risks rejecting real results on indexers that omit size data.
+    Revisit only if this bites in practice.
 - **Every single completed grab ran a full library-wide scan, re-examining
   every already-matched file in the whole library regardless of how much
   was actually new** — found live, digging into a burn-in session's own

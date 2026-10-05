@@ -155,14 +155,24 @@ func Score(rel indexer.Release, prefs Preferences, wantedArtist string) Candidat
 		}
 	}
 	switch {
-	case len(c.Parsed.Formats) == 0 && prefs.AllowUnknownFormat && prefs.MinFormatScore > 0 && unknownFormatScore <= prefs.MinFormatScore:
+	case len(c.Parsed.Formats) == 0 && prefs.AllowUnknownFormat && prefs.MinFormatScore > 0:
 		// An upgrade search (MinFormatScore set) can't take a format-less
 		// title's word for it being better than what's already owned — real
 		// music release titles omit the codec constantly (PreferencesFor
 		// forces AllowUnknownFormat on for exactly that reason), but "we
-		// don't know" is not evidence of "it's better." Scored as if it
-		// stated the unknown-format baseline score, same rejection rule as
-		// a release that did name its format.
+		// don't know" is not evidence of "it's better."
+		//
+		// Found live: this used to only reject when the fixed
+		// unknownFormatScore baseline (30) didn't clear MinFormatScore,
+		// which silently stopped protecting anything once MinFormatScore
+		// itself dropped below 30 — exactly the case for whoever owns the
+		// worst-ranked format in a 5-format profile (scored 100/80/60/40/20
+		// by list position), where 30 > 20 let a format-less release
+		// auto-approve as a "genuine upgrade" purely from that coincidence,
+		// never from real evidence. An upgrade search rejects every
+		// format-less release outright now, regardless of where the owned
+		// format ranks — consistent with the comment above, which already
+		// said "not evidence," not "weaker evidence."
 		c.reject("not an upgrade over the owned format")
 	case len(c.Parsed.Formats) == 0 && prefs.AllowUnknownFormat:
 		c.Score += unknownFormatScore
