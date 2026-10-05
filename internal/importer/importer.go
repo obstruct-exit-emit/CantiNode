@@ -180,6 +180,22 @@ func (s *Service) PollOnce(ctx context.Context) PollResult {
 			}
 		case "failed":
 			s.failGrab(g, "download client reported it failed", true)
+			// Found live: unlike the success path a few lines below (see
+			// importGrab's own "remove the download from its client"
+			// comment), nothing here ever cleaned up the client-side
+			// torrent/data for a download the client itself already gave up
+			// on — confirmed against a real dead torrent, which kept
+			// showing up in /api/v1/queue as "failed" indefinitely with
+			// nothing to recover (its own data is genuinely incomplete, not
+			// just unrecognized the way the "no audio files found"/
+			// single-file-rip cases below deliberately leave their copy
+			// for the user to inspect). Best-effort, same as the success
+			// path's own cleanup: the grab is already correctly failed and
+			// reverted either way.
+			if err := s.downloads.Remove(ctx, g.ClientConfigID, g.ClientItemID, true); err != nil {
+				s.logger.Warn("importer: removing failed download from its client failed",
+					"grab_id", g.ID, "error", err)
+			}
 			result.Failed++
 		}
 	}

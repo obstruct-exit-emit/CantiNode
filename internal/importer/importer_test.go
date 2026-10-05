@@ -787,7 +787,7 @@ func testConfigWithMapping(t *testing.T, remote, local string) *config.Config {
 }
 
 func TestPollOnceMarksClientReportedFailureAsFailed(t *testing.T) {
-	sab, _ := mockSab(t, "/does/not/matter", "Failed")
+	sab, deleteCalls := mockSab(t, "/does/not/matter", "Failed")
 	svc, dlStore, musicStore, _, _ := setup(t, sab)
 
 	artist, err := musicStore.GetOrCreateArtist("artist-mbid", "Test Artist", "Test Artist")
@@ -830,6 +830,16 @@ func TestPollOnceMarksClientReportedFailureAsFailed(t *testing.T) {
 	}
 	if got.Status != musiclibrary.WantedStatusWanted {
 		t.Errorf("wanted album status = %q, want %q", got.Status, musiclibrary.WantedStatusWanted)
+	}
+
+	// Found live: the download client itself reporting a release as failed
+	// used to leave it sitting in the client (and /api/v1/queue) forever —
+	// nothing ever cleaned it up, unlike the success path's own
+	// well-established "remove the download from its client" step right
+	// after a completed import. Confirmed live against a real dead
+	// torrent that stayed in the queue as "failed" indefinitely.
+	if *deleteCalls == 0 {
+		t.Error("importer should have removed the failed download from its client, same as it does after a successful import")
 	}
 }
 

@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A download the client itself reported as failed was never cleaned up
+  from the client** — found live during an overnight burn-in (2026-10-05)
+  against a real dead torrent: `internal/importer`'s success path has
+  always explicitly removed a completed download from its client once
+  safely copied into the library ("doesn't sit around in the download
+  folder or the client's history forever"), but the failure path
+  (`PollOnce`'s `case "failed"`) never had the equivalent step — the dead
+  torrent (and its partial data) stayed in qBittorrent/the client, and kept
+  showing up in `/api/v1/queue` as "failed" indefinitely, with nothing left
+  to recover from it. Now removed the same way, right after the grab is
+  failed and reverted. Deliberately scoped to only this one call site:
+  `importGrab`'s own "no audio files found"/single-file-whole-album-rip
+  failure branches keep their existing, explicitly-reasoned "leave the
+  copy for the user to inspect" behavior unchanged — that data might
+  actually be salvageable, unlike a download the client itself gave up on
+  mid-transfer.
 - **The four remaining items from the 2026-10-04 audit pass below**, all
   previously flagged but deliberately deferred:
   - **Settings → Music changes to the MusicBrainz server URL, TheAudioDB
