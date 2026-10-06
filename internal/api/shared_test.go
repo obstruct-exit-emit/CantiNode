@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // TestImageProxyFailureDoesNotRedirect is the regression test for an open
@@ -54,5 +55,32 @@ func TestImageProxyFailureDoesNotRedirect(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusBadGateway {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadGateway)
+	}
+}
+
+// TestGoSafeRecoversPanic is the regression test for a found-live gap:
+// every "go func() { ... }()" fire-and-forget background task in this
+// package (a scan, a move, a playlist's own sync-on-change) predated
+// goSafe and had no panic recovery at all, so a bug in any one of them
+// would have crashed the entire process — the HTTP server and every other
+// in-flight request along with it — not just that background task. A
+// panic inside a goroutine can only ever be recovered by that same
+// goroutine, so there's no way to assert "didn't crash" from the caller's
+// side directly — but an unrecovered panic in goSafe's own spawned
+// goroutine would crash this entire test binary, taking every other test
+// down with it. The real assertion here is that `go test` reports this
+// test (and the package) as passed at all: that's only possible if
+// goSafe's recover actually caught it.
+func TestGoSafeRecoversPanic(t *testing.T) {
+	done := make(chan struct{})
+	goSafe(func() {
+		defer close(done)
+		panic("boom")
+	})
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("goSafe's fn never ran")
 	}
 }

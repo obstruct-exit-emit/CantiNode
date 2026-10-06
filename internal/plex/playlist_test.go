@@ -113,12 +113,20 @@ func TestCreatePlaylistRequiresTracks(t *testing.T) {
 	}
 }
 
+// Uses a real Plex server's own response code for a successful delete
+// (204 No Content, no body) rather than 200 — this is the regression test
+// for a found-live bug: doRequest used to require exactly 200, so every
+// delete this client ever issued against a real server came back as an
+// "error" despite genuinely succeeding, which silently broke
+// pushExisting's delete-then-recreate replace flow (it bailed out right
+// after the real, successful delete, so the replacement playlist was
+// never created — confirmed live, repeatedly).
 func TestRemovePlaylistItemAndDeletePlaylistUseDelete(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	if err := c.RemovePlaylistItem(t.Context(), "100", "789"); err != nil {

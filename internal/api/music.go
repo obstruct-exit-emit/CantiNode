@@ -1647,7 +1647,7 @@ func (s *server) handleMoveMusicArtist(w http.ResponseWriter, r *http.Request) {
 	}
 	s.musicMoveMu.Unlock()
 
-	go func() {
+	goSafe(func() {
 		// The request's own context is canceled the moment the handler
 		// returns — long before a real, potentially large cross-drive
 		// copy could finish.
@@ -1666,7 +1666,7 @@ func (s *server) handleMoveMusicArtist(w http.ResponseWriter, r *http.Request) {
 			s.musicMoveState.Error = err.Error()
 		}
 		s.musicMoveMu.Unlock()
-	}()
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
@@ -1749,7 +1749,7 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 	s.musicScanState = musicScanState{Running: true, StartedAt: &now}
 	s.musicScanMu.Unlock()
 
-	go func() {
+	goSafe(func() {
 		// The request's own context is canceled the moment the handler
 		// returns — long before a real, rate-limited scan could finish.
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1775,8 +1775,8 @@ func (s *server) handleTriggerMusicScan(w http.ResponseWriter, r *http.Request) 
 		// and unlike the scan proper, nothing needs to wait on it — a
 		// second "Scan files" click shouldn't see a stale 409 "already
 		// running" for a sweep that isn't the scan at all.
-		go s.backfillReleaseGroupVersions(context.Background())
-	}()
+		goSafe(func() { s.backfillReleaseGroupVersions(context.Background()) })
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
@@ -1864,7 +1864,7 @@ func (s *server) handleRefreshAllMusicArtists(w http.ResponseWriter, r *http.Req
 	s.musicRefreshAllState = musicRefreshAllState{Running: true, StartedAt: &now, Total: len(artists)}
 	s.musicRefreshAllMu.Unlock()
 
-	go func() {
+	goSafe(func() {
 		// The request's own context is canceled the moment the handler
 		// returns — long before a real, rate-limited run across every
 		// artist could finish. See handleTriggerMusicScan's own identical
@@ -1888,7 +1888,7 @@ func (s *server) handleRefreshAllMusicArtists(w http.ResponseWriter, r *http.Req
 		s.musicRefreshAllState.Running = false
 		s.musicRefreshAllState.FinishedAt = &finished
 		s.musicRefreshAllMu.Unlock()
-	}()
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }

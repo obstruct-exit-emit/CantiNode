@@ -11,6 +11,39 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Editing an already Plex-linked playlist (adding/removing/reordering a
+  track) silently destroyed its Plex-side copy and never recreated it** —
+  the most severe bug found in this round of live burn-in testing. The
+  shared Plex HTTP client (`internal/plex/client.go`) required a bare
+  `200 OK` for every request to count as success, but a real Plex Media
+  Server answers a successful `DELETE` with `204 No Content` — so every
+  delete this client ever issued came back as a false "error". That's
+  silently destructive specifically for `pushExisting`'s own
+  delete-then-recreate replace flow (Plex has no "replace this
+  playlist's items" call): it deletes the old Plex playlist, then
+  recreates it fresh. The delete genuinely succeeded every time, but the
+  false error made `pushExisting` bail out immediately afterward,
+  skipping the recreate — confirmed live, repeatedly, against the real
+  production Plex server: a linked playlist's first sync worked fine,
+  but adding a second track deleted its Plex-side copy and left it gone
+  for good (404), with `plexSyncedAt` never advancing. Now accepts any
+  2xx status, not just 200.
+- **Every fire-and-forget background goroutine in `internal/api` (a
+  music scan, an artist move, an import poll, a playlist's own
+  sync-on-change, a linked-playlist delete, a health recheck, a system
+  command's wait) had no panic recovery at all** — found live while
+  investigating the Plex playlist bug above: a bare `go func() { ... }()`
+  predates `cmd/cantinode/main.go`'s own `runBG` (added earlier in this
+  hardening pass specifically to stop one bad background loop from
+  taking down the whole process), but `runBG` only covers the long-running
+  loops registered at startup, not these per-request one-shot tasks. An
+  unrecovered panic in any one of them — a nil pointer from an unexpected
+  Plex response, say — would have crashed the entire process: the HTTP
+  server and every other in-flight request along with it, not just that
+  background task. New `goSafe` helper (`internal/api/shared.go`) wraps
+  every one of these nine call sites with the same recover-and-log
+  reasoning `runBG` already uses, just without `runBG`'s restart-on-panic
+  (nothing to restart — it's one-shot work, not a loop).
 - **Removing an artist or album with a grab still in flight cancelled
   CantiNode's own tracking of it, but never stopped the actual
   download** — a deliberate choice at the time, reasoned as "it can

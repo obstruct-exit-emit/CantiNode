@@ -351,11 +351,11 @@ func (s *server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 // edits), so the warning banner updates without waiting for the 15-minute
 // tick.
 func (s *server) refreshHealth() {
-	go func() {
+	goSafe(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		s.health.Check(ctx)
-	}()
+	})
 }
 
 // auth admits requests carrying the API key (scripts) or a valid

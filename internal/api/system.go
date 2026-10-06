@@ -111,11 +111,11 @@ func (s *server) runSystemCommand(w http.ResponseWriter, command string) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	go func() {
+	goSafe(func() {
 		if err := cmd.Wait(); err != nil {
 			slog.Warn("api: system command process ended", "command", command, "error", err)
 		}
-	}()
+	})
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 

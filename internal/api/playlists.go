@@ -68,7 +68,7 @@ func (s *server) syncPlaylistsInBackground() {
 	if !settings.PlaylistSyncReady() || settings.PlaylistSyncOnChangeDisabled {
 		return
 	}
-	go s.plexPlaylistSync.PollOnce(context.Background())
+	goSafe(func() { s.plexPlaylistSync.PollOnce(context.Background()) })
 }
 
 // handleSyncPlaylists runs a playlist sync pass right now instead of
@@ -183,12 +183,12 @@ func (s *server) propagatePlaylistDelete(ratingKey string) {
 	if !settings.PlaylistDeletePropagates() || settings.ServerURL == "" || settings.Token == "" {
 		return
 	}
-	go func() {
+	goSafe(func() {
 		client := plex.NewClient(settings.ServerURL, settings.Token)
 		if err := client.DeletePlaylist(context.Background(), ratingKey); err != nil {
 			slog.Default().Warn("plex: deleting linked playlist", "ratingKey", ratingKey, "error", err)
 		}
-	}()
+	})
 }
 
 // writeAppendPlaylistError maps AppendPlaylistItem(s)'s two distinct

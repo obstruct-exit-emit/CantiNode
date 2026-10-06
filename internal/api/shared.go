@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -49,6 +50,29 @@ func (s *server) metadataCtx() (context.Context, context.CancelFunc) {
 
 func (s *server) artistRefreshCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), artistRefreshTimeout)
+}
+
+// goSafe runs fn in its own goroutine, recovering any panic so a bug in
+// one background task can't take down the whole process — every other
+// goroutine and the HTTP server along with it. Same reasoning as
+// cmd/cantinode's runBG, applied here instead of there because these are
+// one-shot tasks a request kicks off (a scan, a move, a playlist's own
+// sync-on-change), not a main-loop registered at startup, so there's
+// nothing to restart on panic — just log it and let the rest of the
+// process keep running. Found live: every "go func() { ... }()" in this
+// package predates runBG's own panic recovery and never got it, so an
+// unrelated bug in any one of them (a nil pointer from an unexpected Plex
+// response, say) would have crashed the whole server, not just that
+// background task.
+func goSafe(fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("api: background task panicked", "panic", r, "stack", string(debug.Stack()))
+			}
+		}()
+		fn()
+	}()
 }
 
 func pathID(r *http.Request) (int64, bool) {

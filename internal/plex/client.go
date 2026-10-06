@@ -188,7 +188,17 @@ func (c *Client) doRequest(req *http.Request, path string) ([]byte, error) {
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, fmt.Errorf("plex: invalid server URL or token")
 	}
-	if resp.StatusCode != http.StatusOK {
+	// Any 2xx is success, not just 200 — found live against a real Plex
+	// Media Server: DELETE /playlists/{key} answers 204 No Content on a
+	// genuinely successful delete, which this used to reject outright
+	// (status != 200), so every delete this client ever issued came back
+	// as an "error" despite actually succeeding. That's silently
+	// destructive for pushExisting's own delete-then-recreate replace
+	// flow specifically: it bailed out right after the (real, successful)
+	// delete on this false error, so the old Plex playlist was really
+	// gone and the replacement was never created — confirmed live,
+	// repeatedly, against a real server.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("plex %s: status %d: %s", path, resp.StatusCode, truncate(string(body), 300))
 	}
 	return body, nil

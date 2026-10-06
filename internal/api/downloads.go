@@ -361,7 +361,7 @@ func (s *server) handleTriggerImport(w http.ResponseWriter, r *http.Request) {
 	s.importState = importState{Running: true, StartedAt: &now}
 	s.importMu.Unlock()
 
-	go func() {
+	goSafe(func() {
 		// The request's own context is canceled the moment the handler
 		// returns — a poll copying several large files shouldn't be cut off
 		// with it.
@@ -376,7 +376,7 @@ func (s *server) handleTriggerImport(w http.ResponseWriter, r *http.Request) {
 		s.importState.FinishedAt = &finished
 		s.importState.Result = &result
 		s.importMu.Unlock()
-	}()
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
