@@ -223,6 +223,43 @@ func TestScoreRejectsWrongAlbum(t *testing.T) {
 	}
 }
 
+// TestScoreRejectsWrongAlbumWhenArtistNameIsACommonWord is the regression
+// test for a gap the fix above missed, found live during a later burn-in
+// pass: searching for The Beatles' self-titled "The Beatles" (the White
+// Album) still approved "Beatles VI", "Meet The Beatles!", and "With The
+// Beatles" — all different, real albums that just happen to also contain
+// the word "Beatles". The original fix stripped one occurrence of the
+// artist's name out of the raw release title and checked what was left
+// for the album title; that degenerates badly whenever the artist's own
+// name is a short, common word that shows up inside *other* unrelated
+// album titles too — stripping "beatles" once out of "beatles beatles
+// vi" (note: the full raw title has the band name twice — once as the
+// artist credit, once because it's also the self-titled album) still
+// leaves a second, unrelated "beatles" sitting right there to match
+// against. Comparing the wanted album against the release's own *parsed*
+// title (Parse's Author/Title split) instead sidesteps this, since the
+// artist credit is already separated out properly rather than merely
+// string-stripped once.
+func TestScoreRejectsWrongAlbumWhenArtistNameIsACommonWord(t *testing.T) {
+	prefs := DefaultMusicPreferences()
+
+	for _, wrongTitle := range []string{
+		"The Beatles - Beatles VI (2014 Deluxe Edition FLAC) 88",
+		"The Beatles - Meet The Beatles! (2014 Deluxe Edition FLAC) 88",
+		"The Beatles - With The Beatles (2014 Deluxe Edition FLAC) 88",
+	} {
+		c := Score(rel(wrongTitle, indexer.ProtocolUsenet, 400<<20, -1), prefs, "The Beatles", "The Beatles")
+		if c.Approved {
+			t.Errorf("Score(%q) approved a different album just because the artist's name recurs in it: %+v", wrongTitle, c)
+		}
+	}
+
+	rightAlbum := Score(rel("The Beatles - The Beatles (White Album) (1968 Rock) [Flac 24-96]", indexer.ProtocolUsenet, 400<<20, -1), prefs, "The Beatles", "The Beatles")
+	if !rightAlbum.Approved {
+		t.Errorf("release actually naming the self-titled wanted album should still approve: %+v", rightAlbum.Rejections)
+	}
+}
+
 // TestArtistRelevant covers artistRelevant's own edge cases directly:
 // exact-phrase and longest-word matching, "Various Artists" always
 // passing (a compilation's own file/torrent name essentially never states

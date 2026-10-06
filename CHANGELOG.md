@@ -11,6 +11,29 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **The album-relevance check from the last fix was still too weak
+  whenever the artist's own name is a short, common word that shows up
+  inside *other*, genuinely different album titles** — found live in a
+  further burn-in pass: searching for The Beatles' self-titled "The
+  Beatles" (the White Album) still approved "Beatles VI", "Meet The
+  Beatles!", and "With The Beatles". The original fix compared the
+  wanted album against the *raw* release title with the artist's name
+  stripped out once; that breaks down the moment the artist's own name
+  recurs a second time for an unrelated reason (the band name is simply
+  part of these other albums' real titles too) — stripping "beatles"
+  once out of "beatles beatles vi" still leaves a second, unrelated
+  "beatles" sitting right there to match against. Now compares against
+  the release's own *parsed* title (`Parse`'s existing Author/Title
+  split, the same "Artist - Album" convention essentially every real
+  release name follows) instead of surgically editing the raw string —
+  the artist credit is properly separated out rather than merely
+  string-stripped once. The first version of this redesign also had its
+  own threshold too loose (0.5): a wanted title sitting intact as a
+  literal substring of a longer, different real title (as "The Beatles"
+  does inside "Meet The Beatles!") still scored ~0.6 on a plain
+  similarity ratio — raised to 0.75, with `TitleIsPrefixOf` (not the
+  ratio) left as the actual safety net for a genuine edition suffix
+  Parse didn't strip.
 - **A completely tagless release couldn't match a single file, even once
   the whole album it belonged to was confidently resolved** — found live
   immediately after the album-relevance fix above, importing the correct

@@ -42,6 +42,19 @@ func artistRelevant(releaseTitle, wantedArtist string) bool {
 	return longest != "" && strings.Contains(normTitle, longest)
 }
 
+// albumRelevantThreshold is deliberately stricter than slotTrack's own
+// real title-match threshold (0.6, per folder_match.go) — found live on
+// this constant's first value (0.5): "Meet The Beatles!" and "With The
+// Beatles" both score ~0.58-0.65 against wanted album "The Beatles",
+// since the wanted title sits intact as a literal substring of a longer,
+// genuinely different real album title — a plain Levenshtein ratio
+// doesn't penalize that kind of containment enough. 0.75 rejects both
+// while still passing a real edition variant that merely adds a short
+// bracketed qualifier Parse didn't strip (TitleIsPrefixOf below is the
+// real safety net for that case regardless of where the ratio lands —
+// see its own call site).
+const albumRelevantThreshold = 0.75
+
 // albumRelevant is artistRelevant's own missing other half, found live: a
 // search only ever verified a candidate's title plausibly named the right
 // ARTIST, never the right ALBUM — any release by the correct artist could
@@ -51,41 +64,38 @@ func artistRelevant(releaseTitle, wantedArtist string) bool {
 // Ferdinand" surfaced (and would have auto-approved) their unrelated
 // "The Human Fear" instead — nothing ever checked the album title at all.
 //
-// Takes wantedArtist too, and strips one occurrence of it from the title
-// before checking for the album — caught by this function's own test
-// failing on first write: a self-titled album's title literally equals
-// the artist name, so naively checking "does the title contain the album
-// title" is a no-op for exactly the case it exists to catch. The artist's
-// own name is already guaranteed present in any correctly-formed release
-// by them — right album or not — via the ordinary "Artist - Album"
-// naming convention, so without stripping it first, "Franz Ferdinand" is
-// trivially "found" inside "Franz Ferdinand - The Human Fear" too. The
-// same two-tier shape as artistRelevant otherwise (exact-phrase match on
-// whatever's left after stripping, then a longest-word fallback for
-// realistic naming variance), for the same reason: a release name almost
-// always states the album title literally, so this is a wrong-item guard,
-// not a fuzzy-matching pass.
-func albumRelevant(releaseTitle, wantedArtist, wantedAlbum string) bool {
+// Takes the release's own *parsed* title (Parse's own Author/Title split,
+// already computed by Score before this runs) rather than the raw release
+// string. An earlier version compared against the raw title directly,
+// stripping one occurrence of the artist's name first — that handled the
+// Franz Ferdinand case, but broke down hard on any artist whose name is
+// itself a short, common word that shows up inside *other* genuinely
+// different album titles too: confirmed live searching for The Beatles'
+// self-titled "The Beatles" (White Album), where "Beatles VI", "Meet The
+// Beatles!", and "With The Beatles" all still scored as a match, because
+// stripping "beatles" once out of e.g. "beatles beatles vi" still leaves
+// a second, unrelated "beatles" sitting right there. Comparing against
+// the already-parsed title sidesteps this entirely — Parse's own
+// Author/Title split (the same "Artist - Album" dash convention
+// essentially every real release name follows) has already separated the
+// artist credit out, so "Beatles VI" is compared as just "Beatles VI",
+// not as a string the artist's own name is still embedded in.
+//
+// relname.TitleSimilarity, not a raw substring/longest-word check — a
+// release name's own bracketed year/format annotations are already
+// stripped by Parse, but a genuine edition difference ("The Beatles" vs
+// "The Beatles (Mono Mix)" if that qualifier wasn't bracketed) still
+// needs the same tolerance slotTrack's own title check already gives an
+// embedded tag, via TitleIsPrefixOf alongside the similarity ratio.
+func albumRelevant(parsedTitle, wantedAlbum string) bool {
 	wantedAlbum = strings.TrimSpace(wantedAlbum)
-	if wantedAlbum == "" {
+	if wantedAlbum == "" || parsedTitle == "" {
 		return true
 	}
-	normTitle := relname.Normalize(releaseTitle)
-	normAlbum := relname.Normalize(wantedAlbum)
-	searchIn := normTitle
-	if normArtist := relname.Normalize(wantedArtist); normArtist != "" {
-		searchIn = strings.Replace(normTitle, normArtist, "", 1)
-	}
-	if normAlbum == "" || strings.Contains(searchIn, normAlbum) {
+	if relname.TitleSimilarity(parsedTitle, wantedAlbum) >= albumRelevantThreshold {
 		return true
 	}
-	longest := ""
-	for _, w := range strings.Fields(normAlbum) {
-		if len(w) > len(longest) {
-			longest = w
-		}
-	}
-	return longest != "" && strings.Contains(searchIn, longest)
+	return relname.TitleIsPrefixOf(parsedTitle, wantedAlbum)
 }
 
 // Preferences drive scoring. The media type's default quality profile
@@ -192,7 +202,7 @@ func Score(rel indexer.Release, prefs Preferences, wantedArtist, wantedAlbum str
 	if !artistRelevant(rel.Title, wantedArtist) {
 		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedArtist))
 	}
-	if !albumRelevant(rel.Title, wantedArtist, wantedAlbum) {
+	if !albumRelevant(c.Parsed.Title, wantedAlbum) {
 		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedAlbum))
 	}
 
