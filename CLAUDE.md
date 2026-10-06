@@ -185,6 +185,25 @@ correct tracks sat unmatched for exactly this reason. Fixed by applying
 the same rescue in the fallback, keyed off the single best-scoring
 candidate rather than a known position.
 
+**A seventh gotcha, this one in the manual Unmatched Files flow rather
+than the automatic scanner**: `ManualMatch` stored a file's own embedded
+disc/track tags as the Track's position, instead of looking up the
+recording's real position within the release it was actually being
+filed under — found live on the same White Album rip, applying its own
+`SuggestMatches` suggestions (which already compute the correct position
+via the release's real tracklist, but never pass it back to this
+endpoint — only `recordingMbid`/`releaseMbid` round-trip). Confirmed via
+Organize proposing to rename a file to `"1.30 - Good Night.flac"` instead
+of the real `"2.13 - Good Night.flac"`. Fixed by having `ManualMatch`
+look up the chosen release's tracklist itself and use the matched
+recording's real position there, tags only as a fallback. This also
+exposed that `musiclibrary.GetOrCreateTrack`'s existing-row path refreshes
+`artist_credit`/`composer` on a re-match (migration 031) but never
+`track_number`/`disc_number` — so a track row already created wrong would
+have stayed wrong forever even after the `ManualMatch` fix, the same dead
+end the `artist_credit` refresh exists to avoid. Now refreshed the same
+unconditional way.
+
 **Acquisition** (`internal/candidatesearch` → `internal/download` →
 `internal/importer`): a search (manual, or `internal/autosearch`'s
 periodic wanted-list sweep) fans out through `internal/indexer` (including

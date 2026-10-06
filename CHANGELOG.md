@@ -11,6 +11,26 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **`ManualMatch` stored a file's own embedded disc/track tags as the
+  track's position instead of the recording's real position within the
+  release it was actually filed under** — found live on the same White
+  Album import just above, right after fixing its Unmatched Files entry:
+  `SuggestMatches` already computes the correct position via the
+  release's real tracklist and shows it in its suggestion, but the
+  follow-up "apply" endpoint only ever received `recordingMbid`/
+  `releaseMbid` back, not that position, and re-derived it from the
+  file's own (here, wrong) tags instead. Confirmed live via Organize,
+  which proposed renaming the newly-matched "Good Night" to
+  `"1.30 - Good Night.flac"` instead of the real `"2.13 - Good
+  Night.flac"`. `ManualMatch` now looks up the chosen release's own
+  tracklist and uses the matched recording's real position there,
+  falling back to the file's tags only if the recording genuinely isn't
+  found in it. A second gap this exposed: `GetOrCreateTrack`'s
+  existing-row path already refreshes `artist_credit`/`composer` on a
+  re-match (migration 031) but never `track_number`/`disc_number`, so a
+  track row created under the old, wrong behavior would have stayed
+  wrong forever even after this fix — now refreshed the same
+  unconditional way `artist_credit` already is.
 - **`slotTrack`'s pure-title fallback had no rescue for a missing/extra
   edition qualifier, unlike its own disc+track fast path** — found live
   while reviewing a real White Album import's Unmatched Files queue: nine

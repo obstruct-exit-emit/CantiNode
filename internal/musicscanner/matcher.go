@@ -469,6 +469,31 @@ func (s *Scanner) ManualMatch(ctx context.Context, trackFileID int64, recordingM
 	if tags != nil {
 		trackNumber, discNumber = tags.TrackNumber, tags.DiscNumber
 	}
+	// Prefer the recording's own real position within the release it's
+	// actually being filed under — the file's own embedded tag numbers
+	// above are only a fallback for when that lookup can't place it.
+	// Found live: a real White Album rip tags every file as one
+	// continuous disc-1 1-30 sequence rather than MusicBrainz's own
+	// disc1(17)+disc2(13) split, so trusting the tag here silently
+	// mis-filed every disc-2 track under disc 1 at the wrong position —
+	// confirmed via Organize proposing to rename one to
+	// "1.18 - Birthday.flac" instead of the real "2.01 - Birthday.flac".
+	// SuggestMatches (suggest.go) already computes this correctly for
+	// its own suggestions via the exact same flattenTracks lookup, but
+	// that result never reaches this endpoint — the review UI's "apply"
+	// step only sends recordingMbid/releaseMbid back, not the position
+	// it already showed, so it has to be re-derived here instead of
+	// trusted from the tag.
+	if release := rec.BestRelease(preferredReleaseMBID); release.ID != "" {
+		if full, err := s.mb.LookupReleaseWithTracklist(ctx, release.ID); err == nil {
+			for _, ft := range flattenTracks(full) {
+				if ft.Recording.ID == recordingMBID {
+					trackNumber, discNumber = ft.Position, ft.disc
+					break
+				}
+			}
+		}
+	}
 
 	// Captured before correctArtistCreditForCompilation below mutates
 	// rec.ArtistCredit in place — see resolveDirectMatch's identical note.

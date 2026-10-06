@@ -84,16 +84,29 @@ func (s *Store) GetOrCreateTrack(albumID int64, mbid, title string, trackNumber,
 		if composer != "" {
 			newComposer = composer
 		}
-		if existing.ArtistCredit != artistCredit || existing.ArtistCreditMBID != artistCreditMBID || existing.Composer != newComposer {
+		// trackNumber/discNumber are refreshed the same unconditional way
+		// artist_credit already is, not upgrade-only like composer: found
+		// live, a stale first match (ManualMatch used to derive position
+		// from the file's own embedded tags instead of the release's real
+		// tracklist — see its own fix) left tracks created before that fix
+		// stuck at a wrong position forever, since nothing short of
+		// deleting and recreating the row would otherwise ever update it,
+		// the same dead end this function's artist_credit refresh exists
+		// to avoid. A later call's position is always treated as more
+		// authoritative, same trust model as artist_credit's overwrite.
+		if existing.ArtistCredit != artistCredit || existing.ArtistCreditMBID != artistCreditMBID ||
+			existing.Composer != newComposer || existing.TrackNumber != trackNumber || existing.DiscNumber != discNumber {
 			now := time.Now().UTC()
 			if _, err := s.db.Exec(
-				`UPDATE tracks SET artist_credit = ?, artist_credit_mbid = ?, composer = ?, updated_at = ? WHERE id = ?`,
-				artistCredit, artistCreditMBID, newComposer, now, existing.ID); err != nil {
+				`UPDATE tracks SET artist_credit = ?, artist_credit_mbid = ?, composer = ?, track_number = ?, disc_number = ?, updated_at = ? WHERE id = ?`,
+				artistCredit, artistCreditMBID, newComposer, trackNumber, discNumber, now, existing.ID); err != nil {
 				return nil, fmt.Errorf("refresh track artist credit: %w", err)
 			}
 			existing.ArtistCredit = artistCredit
 			existing.ArtistCreditMBID = artistCreditMBID
 			existing.Composer = newComposer
+			existing.TrackNumber = trackNumber
+			existing.DiscNumber = discNumber
 			existing.UpdatedAt = now
 		}
 		return existing, nil

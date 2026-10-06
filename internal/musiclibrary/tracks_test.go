@@ -45,10 +45,11 @@ func TestGetOrCreateTrackCreatesThenReuses(t *testing.T) {
 // forever, because GetOrCreateTrack's existing-row path never updated
 // artist_credit/artist_credit_mbid once a track row was first created —
 // found live re-matching a real Various Artists track: the corrected ID
-// never took effect on the already-existing row. Only artist_credit/
-// artist_credit_mbid refresh this way; every other field (checked below)
-// stays exactly as first inserted, since those describe the recording
-// itself and have no reason to legitimately change between calls.
+// never took effect on the already-existing row. Title/duration stay
+// exactly as first inserted here since both calls pass the same values —
+// trackNumber/discNumber refresh the same unconditional way (see
+// TestGetOrCreateTrackRefreshesPositionOnExistingRow), just not exercised
+// by this test since neither call changes them.
 func TestGetOrCreateTrackRefreshesArtistCreditOnExistingRow(t *testing.T) {
 	db := newTestStore(t)
 
@@ -93,6 +94,60 @@ func TestGetOrCreateTrackRefreshesArtistCreditOnExistingRow(t *testing.T) {
 	}
 	if stored.Title != "In the Air Tonight" || stored.TrackNumber != 1 || stored.DiscNumber != 1 || stored.DurationMs != 200000 {
 		t.Errorf("non-credit fields changed on refresh: %+v", stored)
+	}
+}
+
+// TestGetOrCreateTrackRefreshesPositionOnExistingRow is the regression
+// test for a real live gap found reviewing a real White Album import:
+// internal/musicscanner.ManualMatch used to derive a file's trackNumber/
+// discNumber from its own embedded tags rather than the recording's real
+// position within the release it was actually being matched into — see
+// that fix's own doc comment. Even after fixing ManualMatch itself, a
+// track row already created under the wrong position before that fix
+// stayed wrong forever on a re-match, because GetOrCreateTrack's
+// existing-row path never updated track_number/disc_number — same dead
+// end artist_credit's own refresh (above) already exists to avoid.
+func TestGetOrCreateTrackRefreshesPositionOnExistingRow(t *testing.T) {
+	db := newTestStore(t)
+
+	artist, err := db.GetOrCreateArtist("beatles-mbid", "The Beatles", "Beatles, The")
+	if err != nil {
+		t.Fatalf("GetOrCreateArtist: %v", err)
+	}
+	album, err := db.GetOrCreateAlbum(artist.ID, "album-mbid", "rg-mbid", "The Beatles", "1968", "Album")
+	if err != nil {
+		t.Fatalf("GetOrCreateAlbum: %v", err)
+	}
+
+	// First match: as if derived from the file's own wrong continuous
+	// 1-30 tag numbering instead of the release's real disc2/track1.
+	t1, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Birthday", 18, 1, 200000, "", "", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack (first match): %v", err)
+	}
+	if t1.TrackNumber != 18 || t1.DiscNumber != 1 {
+		t.Fatalf("first insert = track %d disc %d, want 18/1", t1.TrackNumber, t1.DiscNumber)
+	}
+
+	// Re-match with the now-correctly-resolved position — same album/
+	// mbid, so this hits the existing row, not a fresh insert.
+	t2, err := db.GetOrCreateTrack(album.ID, "track-mbid", "Birthday", 1, 2, 200000, "", "", "")
+	if err != nil {
+		t.Fatalf("GetOrCreateTrack (re-match): %v", err)
+	}
+	if t2.ID != t1.ID {
+		t.Fatalf("re-match created a new row: ID = %d, want %d", t2.ID, t1.ID)
+	}
+	if t2.TrackNumber != 1 || t2.DiscNumber != 2 {
+		t.Errorf("position after re-match = track %d disc %d, want track 1 disc 2", t2.TrackNumber, t2.DiscNumber)
+	}
+
+	stored, err := db.GetTrack(t1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.TrackNumber != 1 || stored.DiscNumber != 2 {
+		t.Errorf("stored position = track %d disc %d, want track 1 disc 2 (the refresh must actually persist, not just the returned value)", stored.TrackNumber, stored.DiscNumber)
 	}
 }
 

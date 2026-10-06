@@ -947,6 +947,74 @@ func TestScanRootFolderDedupesAlbumAcrossDifferentReleaseEditions(t *testing.T) 
 	}
 }
 
+// TestManualMatchUsesReleaseTracklistPositionNotFileTags is the
+// regression test for a real bug found live reviewing a real White Album
+// import's Unmatched Files queue: ManualMatch stored the file's own
+// embedded TrackNumber/DiscNumber tags verbatim as the Track's position,
+// even though it already has everything needed to look up the
+// recording's REAL position within the release actually being filed
+// under. That release tagged every file's disc/track as one continuous
+// 1-30 sequence instead of MusicBrainz's own disc1(17)+disc2(13) split,
+// so matching "Good Night" this way stored it as disc 1 track 30 — its
+// raw (wrong) tag numbers — instead of the real disc 2 track 13, which
+// SuggestMatches's own suggestion for the same file had already computed
+// correctly via the exact same release tracklist, just never fed back
+// into the apply step. Confirmed live via Organize, which then proposed
+// renaming the file to "1.30 - Good Night.flac" instead of the real
+// "2.13 - Good Night.flac".
+func TestManualMatchUsesReleaseTracklistPositionNotFileTags(t *testing.T) {
+	fs := newFolderTestServer()
+	fs.recordingLookups["rec-good-night"] = sampleRecording("rec-good-night", 0)
+	fs.releaseLookups["release-mbid"] = mbReleaseWithTracklist{
+		ID:    "release-mbid",
+		Title: "Geogaddi",
+		ArtistCredit: []mbArtistCredit{
+			{Name: "Boards of Canada", Artist: mbArtistRef{ID: "artist-mbid", Name: "Boards of Canada", SortName: "Boards of Canada"}},
+		},
+		ReleaseGroup: mbReleaseGroup{ID: "rg-mbid", Title: "Geogaddi", PrimaryType: "Album"},
+		Media: []mbMedium{
+			{Format: "CD", Position: 1, TrackCount: 1, Tracks: []mbReleaseTrack{
+				{Position: 1, Title: "Disc One Track", Recording: mbTrackRecording{ID: "rec-other", Title: "Disc One Track"}},
+			}},
+			{Format: "CD", Position: 2, TrackCount: 1, Tracks: []mbReleaseTrack{
+				{Position: 13, Title: "Good Night", Recording: mbTrackRecording{ID: "rec-good-night", Title: "Good Night"}},
+			}},
+		},
+	}
+	s, rf := newFolderTestScanner(t, fs)
+	ctx := t.Context()
+
+	// The file's own tags claim disc 1 track 30 — the real, live,
+	// continuous-numbering mistagging this test reproduces.
+	path := buildFLACFile(t, rf.Path, "song.flac", map[string]string{
+		"TITLE":       "Good Night (2018 Mix)",
+		"TRACKNUMBER": "30",
+		"DISCNUMBER":  "1",
+	})
+	tf, err := s.db.UpsertTrackFileByPath(rf.ID, path, 1, "flac", 0, 0, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.ManualMatch(ctx, tf.ID, "rec-good-night", ""); err != nil {
+		t.Fatalf("ManualMatch: %v", err)
+	}
+	got, err := s.db.GetTrackFile(tf.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TrackID == nil {
+		t.Fatal("ManualMatch did not link a track")
+	}
+	track, err := s.db.GetTrack(*got.TrackID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if track.DiscNumber != 2 || track.TrackNumber != 13 {
+		t.Errorf("Track = disc %d track %d, want disc 2 track 13 (the release's real position, not the file's own disc 1 track 30 tag)", track.DiscNumber, track.TrackNumber)
+	}
+}
+
 func TestManualMatchAndClearMatch(t *testing.T) {
 	lookupResponses := map[string]mbRecording{"rec-mbid": sampleRecording("rec-mbid", 0)}
 	s, rf := newTestScanner(t, lookupResponses, nil)
