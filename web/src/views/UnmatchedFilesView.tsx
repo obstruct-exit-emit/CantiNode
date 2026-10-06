@@ -564,30 +564,50 @@ function AutoMatchPanel({
       if (!bestArtist || bestArtistScore < autoMatchConfidence) return;
     }
 
+    // Same reasoning as bestArtist above, carried one step further: an
+    // album already picked by hand must survive a later Auto-match click
+    // too, not just an already-picked artist. Found live right after the
+    // artist-side fix above shipped: fixing only the artist still left
+    // the identical gap one field over — a manually-corrected album
+    // selection got silently wiped (and possibly replaced by a worse
+    // fuzzy guess, or left blank with no tag to match against at all)
+    // the moment the artist step's own result came back, since this
+    // always cleared and re-derived the album from tag consensus
+    // regardless of what the user had already fixed by hand. Only trusts
+    // the existing pick when the artist itself didn't just change —
+    // an old album mbid means nothing under a freshly-matched different
+    // artist.
+    const artistUnchanged = bestArtist.id === artistId;
+
     requestToken.current++;
     const token = requestToken.current;
     setAutoMatching(true);
     try {
       setArtistId(bestArtist.id);
-      setAlbumMbid("");
       setVersions(null);
       setReleaseMbid("");
       setSuggestions(null);
       const combined = await fetchAlbumsForArtist(bestArtist.id);
-      if (requestToken.current !== token || !tagAlbum) return; // superseded, or no album tag to match against
+      if (requestToken.current !== token) return; // superseded
 
-      let bestAlbum: AlbumOption | null = null;
-      let bestAlbumScore = 0;
-      for (const al of combined) {
-        const score = diceSimilarity(tagAlbum, al.title);
-        if (score > bestAlbumScore) {
-          bestAlbumScore = score;
-          bestAlbum = al;
+      let bestAlbum: AlbumOption | null =
+        artistUnchanged && albumMbid ? (combined.find((al) => al.mbid === albumMbid) ?? null) : null;
+      if (!bestAlbum) {
+        setAlbumMbid("");
+        if (!tagAlbum) return; // no album tag to match against
+
+        let bestAlbumScore = 0;
+        for (const al of combined) {
+          const score = diceSimilarity(tagAlbum, al.title);
+          if (score > bestAlbumScore) {
+            bestAlbumScore = score;
+            bestAlbum = al;
+          }
         }
+        if (!bestAlbum || bestAlbumScore < autoMatchConfidence) return;
+        setAlbumMbid(bestAlbum.mbid);
       }
-      if (!bestAlbum || bestAlbumScore < autoMatchConfidence) return;
 
-      setAlbumMbid(bestAlbum.mbid);
       const vs = await fetchVersionsForAlbum(bestAlbum.mbid);
       if (requestToken.current !== token) return; // superseded by a newer pick/auto-match
       const bestVersion = pickBestVersionByFileCount(vs, files.length);

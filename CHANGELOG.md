@@ -11,6 +11,18 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Unmatched Files' "Auto-match" wiped a manually-picked album on every
+  later click, same gap as the artist fix right above it just one field
+  over** — found live reviewing that very fix: it protected an
+  already-picked artist from being overwritten by a fresh fuzzy guess,
+  but the album step unconditionally cleared and re-derived from tag
+  consensus regardless of what the user had already fixed by hand,
+  sometimes replacing it with a worse guess and sometimes leaving it
+  blank outright (when the file had no album tag to match against at
+  all). Now mirrors the artist-side fix: an existing album pick survives
+  a later Auto-match click as long as the artist itself didn't just
+  change. Verified with `npm run build` (this repo's only frontend
+  check — no test runner exists for it).
 - **Login had a timing side-channel that let an attacker enumerate valid
   usernames** — found live timing real requests against production: a
   wrong password against a real username consistently took ~875ms,
