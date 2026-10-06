@@ -21,12 +21,17 @@ import (
 
 const defaultBaseURL = "https://theaudiodb.com/api/v1/json"
 
-// publicTestKey is TheAudioDB's well-documented shared API key for free,
-// non-commercial, low-volume use (https://www.theaudiodb.com/api_guide.php)
-// — the same key Lidarr itself uses for artist metadata, so this is an
-// established, legitimate fallback rather than a hack. Used whenever an
+// publicTestKey is TheAudioDB's shared API key for free, non-commercial,
+// low-volume use (https://www.theaudiodb.com/api_guide.php). Used whenever an
 // operator hasn't set their own key in Settings.
-const publicTestKey = "2"
+//
+// It was "2" until TheAudioDB retired that key: verified live 2026-10-06,
+// every request with "2" answered 404 {"Message":"Not found"} -- for
+// artist-mb.php, album-mb.php and even search.php for a band it certainly
+// has -- so every TheAudioDB link in the app failed for every artist and
+// album. The same requests with "123" returned the full record. If links start
+// failing everywhere at once again, check this key first.
+const publicTestKey = "123"
 
 // minRequestInterval throttles requests gently — TheAudioDB has no
 // published rate limit as strict as MusicBrainz's, but hammering a free

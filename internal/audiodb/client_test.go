@@ -192,6 +192,36 @@ func TestNewClientFallsBackToPublicTestKey(t *testing.T) {
 	}
 }
 
+// TestUnconfiguredClientSendsTheCurrentFreeKey pins the actual key an
+// unconfigured install sends, not just that it equals the constant -- the
+// tests above would pass whatever the constant held.
+//
+// TheAudioDB retired its old shared key "2": verified live 2026-10-06, every
+// request with it -- artist-mb.php, album-mb.php, even search.php for a band
+// it certainly has -- answered 404 {"Message":"Not found"}, which surfaced as
+// a 502 on every TheAudioDB link in the app for every artist and album. The
+// same requests with "123", TheAudioDB's current free key, returned the full
+// record.
+func TestUnconfiguredClientSendsTheCurrentFreeKey(t *testing.T) {
+	var gotKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// baseURL + "/" + apiKey + path — the key rides in the path itself.
+		gotKey = strings.Split(strings.Trim(r.URL.Path, "/"), "/")[0]
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"artists": null}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClientWithBaseURL("", srv.URL)
+	c.minInterval = time.Millisecond
+	if _, err := c.LookupArtistByMBID(t.Context(), "some-mbid"); err != nil {
+		t.Fatal(err)
+	}
+	if gotKey != "123" {
+		t.Errorf("unconfigured request used key %q, want TheAudioDB's current free key 123", gotKey)
+	}
+}
+
 func TestNewClientUsesProvidedKey(t *testing.T) {
 	c := NewClient("my-real-key")
 	if c.apiKey != "my-real-key" {

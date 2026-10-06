@@ -11,6 +11,15 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Every TheAudioDB link failed, for every artist and album** — the
+  built-in fallback key, used whenever no key is set in Settings → Music,
+  was TheAudioDB's old shared key `2`, which TheAudioDB has retired.
+  Verified live 2026-10-06: every request with `2` — `artist-mb.php`,
+  `album-mb.php`, even `search.php` for Franz Ferdinand — answered
+  `404 {"Message":"Not found"}`, surfacing as a 502 on each link; the same
+  requests with `123`, TheAudioDB's current free key, returned the full
+  record. The fallback is now `123`, pinned by a test on the key actually
+  sent, not just the constant. An operator-set key is unaffected.
 - **A download the client itself reported as failed was never cleaned up
   from the client** — found live during an overnight burn-in (2026-10-05)
   against a real dead torrent: `internal/importer`'s success path has
