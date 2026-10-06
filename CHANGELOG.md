@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Removing an artist or album with a grab still in flight cancelled
+  CantiNode's own tracking of it, but never stopped the actual
+  download** — a deliberate choice at the time, reasoned as "it can
+  still be removed from Activity like any other." Confirmed live that
+  this doesn't actually hold: removing the artist cascades its
+  `wanted_albums` row away, so the now-orphaned queue item's own
+  `grabId`/`wantedAlbumId` enrichment disappears too — the one thing
+  that would have told the user this download was tied to anything they
+  just removed. Left alone, it keeps downloading to completion as a
+  silent, context-less item in Activity, then sits as a permanently
+  orphaned file on disk once finished, since nothing ever imports or
+  cleans up a grab already resolved "failed" — confirmed live end to
+  end: a real in-flight grab finished downloading completely unmanaged
+  minutes after its artist was removed. `cancelInFlightGrabs` now also
+  removes the download from its client, the same cleanup the success
+  path and the `PollOnce` failure path above already do.
 - **The album-relevance redesign immediately above had its own gap,
   found live right after deploying it, against the same real search**:
   "The Beatles' Second Album", "The Beatles Ballads", and "The Beatles

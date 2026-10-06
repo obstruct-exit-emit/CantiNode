@@ -674,7 +674,9 @@ func (s *server) handleRemoveMusicArtist(w http.ResponseWriter, r *http.Request)
 	// (musicscanner recreates the artist from the imported files' own
 	// tags/MBIDs), resurrecting exactly what was just removed.
 	if wanted, werr := s.musicStore.ListWantedAlbumsByArtist(id); werr == nil {
-		s.cancelInFlightGrabs(downloadingWantedIDs(wanted), "artist removed")
+		cancelCtx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
+		s.cancelInFlightGrabs(cancelCtx, downloadingWantedIDs(wanted), "artist removed")
+		cancel()
 	}
 
 	files, err := s.musicStore.ListTrackFilesByArtist(id)
@@ -816,7 +818,9 @@ func (s *server) handleRemoveMusicAlbum(w http.ResponseWriter, r *http.Request) 
 					forThisAlbum = append(forThisAlbum, w)
 				}
 			}
-			s.cancelInFlightGrabs(downloadingWantedIDs(forThisAlbum), "album removed")
+			cancelCtx, cancel := context.WithTimeout(r.Context(), downloadTimeout)
+			s.cancelInFlightGrabs(cancelCtx, downloadingWantedIDs(forThisAlbum), "album removed")
+			cancel()
 		}
 	}
 
@@ -864,12 +868,24 @@ func downloadingWantedIDs(wanted []musiclibrary.WantedAlbum) []int64 {
 }
 
 // cancelInFlightGrabs resolves any pending (status=grabbed) download tied
-// to one of wantedAlbumIDs as failed, recording reason — best-effort and
-// silent about it (a removal shouldn't fail or get noisy over a grab
-// bookkeeping detail). Does not touch the download client itself; the
-// download keeps running there and can still be removed from Activity like
-// any other, this only stops CantiNode from importing it once it finishes.
-func (s *server) cancelInFlightGrabs(wantedAlbumIDs []int64, reason string) {
+// to one of wantedAlbumIDs as failed, recording reason, and removes it
+// from its download client too — best-effort, and never fails the
+// removal itself over a download-client hiccup.
+//
+// Found live: this used to only resolve CantiNode's own grab record,
+// deliberately leaving the actual download running — reasoned at the time
+// as "it can still be removed from Activity like any other." Confirmed
+// live that mitigation doesn't actually hold: removing the artist cascades
+// its wanted_albums row away, so the now-orphaned queue item's own
+// grabId/wantedAlbumId enrichment disappears too — the one thing that
+// would have told the user this download was tied to anything they just
+// removed. Left alone, it just keeps downloading to completion as a
+// silent, context-less item in Activity, then sits as a permanently
+// orphaned file on disk forever once finished (nothing ever imports or
+// cleans up a grab already resolved "failed"). Removing an artist/album
+// is supposed to erase everything tied to it, not leave a ghost download
+// running outside CantiNode's own view of it.
+func (s *server) cancelInFlightGrabs(ctx context.Context, wantedAlbumIDs []int64, reason string) {
 	if len(wantedAlbumIDs) == 0 {
 		return
 	}
@@ -881,6 +897,9 @@ func (s *server) cancelInFlightGrabs(wantedAlbumIDs []int64, reason string) {
 	for _, g := range pending {
 		if err := s.downloads.Store().ResolveGrab(g.ID, download.GrabStatusFailed, reason); err != nil {
 			slog.Error("music: cancel in-flight grab", "grab_id", g.ID, "error", err)
+		}
+		if err := s.downloads.Remove(ctx, g.ClientConfigID, g.ClientItemID, true); err != nil {
+			slog.Warn("music: removing cancelled grab's download from its client failed", "grab_id", g.ID, "error", err)
 		}
 	}
 }

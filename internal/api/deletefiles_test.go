@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -251,6 +252,59 @@ func TestRemoveArtistCancelsInFlightGrab(t *testing.T) {
 	status, message := grabStatus(t, a, grabID)
 	if status != "failed" || message != "artist removed" {
 		t.Errorf("grab after artist removal: status=%q message=%q, want failed/\"artist removed\"", status, message)
+	}
+}
+
+// TestRemoveArtistCancelsInFlightGrabAndStopsItsDownload is the
+// regression test for a real gap found live, immediately after the test
+// above was already passing: cancelling the grab only ever updated
+// CantiNode's own record of it — the real download kept running in its
+// client, unrelated-looking once the artist's own wanted_albums row (and
+// the grabId/wantedAlbumId enrichment keyed off it) was gone, and would
+// sit as a permanently orphaned file on disk once it finished, since
+// nothing ever imports or cleans up a grab already resolved "failed".
+// Removing an artist must now also remove its in-flight download from
+// the client, not just stop tracking it.
+func TestRemoveArtistCancelsInFlightGrabAndStopsItsDownload(t *testing.T) {
+	a := newTestAPI(t)
+
+	var deleteCalls int
+	sab := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("name") == "delete" {
+			deleteCalls++
+		}
+		w.Write([]byte(`{"status": true}`))
+	}))
+	t.Cleanup(sab.Close)
+	a.want(a.call("POST", "/api/v1/downloadclient", map[string]any{
+		"name": "Sabnzb", "type": "sabnzbd", "host": sab.URL, "apiKey": "key", "enabled": true,
+	}, nil), http.StatusCreated)
+
+	res, err := a.db.Exec(`INSERT INTO artists (mbid, name, sort_name) VALUES ('artist-inflight3', 'In Flight Artist 3', 'In Flight Artist 3')`)
+	if err != nil {
+		t.Fatalf("seed artist: %v", err)
+	}
+	artistID, _ := res.LastInsertId()
+
+	res, err = a.db.Exec(`INSERT INTO wanted_albums (artist_id, release_group_mbid, title, status) VALUES (?, 'rg-inflight3', 'In Flight', 'downloading')`, artistID)
+	if err != nil {
+		t.Fatalf("seed wanted album: %v", err)
+	}
+	wantedID, _ := res.LastInsertId()
+	res, err = a.db.Exec(`INSERT INTO grabs (wanted_album_id, title, protocol, status, client_config_id, client_item_id) VALUES (?, 'In Flight', 'usenet', 'grabbed', 1, 'nzo123')`, wantedID)
+	if err != nil {
+		t.Fatalf("seed grab: %v", err)
+	}
+	grabID, _ := res.LastInsertId()
+
+	a.want(a.call("DELETE", fmt.Sprintf("/api/v1/music/artist/%d", artistID), nil, nil), http.StatusOK)
+
+	status, message := grabStatus(t, a, grabID)
+	if status != "failed" || message != "artist removed" {
+		t.Errorf("grab after artist removal: status=%q message=%q, want failed/\"artist removed\"", status, message)
+	}
+	if deleteCalls == 0 {
+		t.Error("removing the artist should have removed its in-flight grab's download from the client too")
 	}
 }
 
