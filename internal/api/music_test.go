@@ -469,7 +469,7 @@ const musicSearchXML = `<?xml version="1.0" encoding="UTF-8"?>
     <torznab:attr name="peers" value="0"/>
   </item>
   <item>
-    <title>Boards of Canada - Geogaddi Unknown Format</title>
+    <title>Boards of Canada - Geogaddi</title>
     <guid>https://mock/torrent/unknown</guid>
     <link>https://mock/dl/unknown.torrent</link>
     <torznab:attr name="size" value="400000000"/>

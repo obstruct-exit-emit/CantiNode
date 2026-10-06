@@ -81,21 +81,30 @@ const albumRelevantThreshold = 0.75
 // artist credit out, so "Beatles VI" is compared as just "Beatles VI",
 // not as a string the artist's own name is still embedded in.
 //
-// relname.TitleSimilarity, not a raw substring/longest-word check — a
-// release name's own bracketed year/format annotations are already
-// stripped by Parse, but a genuine edition difference ("The Beatles" vs
-// "The Beatles (Mono Mix)" if that qualifier wasn't bracketed) still
-// needs the same tolerance slotTrack's own title check already gives an
-// embedded tag, via TitleIsPrefixOf alongside the similarity ratio.
+// relname.TitleSimilarity alone — deliberately without the
+// TitleIsPrefixOf fallback slotTrack's own analogous title check uses.
+// Found live, immediately after deploying the fix above: real Beatles
+// albums named "<band name> <descriptor>" — "The Beatles' Second
+// Album", "The Beatles Ballads", "The Beatles Story" — all literally
+// start with the wanted album's own title ("The Beatles"), so a prefix
+// check passes every one of them, same as it's meant to for a genuine
+// unbracketed edition suffix ("The Beatles" vs "The Beatles (Mono
+// Mix)"). A prefix check can't tell "harmless extra qualifier" apart
+// from "this is actually a different, real album" — both look
+// identical to it. Real release titles overwhelmingly put edition/
+// remaster annotations in brackets anyway (which Parse already strips
+// before this ever runs), so the unbracketed case TitleIsPrefixOf would
+// have protected is rare in practice, while the wrong-album case it
+// just let through is common and real — worth losing the rare
+// legitimate case to close the common wrong one. A human can still
+// manually grab a release scored this way; "not approved" only keeps it
+// out of autosearch's own auto-grab, never off the search results list.
 func albumRelevant(parsedTitle, wantedAlbum string) bool {
 	wantedAlbum = strings.TrimSpace(wantedAlbum)
 	if wantedAlbum == "" || parsedTitle == "" {
 		return true
 	}
-	if relname.TitleSimilarity(parsedTitle, wantedAlbum) >= albumRelevantThreshold {
-		return true
-	}
-	return relname.TitleIsPrefixOf(parsedTitle, wantedAlbum)
+	return relname.TitleSimilarity(parsedTitle, wantedAlbum) >= albumRelevantThreshold
 }
 
 // Preferences drive scoring. The media type's default quality profile

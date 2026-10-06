@@ -89,7 +89,7 @@ const twoApprovedXML = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
 <channel>
   <item>
-    <title>Boards of Canada - Geogaddi FLAC Best</title>
+    <title>Boards of Canada - Geogaddi FLAC (Best)</title>
     <guid>https://mock/torrent/best</guid>
     <link>https://mock/dl/best.torrent</link>
     <torznab:attr name="size" value="400000000"/>
@@ -97,7 +97,7 @@ const twoApprovedXML = `<?xml version="1.0" encoding="UTF-8"?>
     <torznab:attr name="peers" value="10"/>
   </item>
   <item>
-    <title>Boards of Canada - Geogaddi FLAC Second</title>
+    <title>Boards of Canada - Geogaddi FLAC (Second)</title>
     <guid>https://mock/torrent/second</guid>
     <link>https://mock/dl/second.torrent</link>
     <torznab:attr name="size" value="400000000"/>
@@ -361,7 +361,7 @@ func TestPollOnceRetriesNextCandidateOnUntrackableGrab(t *testing.T) {
 	d := newTestDeps(t)
 	d.addIndexer(t, twoApprovedXML)
 
-	srv := mockQbitFirstAddUntrackable(t, "Boards of Canada - Geogaddi FLAC Best")
+	srv := mockQbitFirstAddUntrackable(t, "Boards of Canada - Geogaddi FLAC (Best)")
 	if err := d.downloads.Store().Add(&download.ClientConfig{
 		Name: "qbit", Type: download.TypeQBittorrent, Host: srv.URL,
 		Category: "cantinode", Enabled: true, Priority: 1,
@@ -388,7 +388,7 @@ func TestPollOnceRetriesNextCandidateOnUntrackableGrab(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(grabs) != 1 || grabs[0].Title != "Boards of Canada - Geogaddi FLAC Second" {
+	if len(grabs) != 1 || grabs[0].Title != "Boards of Canada - Geogaddi FLAC (Second)" {
 		t.Fatalf("grabs = %+v, want exactly the second candidate grabbed", grabs)
 	}
 

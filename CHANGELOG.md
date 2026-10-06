@@ -11,6 +11,26 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **The album-relevance redesign immediately above had its own gap,
+  found live right after deploying it, against the same real search**:
+  "The Beatles' Second Album", "The Beatles Ballads", and "The Beatles
+  Story" all literally start with the wanted album's own title ("The
+  Beatles"), which passed a `TitleIsPrefixOf` fallback meant to tolerate
+  a genuine unbracketed edition suffix — a prefix check can't tell a
+  harmless qualifier apart from a real, different album that happens to
+  share the same opening words. `albumRelevant` no longer has that
+  fallback; it's the plain similarity ratio alone now. Confirmed live:
+  autosearch's own restart sweep had already auto-grabbed a Beatles
+  singles compilation for the wanted White Album under the
+  still-deployed previous version, caught before it could import
+  (correctly blocklisted after the download itself failed) — real
+  evidence this wasn't a theoretical gap. Two pre-existing tests used
+  synthetic filler words in their own fixture titles ("Geogaddi Unknown
+  Format", "Geogaddi FLAC Best"/"...Second") that aren't realistic
+  release-title text and tripped the same check for the same reason;
+  fixed the fixtures (plain title, or the distinguishing word bracketed
+  the way a real release name would state it) rather than loosen the
+  check back down.
 - **The album-relevance check from the last fix was still too weak
   whenever the artist's own name is a short, common word that shows up
   inside *other*, genuinely different album titles** — found live in a

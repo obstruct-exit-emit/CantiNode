@@ -260,6 +260,31 @@ func TestScoreRejectsWrongAlbumWhenArtistNameIsACommonWord(t *testing.T) {
 	}
 }
 
+// TestScoreRejectsWrongAlbumThatStartsWithTheWantedTitle is the
+// regression test for a gap the *second* fix missed, found live
+// immediately after deploying it, against the same real search: "The
+// Beatles' Second Album", "The Beatles Ballads", and "The Beatles
+// Story" all literally start with the wanted album's own title ("The
+// Beatles"), which passed a TitleIsPrefixOf fallback meant for a
+// genuine unbracketed edition suffix — a prefix check can't tell a
+// harmless qualifier apart from a real, different album that happens to
+// share the same opening words. albumRelevant no longer has that
+// fallback at all.
+func TestScoreRejectsWrongAlbumThatStartsWithTheWantedTitle(t *testing.T) {
+	prefs := DefaultMusicPreferences()
+
+	for _, wrongTitle := range []string{
+		"The Beatles - The Beatles' Second Album (2014 Deluxe Edition FLAC) 88",
+		"The Beatles - The Beatles Ballads (2002) [FLAC] [rjk]",
+		"The Beatles - The Beatles Story (2014 Deluxe Edition FLAC) 88",
+	} {
+		c := Score(rel(wrongTitle, indexer.ProtocolUsenet, 400<<20, -1), prefs, "The Beatles", "The Beatles")
+		if c.Approved {
+			t.Errorf("Score(%q) approved a different album just because its title starts with the wanted album's own title: %+v", wrongTitle, c)
+		}
+	}
+}
+
 // TestArtistRelevant covers artistRelevant's own edge cases directly:
 // exact-phrase and longest-word matching, "Various Artists" always
 // passing (a compilation's own file/torrent name essentially never states
