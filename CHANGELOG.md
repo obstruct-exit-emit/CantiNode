@@ -11,6 +11,27 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A completely tagless release couldn't match a single file, even once
+  the whole album it belonged to was confidently resolved** — found live
+  immediately after the album-relevance fix above, importing the correct
+  self-titled release: `slotTrack`'s per-track matching only ever read a
+  file's embedded `TrackNumber`/`Title` tags, with no fallback to the
+  filename itself, so a real-world tagless rip (every file's Artist/
+  Album/Title/TrackNumber all blank, relying entirely on conventionally
+  numbered filenames like `"11 - 40'.flac"`) left every one of its files
+  unmatched regardless of how confidently the release itself was already
+  known. New `filenameTrackFallback` extracts a track-number/title guess
+  from the filename and feeds it through `slotTrack`'s own existing
+  `trackNumberSanityThreshold` check unchanged — a filename-derived guess
+  gets exactly the same flagrant-mismatch protection an embedded tag
+  already does, never a new, weaker path around it. Applied to both
+  matching paths that call `slotTrack` independently (the automatic
+  scanner and the manual Unmatched Files "Auto-match" flow — see this
+  file's own prior entries on why a fix to one doesn't reach the other).
+  The first version of the extraction regex had its own bug, caught by
+  its own test on first write: splitting the separator into two
+  alternatives let the first one partially match (just the space before
+  a dash), leaving a stray `"- "` stuck in the extracted title.
 - **A release search never verified it found the right ALBUM, only the
   right artist** — `release.Score` has had an `artistRelevant` check since
   an earlier fix (catching e.g. Nat King Cole's own "Moonglow" surfacing

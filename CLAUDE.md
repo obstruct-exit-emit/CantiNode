@@ -155,6 +155,21 @@ vs 0.278) — `relname.TitleIsPrefixOf` catches that specific "same song,
 qualifier only on one side" case as a second, independent signal, checked
 alongside the ratio rather than instead of it.
 
+**A fifth gotcha**: `slotTrack` only ever read a file's *embedded*
+`TrackNumber`/`Title` tags, with no fallback to the filename itself —
+confirmed live against a real, completely tagless release (every file's
+Artist/Album/Title/TrackNumber all blank, relying entirely on
+conventionally numbered filenames like `"11 - 40'.flac"`), which left
+every file unmatched even once the whole folder's own release was
+confidently resolved via grab provenance. `filenameTrackFallback`
+(`pathfallback.go`) extracts a track-number/title guess from the filename
+and feeds it through `slotTrack`'s own unchanged sanity check, so a
+filename-derived guess gets exactly the same flagrant-mismatch protection
+an embedded tag already does. Same structural gotcha as the third one
+above: `suggest.go`'s `SuggestMatches` calls `slotTrack` independently of
+the automatic scanner's own call in `folder_match.go`, so this had to be
+applied in both places.
+
 **Acquisition** (`internal/candidatesearch` → `internal/download` →
 `internal/importer`): a search (manual, or `internal/autosearch`'s
 periodic wanted-list sweep) fans out through `internal/indexer` (including

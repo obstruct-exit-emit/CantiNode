@@ -683,7 +683,7 @@ func (s *Scanner) matchEntriesToRelease(entries []folderEntry, release *musicbra
 	used := make(map[int]bool, len(tracks)) // indices into tracks already claimed this pass, so two files can't both claim the same slot
 
 	for _, e := range entries {
-		idx, ft, ok := slotTrack(e.tags, tracks, used)
+		idx, ft, ok := slotTrack(filenameTrackFallback(e.tags, e.tf.Path), tracks, used)
 		if !ok {
 			continue // left unmatched for manual review
 		}

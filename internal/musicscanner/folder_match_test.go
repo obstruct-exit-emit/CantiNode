@@ -1829,3 +1829,42 @@ func TestSlotTrackRejectsTrackNumberMatchWithWrongTitle(t *testing.T) {
 		}
 	})
 }
+
+// TestSlotTrackFilenameFallbackStillSanityChecks is the regression test
+// for filenameTrackFallback (pathfallback.go): a completely tagless
+// release's own filename-derived track number must get exactly the same
+// trackNumberSanityThreshold protection a real embedded tag already gets —
+// confirmed live against a real torrent with every file's tags blank — not
+// a new, weaker path that trusts a filename number blindly just because
+// there's no embedded title to check it against.
+func TestSlotTrackFilenameFallbackStillSanityChecks(t *testing.T) {
+	tracks := []flatTrack{
+		{disc: 1, ReleaseTrack: musicbrainz.ReleaseTrack{Position: 11, Title: "Miss Sweeney"}},
+	}
+
+	t.Run("filename track number with a flagrantly wrong filename title rejects", func(t *testing.T) {
+		tags := filenameTrackFallback(&tagreader.Tags{}, "/x/11 - The Christmas Song.flac")
+		if _, _, ok := slotTrack(tags, tracks, map[int]bool{}); ok {
+			t.Error("a right-looking filename track number for a completely different song must still be rejected")
+		}
+	})
+
+	t.Run("filename track number with no derivable title still trusts the number", func(t *testing.T) {
+		// "11.flac" alone has no separator/title to extract — the number
+		// itself is still a valid, trustworthy signal on its own, same as
+		// an embedded TrackNumber tag with no Title is already trusted.
+		tags := filenameTrackFallback(&tagreader.Tags{}, "/x/11.flac")
+		idx, _, ok := slotTrack(tags, tracks, map[int]bool{})
+		if !ok || idx != 0 {
+			t.Errorf("slotTrack(...) = idx %d, ok %v, want idx 0, ok true", idx, ok)
+		}
+	})
+
+	t.Run("real live scenario: blank tags, genuinely matching filename title", func(t *testing.T) {
+		tags := filenameTrackFallback(&tagreader.Tags{}, "/x/11 - Miss Sweeney.flac")
+		idx, _, ok := slotTrack(tags, tracks, map[int]bool{})
+		if !ok || idx != 0 {
+			t.Errorf("slotTrack(...) = idx %d, ok %v, want idx 0, ok true — a tagless file with a genuinely matching filename must still match", idx, ok)
+		}
+	})
+}

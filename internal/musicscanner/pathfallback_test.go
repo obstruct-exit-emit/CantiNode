@@ -226,6 +226,60 @@ func TestFolderTagConsensusMixedPartialTags(t *testing.T) {
 	}
 }
 
+// TestFilenameTrackFallback is the regression test for a real gap found
+// live: a completely tagless release (every file's TrackNumber/Title/
+// Artist/Album all blank — confirmed against a real torrent) left every
+// file unmatched even once the whole folder's own release was confidently
+// resolved, because slotTrack had nothing at all to go on. Covers the
+// extraction itself in isolation — filenameTrackFallback's interaction
+// with slotTrack's own sanity check is covered separately in
+// folder_match_test.go.
+func TestFilenameTrackFallback(t *testing.T) {
+	cases := []struct {
+		name          string
+		path          string
+		in            tagreader.Tags
+		wantNum       int
+		wantTitle     string
+		wantUnchanged bool // true: the exact same *Tags pointer must come back untouched
+	}{
+		{name: "dash separator", path: "/x/11 - 40'.flac", in: tagreader.Tags{}, wantNum: 11, wantTitle: "40'"},
+		{name: "dot separator", path: "/x/01. Come on Home.flac", in: tagreader.Tags{}, wantNum: 1, wantTitle: "Come on Home"},
+		{name: "space separator", path: "/x/03 Michael.flac", in: tagreader.Tags{}, wantNum: 3, wantTitle: "Michael"},
+		{name: "leading zeros stripped", path: "/x/007 Jump.flac", in: tagreader.Tags{}, wantNum: 7, wantTitle: "Jump"},
+		{
+			name: "embedded TrackNumber always wins, filename ignored",
+			path: "/x/11 - 40'.flac", in: tagreader.Tags{TrackNumber: 5, Title: "Real Title"},
+			wantNum: 5, wantTitle: "Real Title", wantUnchanged: true,
+		},
+		{
+			name: "existing Title is never overwritten by the filename guess",
+			path: "/x/11 - 40'.flac", in: tagreader.Tags{Title: "Embedded Title"},
+			wantNum: 11, wantTitle: "Embedded Title",
+		},
+		{name: "number glued straight to the next word, no real separator", path: "/x/128kbps Rip.flac", in: tagreader.Tags{}, wantNum: 0, wantUnchanged: true},
+		{name: "4-digit number too long to be a real track number", path: "/x/2024 Remaster.flac", in: tagreader.Tags{}, wantNum: 0, wantUnchanged: true},
+		{name: "no leading number at all", path: "/x/Intro.flac", in: tagreader.Tags{}, wantNum: 0, wantUnchanged: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := filenameTrackFallback(&c.in, c.path)
+			if c.wantUnchanged {
+				if got != &c.in {
+					t.Fatalf("expected the exact same *Tags pointer back unchanged, got a new one: %+v", got)
+				}
+				return
+			}
+			if got.TrackNumber != c.wantNum {
+				t.Errorf("TrackNumber = %d, want %d", got.TrackNumber, c.wantNum)
+			}
+			if got.Title != c.wantTitle {
+				t.Errorf("Title = %q, want %q", got.Title, c.wantTitle)
+			}
+		})
+	}
+}
+
 // TestFolderTagConsensusWithoutFallbackStillFailsOnBlankTags locks in the
 // nil-fallback behavior every existing test in multidisc_test.go relies
 // on: passing nil must skip the new folder/filename fallback entirely,

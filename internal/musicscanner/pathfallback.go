@@ -3,9 +3,11 @@ package musicscanner
 import (
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/cantinode/cantinode/internal/musiclibrary"
+	"github.com/cantinode/cantinode/internal/tagreader"
 )
 
 // resolveArtistAlbumFallback tries a file's own filename (if it encodes
@@ -111,6 +113,65 @@ func splitArtistAlbum(name string) (artist, album string, ok bool) {
 		return "", "", false
 	}
 	return artist, album, true
+}
+
+// filenameTrackNumberPattern matches a leading track number conventionally
+// used by a tagless rip's bare filenames — "11 - 40'.flac", "01. Come on
+// Home.flac", "03 Michael.flac", or a bare "11.flac" with no title at
+// all — number first, then an optional separator-plus-title. The
+// separator (one or more of space/dot/dash, run together as a single
+// class rather than two competing alternatives — an earlier version of
+// this split "- "/". "/" " into separate branches, which let the
+// then-first-tried branch match just the single space before a dash in
+// "11 - 40'", leaving a stray leading "- " stuck in the captured title;
+// caught by this pattern's own test on first write) must still be
+// present whenever a title follows — a filename that merely starts with
+// digits for an unrelated reason ("128kbps Rip.flac", "2024
+// Remaster.flac" glued straight to the next word) doesn't match at all,
+// only one that actually punctuates the number off from the rest the way
+// a real tracklist naming convention does. Capped at 3 digits — real
+// track numbers are never more — so a bare 4-digit year prefix can't be
+// misread as one either.
+var filenameTrackNumberPattern = regexp.MustCompile(`^0*([0-9]{1,3})(?:[-.\s]+(.*))?$`)
+
+// filenameTrackFallback derives a track-number/title guess from tf's own
+// filename when its embedded tags have neither — the same "tags came up
+// empty, try the filename" fallback resolveArtistAlbumFallback already
+// gives Artist/Album, extended to the per-track slot itself. Found live: a
+// completely tagless release (every file's TrackNumber/Title/Artist/Album
+// all blank — confirmed real, not hypothetical, against an actual
+// torrent) left every one of its files unmatched even once the whole
+// folder's own release was confidently resolved via grab provenance,
+// because slotTrack had nothing to go on at all for any individual file.
+//
+// Returns tags completely unchanged whenever TrackNumber is already
+// set — an embedded tag is always trusted over a filename guess, never
+// second-guessed — or the filename doesn't match
+// filenameTrackNumberPattern's expected shape. The guessed title (when the
+// embedded one is also blank) flows into slotTrack's own existing
+// trackNumberSanityThreshold check exactly like a real embedded title
+// would, so a filename-derived track number alone is never trusted any
+// more blindly than an embedded one already is — the same flagrant-
+// mismatch guard applies either way, not a new, weaker path around it.
+func filenameTrackFallback(tags *tagreader.Tags, path string) *tagreader.Tags {
+	if tags.TrackNumber > 0 {
+		return tags
+	}
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	m := filenameTrackNumberPattern.FindStringSubmatch(name)
+	if m == nil {
+		return tags
+	}
+	num, err := strconv.Atoi(m[1])
+	if err != nil || num <= 0 {
+		return tags
+	}
+	guess := *tags
+	guess.TrackNumber = num
+	if guess.Title == "" {
+		guess.Title = strings.TrimSpace(m[2])
+	}
+	return &guess
 }
 
 // isStrictlyWithin reports whether dir is a real descendant of root — not

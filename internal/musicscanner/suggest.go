@@ -87,7 +87,13 @@ func (s *Scanner) SuggestMatches(fileIDs []int64, release *musicbrainz.ReleaseWi
 				tags.DiscNumber = disc
 			}
 		}
-		idx, ft, ok := slotTrack(&tags, tracks, used)
+		// Same "tags came up empty, try the filename" fallback the
+		// automatic scanner applies (matchEntriesToRelease,
+		// filenameTrackFallback's own doc comment) — this manual flow
+		// reads a file's own raw cached tags directly rather than through
+		// that code path, so a completely tagless release left every file
+		// unmatchable here too without it, same as it did automatically.
+		idx, ft, ok := slotTrack(filenameTrackFallback(&tags, tf.Path), tracks, used)
 		if !ok {
 			continue
 		}
