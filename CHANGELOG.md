@@ -11,6 +11,19 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **`ListArtists`'s own doc comment claimed an unmonitored artist owning
+  no files "can't exist" — it does, found live in production**: a real
+  artist (added, then unmonitored before ever being matched to a file)
+  sits permanently outside this list, reachable only by direct ID
+  lookup, with no page or error pointing back to it. No behavior change
+  here — deleting the row the way `ReapOrphanedAlbum` deletes a
+  fileless album would also throw away its cached MusicBrainz
+  discography (expensive to rebuild, unlike an album's trivially
+  recreatable metadata) over a fully reversible action (unmonitoring).
+  Whether this state should instead be surfaced somewhere (a "hidden"
+  section, a way to re-monitor or fully delete it) is a real product
+  question, left open rather than decided unilaterally here — the
+  comment now says so instead of claiming the state is impossible.
 - **Unmatched Files' "Auto-match" wiped a manually-picked album on every
   later click, same gap as the artist fix right above it just one field
   over** — found live reviewing that very fix: it protected an

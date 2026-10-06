@@ -139,10 +139,29 @@ func (s *Store) GetArtist(id int64) (*Artist, error) {
 }
 
 // ListArtists returns every artist CantiNode knows about — either owning
-// at least one track file, or explicitly monitored (or both) — ordered
-// by sort name. A plain "seen once during a scan but never matched to
-// anything" artist can't exist (see GetOrCreateArtist's callers), so this
-// deliberately doesn't need a third clause to exclude that case.
+// at least one track file, or currently monitored (or both) — ordered by
+// sort name.
+//
+// An artist meeting neither condition is invisible here but not actually
+// deleted, and genuinely reachable: found live in production — an
+// artist unmonitored (see SetArtistMonitored) before it was ever matched
+// to a single file sits in the table forever after, outside
+// GetOrCreateArtist's own callers entirely, with no row anywhere pointing
+// back to it to surface it again. A previous version of this comment
+// claimed that state "can't exist"; it does, and silently — the artist
+// stays reachable by ID (GetArtist) and keeps whatever discography/bio
+// metadata it already cached, just absent from this list and from any
+// page that calls it, with no error raised anywhere.
+//
+// Deliberately not "fixed" by deleting the row the way ReapOrphanedAlbum
+// deletes a now-fileless album: an album's own cached metadata is cheap
+// to recreate from a fresh GetOrCreateAlbum, but an artist's discography
+// cache (artist_release_groups) costs a real, potentially paginated
+// MusicBrainz fetch — deleting it on every unmonitor, even one the user
+// reverses a moment later, would make re-monitoring pay that cost again
+// for no reason. Whether this state should instead be shown (e.g. a
+// dedicated "hidden" section with a way to re-monitor or fully delete) is
+// an open product decision, not something to decide unilaterally here.
 func (s *Store) ListArtists() ([]Artist, error) {
 	rows, err := s.db.Query(`
 		SELECT DISTINCT a.id, a.mbid, a.name, a.sort_name, a.is_monitored, a.last_synced_at, a.bio, a.image_url, a.metadata_fetched_at, a.genres, a.tags, a.rating_value, a.rating_votes, a.created_at, a.updated_at, a.kind
