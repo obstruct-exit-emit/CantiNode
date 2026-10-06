@@ -99,12 +99,38 @@ const albumRelevantThreshold = 0.75
 // legitimate case to close the common wrong one. A human can still
 // manually grab a release scored this way; "not approved" only keeps it
 // out of autosearch's own auto-grab, never off the search results list.
-func albumRelevant(parsedTitle, wantedAlbum string) bool {
+func albumRelevant(parsed Parsed, wantedAlbum string) bool {
 	wantedAlbum = strings.TrimSpace(wantedAlbum)
-	if wantedAlbum == "" || parsedTitle == "" {
+	if wantedAlbum == "" || parsed.Title == "" {
 		return true
 	}
-	return relname.TitleSimilarity(parsedTitle, wantedAlbum) >= albumRelevantThreshold
+	if relname.TitleSimilarity(parsed.Title, wantedAlbum) >= albumRelevantThreshold {
+		return true
+	}
+	// Parse found no real Artist/Title split at all (no space-dash
+	// separator to work with) — parsed.Title is then the *entire* raw
+	// release string, artist name and codec/release-group noise
+	// included, which the plain ratio above can't handle: found live,
+	// "The Beatles-All You Need Is Love-16BIT-WEB-FLAC-2026-OBZEN"
+	// (hyphens glued straight to words, so sanitizeReleaseTitle's own
+	// "leave a glued dash alone" rule correctly declines to split it)
+	// scored its own exact, correct album title as irrelevant, since the
+	// surrounding noise dilutes the ratio too far below
+	// albumRelevantThreshold. A substring check rescues this safely only
+	// because it's scoped to exactly this case: applying it to an
+	// already artist-stripped parsed.Title (the normal, successfully-
+	// split case) would reintroduce the identical false-positive
+	// TitleIsPrefixOf was removed above for — a sequel/compilation title
+	// starting with the wanted album's own name "contains" it too.
+	// Scoped to Author == "" specifically, the wanted album's own word
+	// order is still a meaningful signal: "All You Need Is Love" is a
+	// contiguous substring of the Beatles release above, but "Love Is
+	// All You Need" (a different, real release the same search
+	// surfaced) is not, despite sharing every word.
+	if parsed.Author == "" {
+		return relname.TitleContains(parsed.Title, wantedAlbum)
+	}
+	return false
 }
 
 // Preferences drive scoring. The media type's default quality profile
@@ -211,7 +237,7 @@ func Score(rel indexer.Release, prefs Preferences, wantedArtist, wantedAlbum str
 	if !artistRelevant(rel.Title, wantedArtist) {
 		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedArtist))
 	}
-	if !albumRelevant(c.Parsed.Title, wantedAlbum) {
+	if !albumRelevant(c.Parsed, wantedAlbum) {
 		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedAlbum))
 	}
 

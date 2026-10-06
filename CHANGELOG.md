@@ -11,6 +11,26 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **`albumRelevant` (the album-relevance check added earlier this
+  hardening pass) falsely rejected a genuinely correct release whenever
+  its title glued every word together with hyphens and no spaces** —
+  found live searching for a real Beatles release: "The Beatles-All You
+  Need Is Love-16BIT-WEB-FLAC-2026-OBZEN" correctly makes `Parse`
+  decline to split an Author/Title pair at all (hyphens glued straight
+  to words, same case `sanitizeReleaseTitle` already declines to touch),
+  so `Parsed.Title` ends up being the *entire* raw string — artist name
+  and codec/release-group noise included — which a plain similarity
+  ratio against just the clean wanted album title can't handle; the
+  noise dilutes it too far below threshold. Rescued with a new
+  `relname.TitleContains` check, scoped specifically to the case Parse
+  found no split (`Author == ""`): applying a containment check to an
+  already artist-stripped title (the normal, successfully-split case)
+  would reintroduce the identical false-positive the `TitleIsPrefixOf`
+  removal earlier in this same pass fixed — a sequel album starting with
+  the wanted album's own name "contains" it too. Scoped this narrowly,
+  the wanted album's own word order is still a meaningful signal: a
+  different real release sharing every word in a different order
+  ("Love Is All You Need") correctly still rejects.
 - **`ListArtists`'s own doc comment claimed an unmonitored artist owning
   no files "can't exist" — it does, found live in production**: a real
   artist (added, then unmonitored before ever being matched to a file)

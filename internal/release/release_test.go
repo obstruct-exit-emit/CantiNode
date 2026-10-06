@@ -285,6 +285,46 @@ func TestScoreRejectsWrongAlbumThatStartsWithTheWantedTitle(t *testing.T) {
 	}
 }
 
+// TestScoreApprovesCorrectAlbumWithGluedHyphens is the regression test
+// for a real bug found live, immediately after testing the fix three
+// tests above: a release whose hyphens are glued straight to words
+// ("The Beatles-All You Need Is Love-16BIT-WEB-FLAC-2026-OBZEN")
+// correctly makes Parse decline to split it at all (see
+// sanitizeReleaseTitle's own "leave a glued dash alone" rule), so
+// Parsed.Title ends up being the *entire* raw string — artist name and
+// codec/release-group noise included — which albumRelevant's own ratio
+// check was never built to handle: diluted by all that extra noise, the
+// release's own exact, correct album title scored as not relevant and
+// got rejected. A genuinely different release the same real search
+// surfaced, sharing every word in a different order, must still reject.
+func TestScoreApprovesCorrectAlbumWithGluedHyphens(t *testing.T) {
+	prefs := DefaultMusicPreferences()
+	// Matches real search preferences (PreferencesFor forces this on): a
+	// title with all its metadata glued together by hyphens also defeats
+	// Parse's own Formats detection (strings.Fields only splits on
+	// whitespace), same root cause as the album check this test exists
+	// for — but that's tolerated here, scored lower rather than
+	// rejected, same as any real release that simply omits the codec
+	// from its name.
+	prefs.AllowUnknownFormat = true
+
+	correct := rel("The Beatles-All You Need Is Love-16BIT-WEB-FLAC-2026-OBZEN", indexer.ProtocolUsenet, 400<<20, -1)
+	c := Score(correct, prefs, "The Beatles", "All You Need Is Love")
+	if !c.Approved {
+		t.Errorf("Score(%q) = %+v, want approved — this is the exact correct release, just with hyphens glued to words", correct.Title, c)
+	}
+
+	// Isolates albumRelevant itself (not the full Score pipeline, which
+	// would also reject this on artistRelevant grounds — a pass there
+	// wouldn't actually prove the album check tells these two apart):
+	// shares every word with the wanted album, just in a different
+	// order, and Parse likewise declines to split its own glued hyphens.
+	wrongOrderTitle := "Sasha And Henry Saiz-Love Is All You Need-LNOE181D-16BIT-WEB-FLAC-2025-WAVED"
+	if albumRelevant(Parse(wrongOrderTitle), "All You Need Is Love") {
+		t.Errorf("albumRelevant(%q) = true, want false — shares every word with the wanted album but in a different order", wrongOrderTitle)
+	}
+}
+
 // TestArtistRelevant covers artistRelevant's own edge cases directly:
 // exact-phrase and longest-word matching, "Various Artists" always
 // passing (a compilation's own file/torrent name essentially never states

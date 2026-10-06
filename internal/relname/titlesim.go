@@ -48,6 +48,35 @@ func TitleIsPrefixOf(a, b string) bool {
 	return strings.HasPrefix(na, nb) || strings.HasPrefix(nb, na)
 }
 
+// TitleContains reports whether needle, once normalized, appears anywhere
+// within haystack, also normalized — not just as a leading prefix (see
+// TitleIsPrefixOf). Deliberately a separate, narrower-purpose signal from
+// that one: calling this on an already artist-stripped title would
+// reintroduce exactly the false-positive TitleIsPrefixOf itself was found
+// to cause for a band-name-prefixed sequel/compilation album (see
+// internal/release's own albumRelevant and its doc comment on why that
+// fallback was removed there) — a real album title starting with the
+// wanted one still "contains" it. This is for the opposite, narrower
+// situation instead: haystack is a release title a normal Author/Title
+// split failed to separate at all, so it's the artist name, the real
+// album title, AND surrounding release-group/codec noise all run
+// together with no word boundary signal left to work with — found live,
+// "The Beatles-All You Need Is Love-16BIT-WEB-FLAC-2026-OBZEN" (hyphens
+// glued straight to words, so Parse correctly declines to split it — see
+// sanitizeReleaseTitle's own "glued dash left alone" rule) scored as not
+// matching its own exact, correct album title on TitleSimilarity alone,
+// since the surrounding noise dilutes the ratio too far. Containment
+// still correctly tells this apart from a genuinely different release
+// sharing every word in a different order — "Love Is All You Need"
+// contains none of "All You Need Is Love" as a contiguous run.
+func TitleContains(haystack, needle string) bool {
+	nh, nn := normalizeTitle(haystack), normalizeTitle(needle)
+	if nh == "" || nn == "" {
+		return false
+	}
+	return strings.Contains(nh, nn)
+}
+
 // normalizeTitle lowercases and strips everything but letters/digits/
 // spaces, collapsing runs of whitespace — punctuation/case differences
 // between a file's own tag and MusicBrainz's title shouldn't count against
