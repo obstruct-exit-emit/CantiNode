@@ -187,7 +187,7 @@ func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist,
 	sctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 
-	query := artist.Name + " " + wanted.Title
+	query := candidatesearch.BuildQuery(artist.Name, wanted.Title)
 	found, errs, err := s.indexers.SearchAll(sctx, query, wanted.Title, "music")
 	if err != nil {
 		s.logger.Warn("autosearch: search failed", "artist", artist.Name, "album", wanted.Title, "error", err)
@@ -197,7 +197,7 @@ func (s *Service) searchAndGrab(ctx context.Context, artist musiclibrary.Artist,
 		s.logger.Warn("autosearch: some indexers failed to answer", "artist", artist.Name, "album", wanted.Title, "errors", errs)
 	}
 
-	candidates := candidatesearch.ScoreAndRank(found, blocked, prefs, artist.SearchRelevanceName())
+	candidates := candidatesearch.ScoreAndRank(found, blocked, prefs, artist.SearchRelevanceName(), wanted.Title)
 	if len(candidates) == 0 || !candidates[0].Approved {
 		return false
 	}

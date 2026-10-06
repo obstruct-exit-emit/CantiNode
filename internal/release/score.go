@@ -42,6 +42,52 @@ func artistRelevant(releaseTitle, wantedArtist string) bool {
 	return longest != "" && strings.Contains(normTitle, longest)
 }
 
+// albumRelevant is artistRelevant's own missing other half, found live: a
+// search only ever verified a candidate's title plausibly named the right
+// ARTIST, never the right ALBUM — any release by the correct artist could
+// score and auto-grab on format/size/health merits alone, regardless of
+// which actual album it was. Confirmed live against a real wrong-album
+// grab: searching for Franz Ferdinand's self-titled album "Franz
+// Ferdinand" surfaced (and would have auto-approved) their unrelated
+// "The Human Fear" instead — nothing ever checked the album title at all.
+//
+// Takes wantedArtist too, and strips one occurrence of it from the title
+// before checking for the album — caught by this function's own test
+// failing on first write: a self-titled album's title literally equals
+// the artist name, so naively checking "does the title contain the album
+// title" is a no-op for exactly the case it exists to catch. The artist's
+// own name is already guaranteed present in any correctly-formed release
+// by them — right album or not — via the ordinary "Artist - Album"
+// naming convention, so without stripping it first, "Franz Ferdinand" is
+// trivially "found" inside "Franz Ferdinand - The Human Fear" too. The
+// same two-tier shape as artistRelevant otherwise (exact-phrase match on
+// whatever's left after stripping, then a longest-word fallback for
+// realistic naming variance), for the same reason: a release name almost
+// always states the album title literally, so this is a wrong-item guard,
+// not a fuzzy-matching pass.
+func albumRelevant(releaseTitle, wantedArtist, wantedAlbum string) bool {
+	wantedAlbum = strings.TrimSpace(wantedAlbum)
+	if wantedAlbum == "" {
+		return true
+	}
+	normTitle := relname.Normalize(releaseTitle)
+	normAlbum := relname.Normalize(wantedAlbum)
+	searchIn := normTitle
+	if normArtist := relname.Normalize(wantedArtist); normArtist != "" {
+		searchIn = strings.Replace(normTitle, normArtist, "", 1)
+	}
+	if normAlbum == "" || strings.Contains(searchIn, normAlbum) {
+		return true
+	}
+	longest := ""
+	for _, w := range strings.Fields(normAlbum) {
+		if len(w) > len(longest) {
+			longest = w
+		}
+	}
+	return longest != "" && strings.Contains(searchIn, longest)
+}
+
 // Preferences drive scoring. The media type's default quality profile
 // produces these (PreferencesFor); DefaultMusicPreferences is the built-in
 // fallback when no profile exists.
@@ -132,7 +178,7 @@ type Candidate struct {
 // Score evaluates one release against generic checks: format, size, health,
 // and — since wantedArtist is non-empty — whether the release is even
 // plausibly the right artist at all.
-func Score(rel indexer.Release, prefs Preferences, wantedArtist string) Candidate {
+func Score(rel indexer.Release, prefs Preferences, wantedArtist, wantedAlbum string) Candidate {
 	c := Candidate{Release: rel, Parsed: Parse(rel.Title)}
 
 	// Spam guard: a release whose name states an executable/installer extension
@@ -145,6 +191,9 @@ func Score(rel indexer.Release, prefs Preferences, wantedArtist string) Candidat
 
 	if !artistRelevant(rel.Title, wantedArtist) {
 		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedArtist))
+	}
+	if !albumRelevant(rel.Title, wantedArtist, wantedAlbum) {
+		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedAlbum))
 	}
 
 	// Format: best recognized format wins; none recognized is fatal.

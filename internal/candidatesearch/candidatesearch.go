@@ -22,16 +22,17 @@ import (
 // Search runs indexers.SearchAll, then ScoreAndRank — the one-shot shape a
 // manual search endpoint wants, where fetching the blocklist fresh on every
 // call is irrelevant cost. errs reports which indexers failed to answer;
-// non-nil (though possibly empty) whenever err is nil. wantedArtist is who
-// this search is actually for — see release.Score's own doc comment for
-// why every candidate gets checked against it.
+// non-nil (though possibly empty) whenever err is nil. wantedArtist and
+// wantedAlbum are who/what this search is actually for — see
+// release.Score's own doc comment for why every candidate gets checked
+// against both.
 func Search(
 	ctx context.Context,
 	indexers *indexer.Service,
 	downloads *download.Service,
 	query, nativeQuery, mediaType string,
 	prefs release.Preferences,
-	wantedArtist string,
+	wantedArtist, wantedAlbum string,
 ) (candidates []release.Candidate, errs []string, err error) {
 	found, errs, err := indexers.SearchAll(ctx, query, nativeQuery, mediaType)
 	if err != nil {
@@ -41,16 +42,35 @@ func Search(
 	if err != nil {
 		return nil, errs, err
 	}
-	return ScoreAndRank(found, blocked, prefs, wantedArtist), errs, nil
+	return ScoreAndRank(found, blocked, prefs, wantedArtist, wantedAlbum), errs, nil
+}
+
+// BuildQuery is the artist+album search string every caller here builds —
+// centralized so a future change to it only has to be made once, the same
+// reasoning this whole package already exists for. Found live: a plain
+// "artist + album" concatenation degenerates for a self-titled album
+// (title == artist name) into the same word repeated back to back
+// ("Franz Ferdinand Franz Ferdinand") — not malformed, but it hands the
+// indexer's own full-text search nothing that actually narrows by album,
+// making a wrong-album result from the indexer itself far more likely in
+// the first place (compounding the lack of an album-relevance check this
+// package's own Score call used to have — see release.Score's own doc
+// comment). The artist name alone is both a cleaner query and exactly as
+// specific as the doubled one actually was.
+func BuildQuery(artistName, albumTitle string) string {
+	if strings.EqualFold(strings.TrimSpace(artistName), strings.TrimSpace(albumTitle)) {
+		return artistName
+	}
+	return artistName + " " + albumTitle
 }
 
 // ScoreAndRank filters blocklisted releases out of found, scores the rest
-// against prefs and wantedArtist, and ranks them (approved first, then by
-// score). Exported separately from Search so a caller sweeping many
-// searches in one pass (internal/autosearch) can fetch the blocklist and
-// preferences once for the whole sweep instead of paying for both fresh on
-// every single search.
-func ScoreAndRank(found []indexer.Release, blocked map[string]bool, prefs release.Preferences, wantedArtist string) []release.Candidate {
+// against prefs, wantedArtist, and wantedAlbum, and ranks them (approved
+// first, then by score). Exported separately from Search so a caller
+// sweeping many searches in one pass (internal/autosearch) can fetch the
+// blocklist and preferences once for the whole sweep instead of paying for
+// both fresh on every single search.
+func ScoreAndRank(found []indexer.Release, blocked map[string]bool, prefs release.Preferences, wantedArtist, wantedAlbum string) []release.Candidate {
 	candidates := make([]release.Candidate, 0, len(found))
 	// Found live: the same real release routinely comes back more than
 	// once in found — cross-posted on two configured indexers, or
@@ -77,7 +97,7 @@ func ScoreAndRank(found []indexer.Release, blocked map[string]bool, prefs releas
 			seenGUIDs[rel.GUID] = true
 		}
 		seenTitles[titleKey] = true
-		candidates = append(candidates, release.Score(rel, prefs, wantedArtist))
+		candidates = append(candidates, release.Score(rel, prefs, wantedArtist, wantedAlbum))
 	}
 	release.Rank(candidates)
 	return candidates

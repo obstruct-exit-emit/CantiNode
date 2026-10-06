@@ -16,7 +16,7 @@ func TestScoreAndRankFiltersBlockedAndRanks(t *testing.T) {
 	blocked := map[string]bool{"blocked": true}
 	prefs := release.DefaultMusicPreferences()
 
-	got := ScoreAndRank(found, blocked, prefs, "Boards of Canada")
+	got := ScoreAndRank(found, blocked, prefs, "Boards of Canada", "")
 
 	if len(got) != 2 {
 		t.Fatalf("len(got) = %d, want 2 (blocked release dropped): %+v", len(got), got)
@@ -33,7 +33,7 @@ func TestScoreAndRankFiltersBlockedAndRanks(t *testing.T) {
 }
 
 func TestScoreAndRankEmptyInput(t *testing.T) {
-	got := ScoreAndRank(nil, nil, release.DefaultMusicPreferences(), "")
+	got := ScoreAndRank(nil, nil, release.DefaultMusicPreferences(), "", "")
 	if len(got) != 0 {
 		t.Errorf("got = %+v, want empty", got)
 	}
@@ -62,7 +62,7 @@ func TestScoreAndRankDedupesSameReleaseAcrossIndexers(t *testing.T) {
 	}
 	prefs := release.DefaultMusicPreferences()
 
-	got := ScoreAndRank(found, nil, prefs, "Boards of Canada")
+	got := ScoreAndRank(found, nil, prefs, "Boards of Canada", "")
 
 	if len(got) != 2 {
 		t.Fatalf("len(got) = %d, want 2 (duplicates collapsed): %+v", len(got), got)
@@ -73,5 +73,28 @@ func TestScoreAndRankDedupesSameReleaseAcrossIndexers(t *testing.T) {
 	}
 	if !seen["a-1"] || !seen["a-2"] {
 		t.Errorf("got GUIDs = %v, want exactly the first Geogaddi duplicate (a-1) and the distinct Campfire Headphase release (a-2)", seen)
+	}
+}
+
+// TestBuildQueryAvoidsDoublingASelfTitledAlbum is the regression test for
+// half of the real wrong-album bug found live: a plain "artist + album"
+// concatenation degenerates for a self-titled album into the same word
+// repeated back to back ("Franz Ferdinand Franz Ferdinand"), handing the
+// indexer's own search nothing that actually narrows by album. The other
+// half — Score never checking the album title at all — is covered by
+// release.TestScoreRejectsWrongAlbum.
+func TestBuildQueryAvoidsDoublingASelfTitledAlbum(t *testing.T) {
+	if got := BuildQuery("Franz Ferdinand", "Franz Ferdinand"); got != "Franz Ferdinand" {
+		t.Errorf(`BuildQuery(self-titled) = %q, want "Franz Ferdinand" (not doubled)`, got)
+	}
+	// Case/whitespace variance between the artist and album rows (same
+	// underlying MusicBrainz name, cosmetically different casing) must
+	// still be recognized as the self-titled case.
+	if got := BuildQuery("Franz Ferdinand", " franz ferdinand "); got != "Franz Ferdinand" {
+		t.Errorf(`BuildQuery(self-titled, case/whitespace variant) = %q, want "Franz Ferdinand"`, got)
+	}
+	// An ordinary album must still combine both terms normally.
+	if got := BuildQuery("Boards of Canada", "Geogaddi"); got != "Boards of Canada Geogaddi" {
+		t.Errorf(`BuildQuery(ordinary album) = %q, want "Boards of Canada Geogaddi"`, got)
 	}
 }

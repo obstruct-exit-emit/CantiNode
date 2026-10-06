@@ -11,6 +11,30 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A release search never verified it found the right ALBUM, only the
+  right artist** — `release.Score` has had an `artistRelevant` check since
+  an earlier fix (catching e.g. Nat King Cole's own "Moonglow" surfacing
+  for a search for Avantasia's "Moonglow"), but nothing checked the album
+  title at all: any release by the correct artist could score and
+  auto-grab purely on format/size/health merits, regardless of which
+  actual album it was. Confirmed live against a real wrong-album grab:
+  searching for Franz Ferdinand's self-titled album "Franz Ferdinand"
+  surfaced (and would have auto-approved) their unrelated "The Human
+  Fear" instead. New `albumRelevant` closes the gap — but naively checking
+  "does the title contain the album title" turns out to be a no-op for
+  exactly the self-titled case: the album title there literally equals
+  the artist name, which is already guaranteed present in any
+  correctly-named release by that artist, right album or not. Caught by
+  this fix's own regression test failing on first write; `albumRelevant`
+  now strips one occurrence of the artist's own name from the title
+  before checking for the album, the same way a human reads "Artist -
+  Album" and mentally discards the artist part first. Separately, the
+  search query itself (`artist + " " + album`) degenerated into the same
+  word repeated back to back for a self-titled album — not malformed, but
+  it handed the indexer's own search nothing that actually narrows by
+  album, making a wrong-album result from the indexer more likely in the
+  first place; new `candidatesearch.BuildQuery` uses the artist name
+  alone when the album is self-titled.
 - **Every TheAudioDB link failed, for every artist and album** — the
   built-in fallback key, used whenever no key is set in Settings → Music,
   was TheAudioDB's old shared key `2`, which TheAudioDB has retired.

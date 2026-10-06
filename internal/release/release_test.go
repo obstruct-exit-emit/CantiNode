@@ -72,7 +72,7 @@ func rel(title string, protocol string, size int64, seeders int) indexer.Release
 func TestScoreMusic(t *testing.T) {
 	prefs := DefaultMusicPreferences()
 
-	flac := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")
+	flac := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", "")
 	if !flac.Approved {
 		t.Fatalf("flac rejected: %v", flac.Rejections)
 	}
@@ -81,7 +81,7 @@ func TestScoreMusic(t *testing.T) {
 		t.Errorf("flac score = %d, want 110", flac.Score)
 	}
 
-	mp3 := Score(rel("Boards of Canada - Geogaddi MP3", indexer.ProtocolUsenet, 100<<20, -1), prefs, "")
+	mp3 := Score(rel("Boards of Canada - Geogaddi MP3", indexer.ProtocolUsenet, 100<<20, -1), prefs, "", "")
 	if !mp3.Approved {
 		t.Errorf("mp3 should approve: %v", mp3.Rejections)
 	}
@@ -89,32 +89,32 @@ func TestScoreMusic(t *testing.T) {
 		t.Errorf("mp3 (%d) should rank below flac (%d)", mp3.Score, flac.Score)
 	}
 
-	epub := Score(rel("Boards of Canada - Geogaddi EPUB", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")
+	epub := Score(rel("Boards of Canada - Geogaddi EPUB", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", "")
 	if epub.Approved {
 		t.Error("non-music format should be rejected under music prefs")
 	}
 
-	noFormat := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")
+	noFormat := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", "")
 	if noFormat.Approved {
 		t.Error("release without a format should be rejected")
 	}
 
-	dead := Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 0), prefs, "")
+	dead := Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 0), prefs, "", "")
 	if dead.Approved {
 		t.Error("torrent with 0 seeders should be rejected")
 	}
 
-	seeded := Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 50), prefs, "")
+	seeded := Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 50), prefs, "", "")
 	if !seeded.Approved || seeded.Score != 120 { // 100 + capped 20
 		t.Errorf("seeded torrent = %+v, want score 120", seeded)
 	}
 
-	tiny := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 1<<10, -1), prefs, "")
+	tiny := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 1<<10, -1), prefs, "", "")
 	if tiny.Approved {
 		t.Error("1 KiB flac release should be rejected as suspiciously small")
 	}
 
-	huge := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 8<<30, -1), prefs, "")
+	huge := Score(rel("Boards of Canada - Geogaddi FLAC", indexer.ProtocolUsenet, 8<<30, -1), prefs, "", "")
 	if huge.Approved {
 		t.Error("8 GiB single release should be rejected as too large")
 	}
@@ -132,7 +132,7 @@ func TestScoreUpgradeRejectsFormatLessRelease(t *testing.T) {
 	prefs.AllowUnknownFormat = true
 	prefs.MinFormatScore = prefs.FormatScores["flac"] // pretend flac is already owned
 
-	c := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")
+	c := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", "")
 	if c.Approved {
 		t.Errorf("format-less release must not approve as an upgrade over a known-good owned format: %+v", c)
 	}
@@ -142,7 +142,7 @@ func TestScoreUpgradeRejectsFormatLessRelease(t *testing.T) {
 	// format-less release outright.
 	plain := DefaultMusicPreferences()
 	plain.AllowUnknownFormat = true
-	ok := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), plain, "")
+	ok := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), plain, "", "")
 	if !ok.Approved {
 		t.Errorf("format-less release should still approve for a plain (non-upgrade) search: %+v", ok)
 	}
@@ -166,7 +166,7 @@ func TestScoreUpgradeRejectsFormatLessReleaseAtFloor(t *testing.T) {
 		MaxSize:            4 << 30,
 	}
 
-	c := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")
+	c := Score(rel("Boards of Canada - Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", "")
 	if c.Approved {
 		t.Errorf("format-less release must not approve as an upgrade just because the owned format is the profile's worst-ranked: %+v", c)
 	}
@@ -174,7 +174,7 @@ func TestScoreUpgradeRejectsFormatLessReleaseAtFloor(t *testing.T) {
 
 func TestScoreRejectsSpamNamedExecutable(t *testing.T) {
 	prefs := DefaultMusicPreferences()
-	spam := Score(rel("Geogaddi FLAC Setup.exe", indexer.ProtocolUsenet, 400<<20, -1), prefs, "")
+	spam := Score(rel("Geogaddi FLAC Setup.exe", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", "")
 	if spam.Approved {
 		t.Error("release naming an executable should be rejected")
 	}
@@ -191,14 +191,35 @@ func TestScoreRejectsSpamNamedExecutable(t *testing.T) {
 func TestScoreRejectsWrongArtist(t *testing.T) {
 	prefs := DefaultMusicPreferences()
 
-	wrongArtist := Score(rel("Nat King Cole-Moonglow-3CD-FLAC-1995-LoKET", indexer.ProtocolUsenet, 400<<20, -1), prefs, "Avantasia")
+	wrongArtist := Score(rel("Nat King Cole-Moonglow-3CD-FLAC-1995-LoKET", indexer.ProtocolUsenet, 400<<20, -1), prefs, "Avantasia", "")
 	if wrongArtist.Approved {
 		t.Errorf("release for a different artist must not approve: %+v", wrongArtist)
 	}
 
-	rightArtist := Score(rel("Tobias Sammets Avantasia - Moonglow 2CD FLAC 2019", indexer.ProtocolUsenet, 400<<20, -1), prefs, "Avantasia")
+	rightArtist := Score(rel("Tobias Sammets Avantasia - Moonglow 2CD FLAC 2019", indexer.ProtocolUsenet, 400<<20, -1), prefs, "Avantasia", "")
 	if !rightArtist.Approved {
 		t.Errorf("release actually naming the wanted artist should still approve: %+v", rightArtist.Rejections)
+	}
+}
+
+// TestScoreRejectsWrongAlbum is the regression test for artistRelevant's
+// own missing other half, found live against a real wrong-album grab:
+// searching for Franz Ferdinand's self-titled album "Franz Ferdinand"
+// surfaced their unrelated, more recent "The Human Fear" instead, and
+// nothing in Score ever checked the ALBUM title — only the artist. A
+// release correctly naming the artist but a different album must still be
+// rejected; one naming the actual wanted album must still approve.
+func TestScoreRejectsWrongAlbum(t *testing.T) {
+	prefs := DefaultMusicPreferences()
+
+	wrongAlbum := Score(rel("Franz Ferdinand - The Human Fear (2025) FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, "Franz Ferdinand", "Franz Ferdinand")
+	if wrongAlbum.Approved {
+		t.Errorf("release for a different album by the right artist must not approve: %+v", wrongAlbum)
+	}
+
+	rightAlbum := Score(rel("Franz Ferdinand - Franz Ferdinand (2004) FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, "Franz Ferdinand", "Franz Ferdinand")
+	if !rightAlbum.Approved {
+		t.Errorf("release actually naming the wanted album should still approve: %+v", rightAlbum.Rejections)
 	}
 }
 
@@ -244,11 +265,11 @@ func TestPreferencesFromProfile(t *testing.T) {
 	}
 
 	// A flac/mp3-only German profile rejects English wav, prefers flac.
-	wav := Score(rel("Geogaddi WAV", indexer.ProtocolUsenet, 500, -1), prefs, "")
+	wav := Score(rel("Geogaddi WAV", indexer.ProtocolUsenet, 500, -1), prefs, "", "")
 	if wav.Approved {
 		t.Errorf("wav approved under flac/mp3 profile: %+v", wav)
 	}
-	flac := Score(rel("Der Geogaddi FLAC German Retail", indexer.ProtocolUsenet, 500, -1), prefs, "")
+	flac := Score(rel("Der Geogaddi FLAC German Retail", indexer.ProtocolUsenet, 500, -1), prefs, "", "")
 	if !flac.Approved || flac.Score != 150 { // 100 + retail 40 + usenet 10
 		t.Errorf("flac = %+v, want approved score 150", flac)
 	}
@@ -283,7 +304,7 @@ func TestPreferencesForAllowsUnstatedFormat(t *testing.T) {
 	}
 
 	real := Score(rel("Derek and the Dominos-Layla and Other Assorted Love Songs-REMASTERED SHM-CD-2013-JRP",
-		indexer.ProtocolUsenet, 163060320, -1), prefs, "Derek and the Dominos")
+		indexer.ProtocolUsenet, 163060320, -1), prefs, "Derek and the Dominos", "")
 	if !real.Approved {
 		t.Errorf("real-world format-less release should approve: %+v", real)
 	}
@@ -292,10 +313,10 @@ func TestPreferencesForAllowsUnstatedFormat(t *testing.T) {
 func TestRank(t *testing.T) {
 	prefs := DefaultMusicPreferences()
 	candidates := []Candidate{
-		Score(rel("Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""),             // rejected
-		Score(rel("Geogaddi MP3", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""),         // low
-		Score(rel("Geogaddi Retail FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, ""), // high
-		Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 5), prefs, ""),        // mid
+		Score(rel("Geogaddi", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", ""),             // rejected
+		Score(rel("Geogaddi MP3", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", ""),         // low
+		Score(rel("Geogaddi Retail FLAC", indexer.ProtocolUsenet, 400<<20, -1), prefs, "", ""), // high
+		Score(rel("Geogaddi FLAC", indexer.ProtocolTorrent, 400<<20, 5), prefs, "", ""),        // mid
 	}
 	Rank(candidates)
 	if !candidates[0].Approved {
