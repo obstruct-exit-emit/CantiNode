@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/cantinode/cantinode/internal/config"
 )
 
 func TestAuthSessionsAndAPIKeyRegen(t *testing.T) {
@@ -486,4 +489,44 @@ func TestViewPrefsPerAccountAndAPIKeyNoop(t *testing.T) {
 	if prefs["libraryView"] != "list" || prefs["albumsView"] != "compact" {
 		t.Fatalf("dan's prefs after bob's changes = %+v", prefs)
 	}
+}
+
+// TestResolveLoginAttemptCostsTheSameRegardlessOfUsername is the
+// regression test for a real timing side-channel found live: a wrong
+// password against a real username used to cost one PBKDF2 computation
+// (verifyPassword only ran on the username-matched branch), while any
+// password against a nonexistent username cost none — confirmed live
+// against production, repeatably: ~875ms vs ~650ms across the shared
+// fixed 500ms failure delay, letting an attacker enumerate valid
+// usernames purely from response timing, without ever guessing a real
+// password. resolveLoginAttempt must now run verifyPassword exactly
+// once per attempt either way (dummyPasswordHash for a username that
+// doesn't match), so the two cases take roughly the same real time —
+// checked here directly rather than through handleLogin's own added
+// 500ms sleep, which would mask the gap this test needs to see.
+// PBKDF2 at this package's real 600,000 iterations is deliberately
+// slow, so this test is slow too (order of a second) — an intentional
+// cost for actually exercising the real computation this bug lives in,
+// not a scaled-down stand-in that could pass without really testing it.
+func TestResolveLoginAttemptCostsTheSameRegardlessOfUsername(t *testing.T) {
+	hash, err := hashPassword("real-password-not-guessed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := []config.UserAccount{{Username: "dan", PasswordHash: hash}}
+
+	time1 := timeIt(func() { resolveLoginAttempt(users, "dan", "wrong-password") })
+	time2 := timeIt(func() { resolveLoginAttempt(users, "nonexistent-user", "wrong-password") })
+
+	ratio := float64(time1) / float64(time2)
+	if ratio < 0.5 || ratio > 2.0 {
+		t.Errorf("real-username attempt took %v, nonexistent-username attempt took %v (ratio %.2f) — "+
+			"want both to cost about the same PBKDF2 computation", time1, time2, ratio)
+	}
+}
+
+func timeIt(fn func()) time.Duration {
+	start := time.Now()
+	fn()
+	return time.Since(start)
 }

@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Login had a timing side-channel that let an attacker enumerate valid
+  usernames** — found live timing real requests against production: a
+  wrong password against a real username consistently took ~875ms,
+  while any password against a nonexistent username took ~650ms, across
+  5 trials each, well beyond noise. The cause: `verifyPassword` (a
+  deliberately slow PBKDF2-SHA256 call, 600,000 iterations) only ever
+  ran on the branch where the username matched one of the configured
+  accounts, so a nonexistent username short-circuited before ever
+  hashing anything. `resolveLoginAttempt` now always runs exactly one
+  PBKDF2 computation per attempt — against a fixed `dummyPasswordHash`
+  when no username matches — so response timing no longer reveals which
+  usernames exist. Confirmed failing without the fix (ratio over a
+  million — the vulnerable path took ~300ns instead of ~390ms) and
+  passing with it (both paths land within 2x of each other). This also
+  made `resolveLoginAttempt`'s matching logic directly unit-testable,
+  split out of `handleLogin` itself.
 - **Moving an artist between root folders fired one Plex refresh call
   per file instead of one per batch** — found live moving a real Franz
   Ferdinand album between two configured root folders: a 13-track album

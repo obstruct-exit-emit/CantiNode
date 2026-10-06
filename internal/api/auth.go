@@ -30,6 +30,19 @@ const (
 // "pbkdf2-sha256$<iterations>$<salt hex>$<hash hex>".
 const pbkdf2Iterations = 600_000
 
+// dummyPasswordHash is never a real credential — handleLogin verifies
+// against it when no configured username matches, so a login attempt
+// costs exactly one PBKDF2 computation either way. Found live: without
+// this, a wrong password for a real username took measurably longer
+// than any password for a nonexistent one (confirmed live: ~875ms vs
+// ~650ms, repeatably, across the fixed 500ms failure delay both paths
+// already shared) — the real PBKDF2 call only ever ran on the
+// username-matched branch, so response timing alone let an attacker
+// enumerate which usernames exist on this instance without ever
+// guessing a real password. Any well-formed pbkdf2-sha256 string works
+// here; its own salt/hash never correspond to a real account's password.
+const dummyPasswordHash = "pbkdf2-sha256$600000$00000000000000000000000000000000$0000000000000000000000000000000000000000000000000000000000000000"
+
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
@@ -221,6 +234,35 @@ func (s *server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// resolveLoginAttempt finds username among users (constant-time compare)
+// and verifies password against it — split out from handleLogin so the
+// no-short-circuit timing property (see dummyPasswordHash's own doc
+// comment) is directly unit-testable without going through HTTP.
+// Returns matched=false for either a nonexistent username or a wrong
+// password; callers must not distinguish the two in their response.
+func resolveLoginAttempt(users []config.UserAccount, username, password string) (matched bool, resolvedUsername, role string) {
+	var found *config.UserAccount
+	for i := range users {
+		u := &users[i]
+		if subtle.ConstantTimeCompare([]byte(username), []byte(u.Username)) == 1 {
+			found = u
+			break
+		}
+	}
+	// hashToVerify is always dummyPasswordHash when no username matches —
+	// see its own doc comment for why verifyPassword must run exactly
+	// once per attempt either way, not skipped here as a shortcut.
+	hashToVerify := dummyPasswordHash
+	if found != nil {
+		hashToVerify = found.PasswordHash
+	}
+	passwordOK := verifyPassword(hashToVerify, password)
+	if found != nil && passwordOK {
+		return true, found.Username, found.EffectiveRole()
+	}
+	return false, "", ""
+}
+
 // handleLogin is unauthenticated by nature. Failed attempts are logged and
 // slowed down a little.
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -237,16 +279,8 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "authentication is not enabled")
 		return
 	}
-	matched, matchedRole := "", ""
-	for i := range auth.Users {
-		u := &auth.Users[i]
-		if subtle.ConstantTimeCompare([]byte(req.Username), []byte(u.Username)) == 1 &&
-			verifyPassword(u.PasswordHash, req.Password) {
-			matched, matchedRole = u.Username, u.EffectiveRole()
-			break
-		}
-	}
-	if matched == "" {
+	ok, matched, matchedRole := resolveLoginAttempt(auth.Users, req.Username, req.Password)
+	if !ok {
 		slog.Warn("failed login attempt", "username", req.Username, "remote", r.RemoteAddr)
 		time.Sleep(500 * time.Millisecond)
 		writeError(w, http.StatusUnauthorized, "invalid username or password")
