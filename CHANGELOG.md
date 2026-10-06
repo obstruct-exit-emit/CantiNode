@@ -11,6 +11,20 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **`slotTrack`'s pure-title fallback had no rescue for a missing/extra
+  edition qualifier, unlike its own disc+track fast path** — found live
+  while reviewing a real White Album import's Unmatched Files queue: nine
+  genuinely correct tracks ("Good Night (2018 Mix)", "Birthday (2018
+  Mix)", etc.) sat unmatched because this release tags disc/track numbers
+  as one continuous 1-30 sequence instead of MusicBrainz's own
+  disc1(17)+disc2(13) split, so every disc-2 file's (disc, track) pair
+  matches no real position and falls through to the pure-title search —
+  where the trailing "(2018 Mix)" alone was enough to drop
+  `relname.TitleSimilarity` to ~0.5, below `titleMatchThreshold`, with no
+  second signal to rescue them the way the disc+track fast path's own
+  analogous case already does. Now applies the same
+  `relname.TitleIsPrefixOf` rescue there too. See CLAUDE.md's "sixth
+  gotcha" for the full mechanics.
 - **Editing an already Plex-linked playlist (adding/removing/reordering a
   track) silently destroyed its Plex-side copy and never recreated it** —
   the most severe bug found in this round of live burn-in testing. The

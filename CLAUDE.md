@@ -170,6 +170,21 @@ above: `suggest.go`'s `SuggestMatches` calls `slotTrack` independently of
 the automatic scanner's own call in `folder_match.go`, so this had to be
 applied in both places.
 
+**A sixth gotcha**: `slotTrack`'s pure-title fallback (reached whenever a
+file's disc+track number doesn't land on any real position in the
+resolved release) never got the `relname.TitleIsPrefixOf` rescue the
+disc+track fast path above it already has for a missing/extra edition
+qualifier — confirmed live on a real White Album rip whose files tag
+disc/track numbers as one continuous 1-30 sequence instead of
+MusicBrainz's own disc1(17)+disc2(13) split: every disc-2 file's (disc,
+track) pair matches no real position, so each one falls through to the
+pure-title search, where ordinary titles like `"Good Night (2018 Mix)"`
+score only ~0.5 against the real `"Good Night"` — below
+`titleMatchThreshold` — with nothing to rescue them. Nine genuinely
+correct tracks sat unmatched for exactly this reason. Fixed by applying
+the same rescue in the fallback, keyed off the single best-scoring
+candidate rather than a known position.
+
 **Acquisition** (`internal/candidatesearch` → `internal/download` →
 `internal/importer`): a search (manual, or `internal/autosearch`'s
 periodic wanted-list sweep) fans out through `internal/indexer` (including

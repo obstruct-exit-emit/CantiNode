@@ -1830,6 +1830,41 @@ func TestSlotTrackRejectsTrackNumberMatchWithWrongTitle(t *testing.T) {
 	})
 }
 
+// TestSlotTrackTitleFallbackRescuesEditionQualifier is the regression test
+// for a real bug found live on a real White Album rip: its files tag
+// disc/track numbers as one continuous 1-30 sequence rather than
+// MusicBrainz's own disc1(17)+disc2(13) split, so every disc-2 file's
+// (disc, track) pair never matches any real position and falls through to
+// slotTrack's pure-title fallback — which, unlike the disc+track fast path
+// above it, had no relname.TitleIsPrefixOf rescue at all. Nine genuinely
+// correct, if noisily-tagged, tracks ("Good Night (2018 Mix)", "Birthday
+// (2018 Mix)", etc.) sat unmatched because the trailing edition qualifier
+// alone was enough to drop TitleSimilarity to ~0.5, below
+// titleMatchThreshold, with no second signal to rescue them the way the
+// fast path's own analogous case already does.
+func TestSlotTrackTitleFallbackRescuesEditionQualifier(t *testing.T) {
+	tracks := []flatTrack{
+		{disc: 2, ReleaseTrack: musicbrainz.ReleaseTrack{Position: 13, Title: "Good Night"}},
+	}
+
+	t.Run("edition qualifier with no usable disc+track position still rescues via title prefix", func(t *testing.T) {
+		// disc=1/track=30 matches no real position (tracks only has one
+		// entry, at disc 2 position 13) — forces the pure-title fallback.
+		tags := &tagreader.Tags{DiscNumber: 1, TrackNumber: 30, Title: "Good Night (2018 Mix)"}
+		idx, _, ok := slotTrack(tags, tracks, map[int]bool{})
+		if !ok || idx != 0 {
+			t.Errorf("slotTrack(...) = idx %d, ok %v, want idx 0, ok true — a real track missing only its edition qualifier must still match", idx, ok)
+		}
+	})
+
+	t.Run("a genuinely unrelated title is still rejected", func(t *testing.T) {
+		tags := &tagreader.Tags{DiscNumber: 1, TrackNumber: 30, Title: "Revolution 9 (2018 Mix)"}
+		if _, _, ok := slotTrack(tags, tracks, map[int]bool{}); ok {
+			t.Error("slotTrack matched a genuinely unrelated title through the fallback")
+		}
+	})
+}
+
 // TestSlotTrackFilenameFallbackStillSanityChecks is the regression test
 // for filenameTrackFallback (pathfallback.go): a completely tagless
 // release's own filename-derived track number must get exactly the same

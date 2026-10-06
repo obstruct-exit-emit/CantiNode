@@ -788,7 +788,23 @@ func slotTrack(tags *tagreader.Tags, tracks []flatTrack, used map[int]bool) (int
 			bestIdx, bestScore = i, score
 		}
 	}
-	if bestIdx < 0 || bestScore < titleMatchThreshold {
+	if bestIdx < 0 {
+		return 0, flatTrack{}, false
+	}
+	// Same TitleIsPrefixOf rescue the disc+track fast path above already
+	// applies, for the same reason: a missing/extra edition qualifier
+	// scores low on raw ratio by pure length coincidence, not because the
+	// title is actually wrong. Needed here too, not just there — found
+	// live on a real White Album rip whose files tag disc/track numbers
+	// as one continuous 1-30 sequence instead of MusicBrainz's own
+	// disc1(17)+disc2(13) split, so every one of its disc-2 files misses
+	// the fast path's disc+track lookup entirely and falls through to
+	// this pure-title search. Nine files — "Birthday (2018 Mix)",
+	// "Good Night (2018 Mix)", etc. — all real, correctly-titled tracks,
+	// sat unmatched because "(2018 Mix)" alone was enough to drop their
+	// score to ~0.5, below titleMatchThreshold, with nothing to rescue
+	// them the way the fast path's own sanity check would have.
+	if bestScore < titleMatchThreshold && !relname.TitleIsPrefixOf(tags.Title, tracks[bestIdx].Title) {
 		return 0, flatTrack{}, false
 	}
 	return bestIdx, tracks[bestIdx], true
