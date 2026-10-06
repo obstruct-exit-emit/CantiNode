@@ -99,7 +99,7 @@ const albumRelevantThreshold = 0.75
 // legitimate case to close the common wrong one. A human can still
 // manually grab a release scored this way; "not approved" only keeps it
 // out of autosearch's own auto-grab, never off the search results list.
-func albumRelevant(parsed Parsed, wantedAlbum string) bool {
+func albumRelevant(parsed Parsed, wantedArtist, wantedAlbum string) bool {
 	wantedAlbum = strings.TrimSpace(wantedAlbum)
 	if wantedAlbum == "" || parsed.Title == "" {
 		return true
@@ -127,7 +127,25 @@ func albumRelevant(parsed Parsed, wantedAlbum string) bool {
 	// contiguous substring of the Beatles release above, but "Love Is
 	// All You Need" (a different, real release the same search
 	// surfaced) is not, despite sharing every word.
-	if parsed.Author == "" {
+	//
+	// Except for a self-titled wanted album: found live, deploying the
+	// fix above — searching Franz Ferdinand's own self-titled album
+	// approved "Franz Ferdinand Album Discography 2004-2013", "...
+	// Always Ascending...", "...You Could Have It So Much Better...",
+	// "...Blood...", every one of them a real but completely different
+	// release. parsed.Title with Author == "" still contains the
+	// artist's own name verbatim no matter what the release actually
+	// is, so when wantedAlbum effectively *is* wantedArtist (the
+	// self-titled case), the containment check this rescue runs is
+	// trivially satisfied by any release by this artist at all —
+	// exactly the failure mode the Parsed-title redesign above (and
+	// TitleIsPrefixOf's removal) already fixed this same function for
+	// once, just reached through this new rescue instead. No band-name
+	// stripping here to work around it — that's the exact fragile
+	// approach the original redesign moved away from — just skip the
+	// rescue outright for this case and fall back to the strict ratio
+	// alone, same as the non-self-titled case already does above.
+	if parsed.Author == "" && relname.TitleSimilarity(wantedArtist, wantedAlbum) < albumRelevantThreshold {
 		return relname.TitleContains(parsed.Title, wantedAlbum)
 	}
 	return false
@@ -237,7 +255,7 @@ func Score(rel indexer.Release, prefs Preferences, wantedArtist, wantedAlbum str
 	if !artistRelevant(rel.Title, wantedArtist) {
 		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedArtist))
 	}
-	if !albumRelevant(c.Parsed, wantedAlbum) {
+	if !albumRelevant(c.Parsed, wantedArtist, wantedAlbum) {
 		c.reject(fmt.Sprintf("release title doesn't appear to be %s", wantedAlbum))
 	}
 

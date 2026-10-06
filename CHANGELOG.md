@@ -11,6 +11,23 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **The glued-hyphen rescue immediately above had its own gap, found
+  live the moment it deployed**: searching for Franz Ferdinand's own
+  self-titled album wrongly approved "Franz Ferdinand Album Discography
+  2004-2013", "...Always Ascending...", "...You Could Have It So Much
+  Better...", "...Blood..." — every one of them a real but completely
+  different release. `Parsed.Title` with `Author == ""` still contains
+  the artist's own name verbatim no matter what the release actually
+  is, so whenever the wanted album effectively *is* the wanted artist
+  (the self-titled case — common for a debut), the containment rescue
+  was trivially satisfied by any release by that artist at all. No
+  band-name stripping to work around it (the exact fragile approach an
+  earlier iteration of this same check already moved away from) — the
+  rescue now just skips itself entirely for a self-titled wanted album
+  and falls back to the strict ratio alone, the same signal the
+  non-self-titled case already relies on. A genuinely correct release
+  still approves whenever Parse can actually split it, which is the
+  realistic common case for a real self-titled release.
 - **`albumRelevant` (the album-relevance check added earlier this
   hardening pass) falsely rejected a genuinely correct release whenever
   its title glued every word together with hyphens and no spaces** —

@@ -320,8 +320,53 @@ func TestScoreApprovesCorrectAlbumWithGluedHyphens(t *testing.T) {
 	// shares every word with the wanted album, just in a different
 	// order, and Parse likewise declines to split its own glued hyphens.
 	wrongOrderTitle := "Sasha And Henry Saiz-Love Is All You Need-LNOE181D-16BIT-WEB-FLAC-2025-WAVED"
-	if albumRelevant(Parse(wrongOrderTitle), "All You Need Is Love") {
+	if albumRelevant(Parse(wrongOrderTitle), "The Beatles", "All You Need Is Love") {
 		t.Errorf("albumRelevant(%q) = true, want false — shares every word with the wanted album but in a different order", wrongOrderTitle)
+	}
+}
+
+// TestScoreRejectsDifferentAlbumWhenWantedAlbumIsSelfTitled is the
+// regression test for a real bug found live immediately after deploying
+// the glued-hyphen fix above: searching Franz Ferdinand's own self-titled
+// album (wantedArtist == wantedAlbum, a common shape for a debut) wrongly
+// approved "Franz Ferdinand Album Discography 2004-2013", "...Always
+// Ascending...", "...You Could Have It So Much Better...", "...Blood...",
+// and others — every one of them a real but completely different release.
+// Parse declines to split any of these (hyphens/dots glued straight to
+// words), so Parsed.Title with Author == "" still contains the artist's
+// own name verbatim regardless of what the actual release is; the new
+// containment rescue was trivially satisfied by any release by this
+// artist at all whenever the wanted album effectively *is* the wanted
+// artist. The genuinely correct release must still approve.
+func TestScoreRejectsDifferentAlbumWhenWantedAlbumIsSelfTitled(t *testing.T) {
+	prefs := DefaultMusicPreferences()
+	prefs.AllowUnknownFormat = true
+
+	for _, wrongTitle := range []string{
+		"Franz Ferdinand Album Discography 2004-2013 [FLAC]",
+		"Franz Ferdinand Always Ascending [FLAC CD] 1914",
+		"Franz Ferdinand-You Could Have It So Much Better-20TH ANNIVERSARY EDITION-16BIT-WEB-FLAC-2025-OBZEN",
+		"Franz Ferdinand-Blood-(Advance)-2009-DV8",
+	} {
+		c := Score(rel(wrongTitle, indexer.ProtocolUsenet, 400<<20, -1), prefs, "Franz Ferdinand", "Franz Ferdinand")
+		if c.Approved {
+			t.Errorf("Score(%q) approved a different album just because the wanted album is self-titled: %+v", wrongTitle, c)
+		}
+	}
+
+	// The genuinely correct release must still approve when Parse can
+	// actually split it (the realistic common case — real releases of a
+	// self-titled album overwhelmingly use normal "Artist - Album"
+	// spacing, same as the real Franz Ferdinand release already owned
+	// live: "Franz Ferdinand - Franz Ferdinand (2004) [FLAC]"). An
+	// unsplit self-titled release can't be told apart from a wrong one
+	// this way at all — see the doc comment above on why the rescue
+	// skips this case entirely rather than guessing; that's an accepted,
+	// narrow coverage loss, not something this test asserts either way.
+	correct := rel("Franz Ferdinand - Franz Ferdinand (2004) [FLAC]", indexer.ProtocolUsenet, 400<<20, -1)
+	c := Score(correct, prefs, "Franz Ferdinand", "Franz Ferdinand")
+	if !c.Approved {
+		t.Errorf("Score(%q) = %+v, want approved — this is genuinely the self-titled album", correct.Title, c)
 	}
 }
 
