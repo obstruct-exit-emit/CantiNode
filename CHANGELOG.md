@@ -11,6 +11,16 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **Moving an artist between root folders fired one Plex refresh call
+  per file instead of one per batch** — found live moving a real Franz
+  Ferdinand album between two configured root folders: a 13-track album
+  sharing just one directory produced 13 separate, mostly-identical
+  refresh calls. `applyOrganizePlan` already fixed the identical issue
+  for Organize (see its own doc comment), but the fix was never carried
+  over to `MoveArtist`, which still called `notifyPlexPaths` once per
+  file inside `moveTrackFile` itself. Now collects every changed path
+  across the whole move and notifies once at the end, the same way
+  Organize already does.
 - **`ManualMatch` stored a file's own embedded disc/track tags as the
   track's position instead of the recording's real position within the
   release it was actually filed under** — found live on the same White

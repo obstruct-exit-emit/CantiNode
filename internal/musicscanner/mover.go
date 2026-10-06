@@ -94,17 +94,30 @@ func (s *Scanner) MoveArtist(ctx context.Context, artistID, destRootFolderID int
 
 	moved = []ArtistMove{}
 	errs = []string{}
+	// Collected across the whole plan and notified once at the end, not
+	// once per file inside moveTrackFile itself — see its own doc comment
+	// for why (same fix applyOrganizePlan already needed for the
+	// identical reason: an artist's files very often share just one or
+	// two directories, so moving a multi-track album used to fire one
+	// redundant, mostly-identical Plex refresh call per track instead of
+	// the 1-2 that actually changed).
+	var changedPaths []string
 	for _, m := range plan {
 		if ctx.Err() != nil {
 			errs = append(errs, fmt.Sprintf("%s: move canceled before this file started", m.From))
 			continue
 		}
-		if err := s.moveTrackFile(m.TrackFileID, destRootFolderID, m.To); err != nil {
+		skipped, err := s.moveTrackFile(m.TrackFileID, destRootFolderID, m.To)
+		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", m.From, err))
 			continue
 		}
 		moved = append(moved, m)
+		if !skipped {
+			changedPaths = append(changedPaths, m.From, m.To)
+		}
 	}
+	s.notifyPlexPaths(changedPaths...)
 	return moved, errs, nil
 }
 
@@ -116,37 +129,40 @@ func (s *Scanner) MoveArtist(ctx context.Context, artistID, destRootFolderID int
 // one is confirmed, so the worst any failure leaves behind is a stray
 // .partial file (copy step) or a harmless duplicate on the old root
 // (delete step, logged, never fatal) — the source file and an accurate
-// database are never both at risk from the same failure.
-func (s *Scanner) moveTrackFile(trackFileID, destRootFolderID int64, newPath string) error {
+// database are never both at risk from the same failure. skipped is true
+// for the already-on-destination no-op case (a stale plan re-run after a
+// previous partial success) — nothing moved, so MoveArtist's own caller
+// must not count it as a changed path to notify Plex about.
+func (s *Scanner) moveTrackFile(trackFileID, destRootFolderID int64, newPath string) (skipped bool, err error) {
 	tf, err := s.db.GetTrackFile(trackFileID)
 	if err != nil {
-		return fmt.Errorf("get track file: %w", err)
+		return false, fmt.Errorf("get track file: %w", err)
 	}
 	if tf.RootFolderID == destRootFolderID {
-		return nil // already moved — safe to re-run a plan that partially succeeded
+		return true, nil // already moved — safe to re-run a plan that partially succeeded
 	}
 	srcRoot, err := s.db.GetRootFolder(tf.RootFolderID)
 	if err != nil {
-		return fmt.Errorf("get source root folder: %w", err)
+		return false, fmt.Errorf("get source root folder: %w", err)
 	}
 
 	if _, err := os.Stat(newPath); err == nil {
-		return fmt.Errorf("destination already exists: %s", newPath)
+		return false, fmt.Errorf("destination already exists: %s", newPath)
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat destination %s: %w", newPath, err)
+		return false, fmt.Errorf("stat destination %s: %w", newPath, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
-		return fmt.Errorf("create destination directory: %w", err)
+		return false, fmt.Errorf("create destination directory: %w", err)
 	}
 
 	tmpPath := newPath + ".cantinode-moving"
 	if err := copyFileVerified(tf.Path, tmpPath); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("copy to new root: %w", err)
+		return false, fmt.Errorf("copy to new root: %w", err)
 	}
 	if err := os.Rename(tmpPath, newPath); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("finalize %s: %w", newPath, err)
+		return false, fmt.Errorf("finalize %s: %w", newPath, err)
 	}
 
 	if err := s.db.SetTrackFileLocation(trackFileID, destRootFolderID, newPath); err != nil {
@@ -162,10 +178,10 @@ func (s *Scanner) moveTrackFile(trackFileID, destRootFolderID int64, newPath str
 		// with a stale database row, which the error message below spells
 		// out precisely so it can be fixed by hand.
 		if rerr := os.Rename(newPath, tf.Path); rerr != nil {
-			return fmt.Errorf("record new location failed (%v), and restoring the original also failed (%v) — "+
+			return false, fmt.Errorf("record new location failed (%v), and restoring the original also failed (%v) — "+
 				"the file is now at %s but the database still says %s", err, rerr, newPath, tf.Path)
 		}
-		return fmt.Errorf("record new location, rolled back to original location: %w", err)
+		return false, fmt.Errorf("record new location, rolled back to original location: %w", err)
 	}
 
 	if err := os.Remove(tf.Path); err != nil {
@@ -176,8 +192,7 @@ func (s *Scanner) moveTrackFile(trackFileID, destRootFolderID int64, newPath str
 			"old_path", tf.Path, "new_path", newPath, "error", err)
 	}
 	removeEmptyParents(filepath.Dir(tf.Path), srcRoot.Path)
-	s.notifyPlexPaths(tf.Path, newPath)
-	return nil
+	return false, nil
 }
 
 // copyFileVerified copies src to dst (io.Copy, not os.Rename — the whole

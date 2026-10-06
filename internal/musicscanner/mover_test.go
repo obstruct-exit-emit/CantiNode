@@ -171,21 +171,47 @@ func TestMoveArtistCopiesUpdatesDBAndRemovesOriginal(t *testing.T) {
 // successfully moved file reports its own old and new path to
 // notifyPlex, so a caller can push a refresh covering both the source and
 // destination directories.
-func TestMoveArtistNotifiesPlexPerFile(t *testing.T) {
+// TestMoveArtistNotifiesPlexOncePerBatch is the regression test for the
+// identical fix applyOrganizePlan already needed for the same reason
+// (TestOrganizeArtistNotifiesPlexOncePerBatch): moveTrackFile used to
+// call notifyPlexPaths itself, once per file, so moving a real
+// multi-track album — whose files overwhelmingly share just one or two
+// directories — fired one redundant, mostly-identical Plex refresh call
+// per track instead of a single call covering every directory that
+// actually changed. Confirmed live moving a real Franz Ferdinand album:
+// 13 tracks produced 13 separate refresh-path pairs for the exact same
+// two directories. Two files moved by one MoveArtist call must now
+// produce exactly one notifyPlex invocation, carrying every file's own
+// old and new path together — mirrors the organizer test's own shape.
+func TestMoveArtistNotifiesPlexOncePerBatch(t *testing.T) {
 	s, db, srcRoot, destRoot := setupMoveScanner(t)
-	var notified [][]string
-	s.notifyPlex = func(paths []string) { notified = append(notified, paths) }
-
-	artistID, _ := seedMoveFile(t, db, 0, srcRoot, "Artist/Album/01.flac", "z1", []byte("hello world"))
-	oldPath := filepath.Join(srcRoot.Path, "Artist/Album/01.flac")
-	newPath := filepath.Join(destRoot.Path, "Artist/Album/01.flac")
-
-	if _, errs, err := s.MoveArtist(context.Background(), artistID, destRoot.ID); err != nil || len(errs) != 0 {
-		t.Fatalf("MoveArtist: err=%v errs=%v", err, errs)
+	var calls int
+	var notified []string
+	s.notifyPlex = func(paths []string) {
+		calls++
+		notified = append(notified, paths...)
 	}
 
-	if len(notified) != 1 || len(notified[0]) != 2 || notified[0][0] != oldPath || notified[0][1] != newPath {
-		t.Errorf("notified = %v, want one call with [%q, %q]", notified, oldPath, newPath)
+	artistID, _ := seedMoveFile(t, db, 0, srcRoot, "Artist/Album/01.flac", "z1", []byte("hello world"))
+	seedMoveFile(t, db, artistID, srcRoot, "Artist/Album/02.flac", "z2", []byte("more audio"))
+	oldPath1 := filepath.Join(srcRoot.Path, "Artist/Album/01.flac")
+	newPath1 := filepath.Join(destRoot.Path, "Artist/Album/01.flac")
+	oldPath2 := filepath.Join(srcRoot.Path, "Artist/Album/02.flac")
+	newPath2 := filepath.Join(destRoot.Path, "Artist/Album/02.flac")
+
+	moved, errs, err := s.MoveArtist(context.Background(), artistID, destRoot.ID)
+	if err != nil || len(errs) != 0 {
+		t.Fatalf("MoveArtist: err=%v errs=%v", err, errs)
+	}
+	if len(moved) != 2 {
+		t.Fatalf("moved = %+v, want both files", moved)
+	}
+
+	if calls != 1 {
+		t.Errorf("notifyPlex called %d times, want exactly 1 for the whole batch", calls)
+	}
+	if len(notified) != 4 || notified[0] != oldPath1 || notified[1] != newPath1 || notified[2] != oldPath2 || notified[3] != newPath2 {
+		t.Errorf("notified = %v, want [%q, %q, %q, %q]", notified, oldPath1, newPath1, oldPath2, newPath2)
 	}
 }
 
@@ -269,7 +295,7 @@ func TestMoveTrackFileRestoresOriginalOnDBFailure(t *testing.T) {
 	}
 	origPath := tfBefore.Path
 
-	if err := s.moveTrackFile(trackFileID, destRoot.ID, collisionPath); err == nil {
+	if _, err := s.moveTrackFile(trackFileID, destRoot.ID, collisionPath); err == nil {
 		t.Fatal("want an error from the path collision in the database, got nil")
 	}
 
