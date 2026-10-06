@@ -130,6 +130,33 @@ convention:
   the next sweep") or even a brief undo grace period before actual
   deletion — cheap to add, worth deciding now rather than retrofitting.
 
+## Reversibility
+
+Designed to be cheaply undoable if it doesn't work out, not just cheap
+to build. This codebase already has a clean precedent: when the old
+synthetic "series" artist feature was removed, every handler/route/UI
+element was stripped end-to-end, but one harmless unused DB column was
+simply left behind rather than writing a rollback migration (see
+CHANGELOG's own Removed section).
+
+- **Additive and isolated**: a self-contained `internal/aiplaylist`
+  package, one new background-loop registration line in `main.go`, one
+  block of new routes in `router.go`, new *nullable* DB columns nothing
+  else depends on, and frontend components that sit alongside the
+  existing Playlists UI rather than rewriting it.
+- **No special-casing inside existing code.** The feature calls into
+  the existing scan/import/organize pipeline from the outside — never
+  adds `if isAIPlaylist` branches inside that pipeline itself. That's
+  what keeps removal to "delete the new stuff," not "untangle checks
+  from old code."
+- **A kill switch, before any real removal**: an enabled setting, off
+  by default until an LLM key is configured. Effectively gone instantly,
+  zero code changes, just by leaving it unconfigured or toggling it off.
+- **Real removal recipe, if it ever comes to that**: delete the
+  package, its routes, its background-loop line, its UI components.
+  Leave the handful of unused columns in place, harmless — the same
+  `Artist.Kind` precedent above.
+
 ## Temp lifecycle
 
 Proposed as the literal rule (needs the user's confirmation it matches
@@ -198,3 +225,7 @@ of *any* playlist," not a flat one-shot week from creation.
   generation runs as a background operation; the double-fetch claim is
   global across users; the LLM's output is limited to artist/album/song
   (no description/genre/mood) and resolution fails closed.
+- 2026-10-06: Added a "Reversibility" section — additive/isolated code,
+  no special-casing in existing pipelines, a kill-switch setting, and a
+  concrete removal recipe matching this codebase's own precedent for
+  removed features.
