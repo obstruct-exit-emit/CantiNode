@@ -2,6 +2,7 @@ package release
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -104,6 +105,23 @@ func albumRelevant(parsed Parsed, wantedArtist, wantedAlbum string) bool {
 	if wantedAlbum == "" || parsed.Title == "" {
 		return true
 	}
+	// A hard veto, checked before the ratio below ever gets a say: found
+	// live wanting The Beatles' "Anthology 1" — "Anthology 2", "Anthology
+	// 3", and "Anthology 4" (each a real, separate, genuinely different
+	// album) all auto-approved too. A plain Levenshtein ratio barely
+	// penalizes one differing digit in an otherwise-identical short
+	// title ("anthology 4" vs "anthology 1" scores ~0.91, nowhere near
+	// albumRelevantThreshold's own reach to catch it), so a numbered
+	// sequel/volume needs its own explicit check — titleNumberConflict,
+	// not relname.TitleSimilarity, since that function is also shared by
+	// internal/musicscanner's slotTrack and internal/importer's
+	// swapUpgradedFiles, neither of which this album-numbering concern
+	// has anything to do with; kept local here rather than risking an
+	// unrelated regression in either of those by changing a shared
+	// function's own behavior.
+	if titleNumberConflict(parsed.Title, wantedAlbum) {
+		return false
+	}
 	if relname.TitleSimilarity(parsed.Title, wantedAlbum) >= albumRelevantThreshold {
 		return true
 	}
@@ -149,6 +167,36 @@ func albumRelevant(parsed Parsed, wantedArtist, wantedAlbum string) bool {
 		return relname.TitleContains(parsed.Title, wantedAlbum)
 	}
 	return false
+}
+
+// numberToken finds a standalone run of digits — word-bounded, so a
+// number glued to letters on either side (a catalog number, a bitrate
+// like "96KHZ", a year inside a word) is deliberately never matched; a
+// genuine sequence index is always set apart by whitespace, punctuation,
+// or a string boundary ("Anthology 1", "Anthology, Vol. 2").
+var numberToken = regexp.MustCompile(`\b\d+\b`)
+
+// titleNumberConflict reports whether a and b each state at least one
+// standalone number and their *last* ones disagree — "Anthology 1" vs
+// "Anthology 4" conflicts, but "Anthology 1" vs plain "Anthology" does
+// not (only one side states a number at all, so there's nothing to
+// compare — left to the ratio, same as before this existed). The *last*
+// number specifically, not every one found: a release's own title can
+// carry other incidental numbers earlier on (a quality/channel count,
+// say) without that affecting the one number that actually distinguishes
+// a sequel/volume at the end.
+func titleNumberConflict(a, b string) bool {
+	na := lastNumber(a)
+	nb := lastNumber(b)
+	return na != "" && nb != "" && na != nb
+}
+
+func lastNumber(s string) string {
+	matches := numberToken.FindAllString(s, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[len(matches)-1]
 }
 
 // Preferences drive scoring. The media type's default quality profile

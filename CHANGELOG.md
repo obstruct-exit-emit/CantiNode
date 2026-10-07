@@ -11,6 +11,22 @@ Everything to date — Phases 0–5 (feature-complete) plus the pre-1.0 hardenin
 in progress. Highlights from the hardening period, newest first:
 
 ### Fixed
+- **A numbered sequel/volume could auto-approve against the wrong one
+  wanted** — found live, independent of the two fixes above: wanting The
+  Beatles' "Anthology 1" also approved "Anthology 2", "Anthology 3", and
+  "Anthology 4", each a real, separate, genuinely different album. A
+  plain Levenshtein ratio barely penalizes one differing digit in an
+  otherwise-identical short title ("anthology 4" vs "anthology 1" scores
+  ~0.91, nowhere near failing `albumRelevantThreshold`), so a numbered
+  sequel needs its own explicit veto. New `titleNumberConflict` compares
+  the *last* standalone number each title states and rejects outright
+  when both have one and they disagree — checked before the ratio ever
+  gets a say, and kept local to `internal/release` rather than added to
+  the shared `relname` package, since `relname.TitleSimilarity` is also
+  used by `internal/musicscanner`'s `slotTrack` and
+  `internal/importer`'s `swapUpgradedFiles`, neither of which this
+  album-numbering concern has anything to do with. A release stating no
+  number at all is unaffected, left to the ratio exactly as before.
 - **The glued-hyphen rescue immediately above had its own gap, found
   live the moment it deployed**: searching for Franz Ferdinand's own
   self-titled album wrongly approved "Franz Ferdinand Album Discography

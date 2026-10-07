@@ -370,6 +370,43 @@ func TestScoreRejectsDifferentAlbumWhenWantedAlbumIsSelfTitled(t *testing.T) {
 	}
 }
 
+// TestScoreRejectsWrongNumberedSequel is the regression test for a real
+// bug found live, independent of the two fixes above: wanting The
+// Beatles' "Anthology 1" also auto-approved "Anthology 2", "Anthology
+// 3", and "Anthology 4" — four real, separate, genuinely different
+// albums. A plain Levenshtein ratio barely penalizes one differing digit
+// in an otherwise-identical short title ("anthology 4" vs "anthology 1"
+// scores ~0.91, nowhere near failing albumRelevantThreshold), so a
+// numbered sequel needs its own explicit veto. The wanted album itself
+// must still approve, and a release stating no number at all (nothing to
+// conflict with) must be left to the ratio exactly as before.
+func TestScoreRejectsWrongNumberedSequel(t *testing.T) {
+	prefs := DefaultMusicPreferences()
+
+	for _, wrongTitle := range []string{
+		"The Beatles - Anthology 2 (2CD) [1996] FLAC",
+		"The Beatles - Anthology 3 (2CD) [1996] FLAC",
+		"The Beatles - Anthology 4 (2025 Rock) [Flac 24-96]",
+	} {
+		c := Score(rel(wrongTitle, indexer.ProtocolUsenet, 400<<20, -1), prefs, "The Beatles", "Anthology 1")
+		if c.Approved {
+			t.Errorf("Score(%q) approved a different numbered volume than the one wanted: %+v", wrongTitle, c)
+		}
+	}
+
+	correct := rel("The Beatles - Anthology 1 (2CD) [1995] FLAC", indexer.ProtocolUsenet, 400<<20, -1)
+	c := Score(correct, prefs, "The Beatles", "Anthology 1")
+	if !c.Approved {
+		t.Errorf("Score(%q) = %+v, want approved — this is genuinely the wanted volume", correct.Title, c)
+	}
+
+	unnumbered := rel("The Beatles - Anthology Highlights [FLAC]", indexer.ProtocolUsenet, 400<<20, -1)
+	c2 := Score(unnumbered, prefs, "The Beatles", "Anthology 1")
+	if c2.Approved {
+		t.Errorf("Score(%q) approved a different album with no number to conflict on: %+v", unnumbered.Title, c2)
+	}
+}
+
 // TestArtistRelevant covers artistRelevant's own edge cases directly:
 // exact-phrase and longest-word matching, "Various Artists" always
 // passing (a compilation's own file/torrent name essentially never states
